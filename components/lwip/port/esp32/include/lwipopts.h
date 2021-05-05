@@ -43,7 +43,6 @@
 #include "esp_task.h"
 #include "esp_system.h"
 #include "sdkconfig.h"
-#include "sntp.h"
 #include "netif/dhcp_state.h"
 
 /* Enable all Espressif-only options */
@@ -449,6 +448,13 @@
  */
 #define LWIP_NETIF_TX_SINGLE_PBUF             1
 
+/**
+ * LWIP_NETIF_API==1: Enable usage of standard POSIX APIs in LWIP.
+ */
+#define LWIP_NETIF_API                      CONFIG_LWIP_NETIF_API
+
+#define LWIP_NETIF_STATUS_CALLBACK      CONFIG_LWIP_NETIF_STATUS_CALLBACK
+
 /*
    ------------------------------------
    ---------- LOOPIF options ----------
@@ -684,7 +690,7 @@
  * Some modems do not support IPV6 addressing in local link and
  * the only option available is to disable IPV6 address negotiation.
  */
-#define PPP_IPV6_SUPPORT				CONFIG_LWIP_PPP_ENABLE_IPV6
+#define PPP_IPV6_SUPPORT                               CONFIG_LWIP_PPP_ENABLE_IPV6
 
 /**
  * PPP_NOTIFY_PHASE==1: Support PPP notify phase.
@@ -734,7 +740,24 @@
 #define PPP_DEBUG                       LWIP_DBG_OFF
 #endif
 
-#endif
+#endif  /* PPP SUPPORT */
+
+/*
+   ------------------------------------
+   --------- LCP Echo options ---------
+   ------------------------------------
+*/
+#if CONFIG_LWIP_ENABLE_LCP_ECHO
+/**
+ * LCP_ECHOINTERVAL: Interval in seconds between keepalive LCP echo requests, 0 to disable.
+ */
+#define LCP_ECHOINTERVAL                CONFIG_LWIP_LCP_ECHOINTERVAL
+
+/**
+ * LCP_MAXECHOFAILS: Number of consecutive unanswered echo requests before failure is indicated.
+ */
+#define LCP_MAXECHOFAILS                CONFIG_LWIP_LCP_MAXECHOFAILS
+#endif /* CONFIG_LWIP_ENABLE_LCP_ECHO */
 
 /*
    --------------------------------------
@@ -750,7 +773,7 @@
 /**
  * LWIP_IPV6==1: Enable IPv6
  */
-#define LWIP_IPV6                       1
+#define LWIP_IPV6                       CONFIG_LWIP_IPV6
 
 /**
  * MEMP_NUM_ND6_QUEUE: Max number of IPv6 packets to queue during MAC resolution.
@@ -767,7 +790,12 @@
    ---------- Hook options ---------------
    ---------------------------------------
 */
+#ifdef LWIP_HOOK_FILENAME
+#warning LWIP_HOOK_FILENAME is used for IDF default hooks. Please use ESP_IDF_LWIP_HOOK_FILENAME to insert additional hook
+#endif
+#define LWIP_HOOK_FILENAME              "lwip_default_hooks.h"
 #define LWIP_HOOK_IP4_ROUTE_SRC         ip4_route_src_hook
+
 /*
    ---------------------------------------
    ---------- Debugging options ----------
@@ -836,6 +864,21 @@
 #endif
 
 /**
+ * DHCP_DEBUG: Enable debugging in dhcp.c.
+ */
+#ifdef CONFIG_LWIP_DHCP_DEBUG
+#define DHCP_DEBUG                      LWIP_DBG_ON
+#else
+#define DHCP_DEBUG                      LWIP_DBG_OFF
+#endif
+
+#ifdef CONFIG_LWIP_DHCP_STATE_DEBUG
+#define ESP_DHCP_DEBUG                  LWIP_DBG_ON
+#else
+#define ESP_DHCP_DEBUG                  LWIP_DBG_OFF
+#endif
+
+/**
  * IP_DEBUG: Enable debugging for IP.
  */
 #ifdef CONFIG_LWIP_IP_DEBUG
@@ -845,12 +888,21 @@
 #endif
 
 /**
- * IP_DEBUG: Enable debugging for IP.
+ * IP6_DEBUG: Enable debugging for IP6.
  */
 #ifdef CONFIG_LWIP_IP6_DEBUG
 #define IP6_DEBUG                        LWIP_DBG_ON
 #else
 #define IP6_DEBUG                        LWIP_DBG_OFF
+#endif
+
+/**
+ * TCP_DEBUG: Enable debugging for TCP.
+ */
+#ifdef CONFIG_LWIP_TCP_DEBUG
+#define TCP_DEBUG                        LWIP_DBG_ON
+#else
+#define TCP_DEBUG                        LWIP_DBG_OFF
 #endif
 
 /**
@@ -872,6 +924,11 @@
  * TCPIP_DEBUG: Enable debugging in tcpip.c.
  */
 #define TCPIP_DEBUG                     LWIP_DBG_OFF
+
+/**
+ * TCP_OOSEQ_DEBUG: Enable debugging in tcpin.c for OOSEQ.
+ */
+#define TCP_OOSEQ_DEBUG                 LWIP_DBG_OFF
 
 /**
  * ETHARP_TRUST_IP_MAC==1: Incoming IP packets cause the ARP table to be
@@ -902,6 +959,10 @@
  */
 #define LWIP_SOCKET_OFFSET              (FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS)
 
+#define LWIP_IPV6_FORWARD               CONFIG_LWIP_IPV6_FORWARD
+
+#define LWIP_IPV6_NUM_ADDRESSES         CONFIG_LWIP_IPV6_NUM_ADDRESSES
+
 /* Enable all Espressif-only options */
 
 #define ESP_LWIP                        1
@@ -916,6 +977,7 @@
 #define ESP_IP4_ATON                    1
 #define ESP_LIGHT_SLEEP                 1
 #define ESP_L2_TO_L3_COPY               CONFIG_LWIP_L2_TO_L3_COPY
+#define LWIP_NETIF_API                  CONFIG_LWIP_NETIF_API
 #define ESP_STATS_MEM                   CONFIG_LWIP_STATS
 #define ESP_STATS_DROP                  CONFIG_LWIP_STATS
 #define ESP_STATS_TCP                   0
@@ -929,10 +991,11 @@
 #define ESP_AUTO_IP                     1
 #define ESP_PBUF                        1
 #define ESP_PPP                         1
-#define ESP_IPV6                        1
+#define ESP_IPV6                        LWIP_IPV6
 #define ESP_SOCKET                      1
 #define ESP_LWIP_SELECT                 1
 #define ESP_LWIP_LOCK                   1
+#define ESP_THREAD_PROTECTION           1
 
 #ifdef CONFIG_LWIP_IPV6_AUTOCONFIG
 #define ESP_IPV6_AUTOCONFIG             CONFIG_LWIP_IPV6_AUTOCONFIG
@@ -955,14 +1018,17 @@
 #define TCP_WND                         CONFIG_LWIP_TCP_WND_DEFAULT
 
 /**
- * DHCP_DEBUG: Enable debugging in dhcp.c.
+ * LWIP_DEBUG: Enable lwip debugging in other modules.
  */
-#define DHCP_DEBUG                      LWIP_DBG_OFF
-#define LWIP_DEBUG                      LWIP_DBG_OFF
-#define TCP_DEBUG                       LWIP_DBG_OFF
+#ifdef CONFIG_LWIP_DEBUG
+#define LWIP_DEBUG                      LWIP_DBG_ON
+#else
+#undef LWIP_DEBUG
+#endif
 
-#define CHECKSUM_CHECK_UDP              0
-#define CHECKSUM_CHECK_IP               0
+#define CHECKSUM_CHECK_UDP              CONFIG_LWIP_CHECKSUM_CHECK_UDP
+#define CHECKSUM_CHECK_IP               CONFIG_LWIP_CHECKSUM_CHECK_IP
+#define CHECKSUM_CHECK_ICMP             CONFIG_LWIP_CHECKSUM_CHECK_ICMP
 
 #define LWIP_NETCONN_FULLDUPLEX         1
 #define LWIP_NETCONN_SEM_PER_THREAD     1
@@ -978,6 +1044,23 @@
 /*
  * SNTP update delay - in milliseconds
  */
+
+/*
+ * Forward declarations of weak definitions from lwip's sntp.c which could
+ * be redefined by user application. This is needed to provide custom definition
+ * of the below macros in lwip's sntp.c.
+ * Full declaration is provided in IDF's port layer in esp_sntp.h
+ */
+#ifdef __cplusplus
+#define LWIP_FORWARD_DECLARE_C_CXX extern "C"
+#else
+#define LWIP_FORWARD_DECLARE_C_CXX
+#endif
+
+LWIP_FORWARD_DECLARE_C_CXX void sntp_sync_time(struct timeval *tv);
+
+LWIP_FORWARD_DECLARE_C_CXX uint32_t sntp_get_sync_interval(void);
+
 /** Set this to 1 to support DNS names (or IP address strings) to set sntp servers
  * One server address/name can be defined as default if SNTP_SERVER_DNS == 1:
  * \#define SNTP_SERVER_ADDRESS "pool.ntp.org"

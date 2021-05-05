@@ -21,7 +21,7 @@
 #include "unity.h"
 #include "driver/gpio.h"
 #include "soc/soc_caps.h"
-#ifdef SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 #include "driver/sdmmc_host.h"
 #endif
 #include "driver/sdspi_host.h"
@@ -83,7 +83,7 @@ TEST_CASE("MMC_RSP_BITS", "[sd]")
     TEST_ASSERT_EQUAL_HEX32(0x11,  MMC_RSP_BITS(data, 59, 5));
 }
 
-#ifdef SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 
 static void probe_sd(int slot, int width, int freq_khz, int ddr)
 {
@@ -133,13 +133,19 @@ TEST_CASE("probe SD, slot 1, 1-bit", "[sd][test_env=UT_T1_SDMODE]")
 }
 
 #ifdef WITH_EMMC_TEST
-TEST_CASE("probe eMMC, slot 0, 4-bit, DDR", "[sd][test_env=EMMC]")
+TEST_CASE("probe eMMC, slot 0, 4-bit", "[sd][test_env=EMMC]")
 {
+    //Test with SDR
+    probe_sd(SDMMC_HOST_SLOT_0, 4, SDMMC_FREQ_PROBING, 0);
+    probe_sd(SDMMC_HOST_SLOT_0, 4, SDMMC_FREQ_DEFAULT, 0);
+    probe_sd(SDMMC_HOST_SLOT_0, 4, SDMMC_FREQ_HIGHSPEED, 0);
+    //Test with DDR
     probe_sd(SDMMC_HOST_SLOT_0, 4, SDMMC_FREQ_HIGHSPEED, 1);
 }
 
 TEST_CASE("probe eMMC, slot 0, 8-bit", "[sd][test_env=EMMC]")
 {
+    //8-bit DDR not supported yet, test with SDR only
     probe_sd(SDMMC_HOST_SLOT_0, 8, SDMMC_FREQ_PROBING, 0);
     probe_sd(SDMMC_HOST_SLOT_0, 8, SDMMC_FREQ_DEFAULT, 0);
     probe_sd(SDMMC_HOST_SLOT_0, 8, SDMMC_FREQ_HIGHSPEED, 0);
@@ -162,7 +168,7 @@ TEST_CASE("probe SD, slot 0, 1-bit", "[sd][test_env=UT_T1_SDCARD][ignore]")
 
 #endif
 
-#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)
 //No runners
 static void test_sdspi_init_bus(spi_host_device_t host, int mosi_pin, int miso_pin, int clk_pin, int dma_chan)
 {
@@ -328,7 +334,7 @@ __attribute__((unused)) static void read_write_test(sdmmc_card_t* card)
     do_single_write_read_test(card, card->csd.capacity/2, 128, 1);
 }
 
-#ifdef SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 void test_sd_rw_blocks(int slot, int width)
 {
     sdmmc_host_t config = SDMMC_HOST_DEFAULT();
@@ -375,7 +381,7 @@ TEST_CASE("SDMMC read/write test (eMMC slot 0, 8 line)", "[sd][test_env=EMMC]")
 #endif // WITH_EMMC_TEST
 #endif // SDMMC_HOST_SUPPORTED
 
-#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)
 //No runners
 TEST_CASE("SDMMC read/write test (SD slot 1, in SPI mode)", "[sdspi][test_env=UT_T1_SPIMODE]")
 {
@@ -401,9 +407,9 @@ TEST_CASE("SDMMC read/write test (SD slot 1, in SPI mode)", "[sdspi][test_env=UT
     test_sdspi_deinit_bus(dev_config.host_id);
     sd_test_board_power_off();
 }
-#endif //DISABLED_FOR_TARGETS(ESP32S2)
+#endif //DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)
 
-#ifdef SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 TEST_CASE("reads and writes with an unaligned buffer", "[sd][test_env=UT_T1_SDMODE]")
 {
     sd_test_board_power_on();
@@ -467,7 +473,7 @@ __attribute__((unused)) static void test_cd_input(int gpio_cd_num, const sdmmc_h
     free(card);
 }
 
-#ifdef SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 TEST_CASE("CD input works in SD mode", "[sd][test_env=UT_T1_SDMODE]")
 {
     sd_test_board_power_on();
@@ -484,7 +490,7 @@ TEST_CASE("CD input works in SD mode", "[sd][test_env=UT_T1_SDMODE]")
 }
 #endif
 
-#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)
 //No runners
 TEST_CASE("CD input works in SPI mode", "[sd][test_env=UT_T1_SPIMODE]")
 {
@@ -541,7 +547,7 @@ __attribute__((unused)) static void test_wp_input(int gpio_wp_num, const sdmmc_h
     free(card);
 }
 
-#ifdef SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 TEST_CASE("WP input works in SD mode", "[sd][test_env=UT_T1_SDMODE]")
 {
     sd_test_board_power_on();
@@ -558,7 +564,7 @@ TEST_CASE("WP input works in SD mode", "[sd][test_env=UT_T1_SDMODE]")
 }
 #endif
 
-#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)
 //No runners
 TEST_CASE("WP input works in SPI mode", "[sd][test_env=UT_T1_SPIMODE]")
 {

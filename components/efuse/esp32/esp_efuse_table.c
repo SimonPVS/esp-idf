@@ -1,4 +1,4 @@
-// Copyright 2017-2018 Espressif Systems (Shanghai) PTE LTD
+// Copyright 2017-2020 Espressif Systems (Shanghai) PTE LTD
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -418,4 +418,3 @@ const esp_efuse_desc_t* ESP_EFUSE_SECURE_VERSION[] = {
     &SECURE_VERSION[0],    		// Secure version for anti-rollback
     NULL
 };
-

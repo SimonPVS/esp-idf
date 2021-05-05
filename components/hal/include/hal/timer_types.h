@@ -21,15 +21,17 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include <esp_bit_defs.h>
-#include "soc/timer_group_caps.h"
 #include "esp_attr.h"
+#include "soc/soc_caps.h"
 
 /**
  * @brief Selects a Timer-Group out of 2 available groups
  */
 typedef enum {
     TIMER_GROUP_0 = 0, /*!<Hw timer group 0*/
+#if SOC_TIMER_GROUPS > 1
     TIMER_GROUP_1 = 1, /*!<Hw timer group 1*/
+#endif
     TIMER_GROUP_MAX,
 } timer_group_t;
 
@@ -38,7 +40,9 @@ typedef enum {
  */
 typedef enum {
     TIMER_0 = 0, /*!<Select timer0 of GROUPx*/
+#if SOC_TIMER_GROUP_TIMERS_PER_GROUP > 1
     TIMER_1 = 1, /*!<Select timer1 of GROUPx*/
+#endif
     TIMER_MAX,
 } timer_idx_t;
 
@@ -64,9 +68,13 @@ typedef enum {
  */
 //this is compatible with the value of esp32.
 typedef enum {
-    TIMER_INTR_T0 = BIT(0), /*!< interrupt of timer 0 */
-    TIMER_INTR_T1 = BIT(1), /*!< interrupt of timer 1 */
+    TIMER_INTR_T0 = BIT(0),  /*!< interrupt of timer 0 */
+#if SOC_TIMER_GROUP_TIMERS_PER_GROUP > 1
+    TIMER_INTR_T1 = BIT(1),  /*!< interrupt of timer 1 */
     TIMER_INTR_WDT = BIT(2), /*!< interrupt of watchdog */
+#else
+    TIMER_INTR_WDT = BIT(1), /*!< interrupt of watchdog */
+#endif
     TIMER_INTR_NONE = 0
 } timer_intr_t;
 FLAG_ATTR(timer_intr_t)
@@ -85,7 +93,6 @@ typedef enum {
  */
 typedef enum {
     TIMER_INTR_LEVEL = 0,  /*!< Interrupt mode: level mode*/
-    //TIMER_INTR_EDGE = 1, /*!< Interrupt mode: edge mode, Not supported Now*/
     TIMER_INTR_MAX
 } timer_intr_mode_t;
 
@@ -98,7 +105,7 @@ typedef enum {
     TIMER_AUTORELOAD_MAX,
 } timer_autoreload_t;
 
-#ifdef SOC_TIMER_GROUP_SUPPORT_XTAL
+#if SOC_TIMER_GROUP_SUPPORT_XTAL
 /**
  * @brief Select timer source clock.
  */
@@ -118,7 +125,7 @@ typedef struct {
     timer_count_dir_t counter_dir; /*!< Counter direction  */
     timer_autoreload_t auto_reload;   /*!< Timer auto-reload */
     uint32_t divider;   /*!< Counter clock divider. The divider's range is from from 2 to 65536. */
-#ifdef SOC_TIMER_GROUP_SUPPORT_XTAL
+#if SOC_TIMER_GROUP_SUPPORT_XTAL
     timer_src_clk_t clk_src;  /*!< Use XTAL as source clock. */
 #endif
 } timer_config_t;

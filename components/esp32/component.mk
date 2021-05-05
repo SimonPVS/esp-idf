@@ -4,11 +4,6 @@
 
 COMPONENT_SRCDIRS := .
 
-ifdef CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
-   # This linker script must come before esp32.project.ld
-   LINKER_SCRIPTS += esp32.extram.bss.ld
-endif
-
 #Linker scripts used to link the final application.
 #Warning: These linker scripts are only used when the normal app is compiled; the bootloader
 #specifies its own scripts.
@@ -21,8 +16,6 @@ COMPONENT_ADD_LDFLAGS += -L $(COMPONENT_PATH)/ld \
                          -T esp32_out.ld \
                          -u ld_include_panic_highint_hdl \
                          $(addprefix -T ,$(LINKER_SCRIPTS)) \
-
-COMPONENT_ADD_LDFRAGMENTS += ld/esp32_fragments.lf linker.lf
 
 # final linking of project ELF depends on all binary libraries, and
 # all linker scripts (except esp32_out.ld, as this is code generated here.)
@@ -39,4 +32,3 @@ esp32_out.ld: $(COMPONENT_PATH)/ld/esp32.ld ../include/sdkconfig.h
 	$(CC) -I ../include -C -P -x c -E $< -o $@
 
 COMPONENT_EXTRA_CLEAN := esp32_out.ld $(COMPONENT_BUILD_DIR)/esp32.project.ld
-

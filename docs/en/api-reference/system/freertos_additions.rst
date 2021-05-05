@@ -4,7 +4,7 @@ FreeRTOS Additions
 Overview
 --------
 
-ESP-IDF FreeRTOS is based on the Xtensa port of FreeRTOS v8.2.0 with significant modifications
+ESP-IDF FreeRTOS is based on the Xtensa port of FreeRTOS v10.2.0 with significant modifications
 for SMP compatibility (see :doc:`ESP-IDF FreeRTOS SMP Changes<../../api-guides/freertos-smp>`).
 However various features specific to ESP-IDF FreeRTOS have been added. The features are as follows:
 
@@ -413,9 +413,6 @@ The :cpp:func:`xRingbufferCreateStatic` can be used to create ring buffers with 
 The manner in which these blocks are allocated will depend on the users requirements (e.g. all blocks being statically declared, or dynamically allocated with specific capabilities such as external RAM).
 
 .. note::
-    The :ref:`CONFIG_FREERTOS_SUPPORT_STATIC_ALLOCATION` option must be enabled in `menuconfig` for statically allocated ring buffers to be available.
-
-.. note::
     When deleting a ring buffer created via :cpp:func:`xRingbufferCreateStatic`,
     the function :cpp:func:`vRingbufferDelete` will not free any of the memory blocks. This must be done manually by the user after :cpp:func:`vRingbufferDelete` is called.
 
@@ -505,6 +502,9 @@ Due to vanilla FreeRTOS being designed for single core, ``vApplicationIdleHook()
 and ``vApplicationTickHook()`` can only be defined once. However, the ESP32 is dual core
 in nature, therefore same Idle Hook and Tick Hook are used for both cores (in other words,
 the hooks are symmetrical for both cores).
+
+In a dual core system, ``vApplicationTickHook()`` must be located in IRAM (for example
+by adding the IRAM_ATTR attribute).
 
 ESP-IDF Idle and Tick Hooks
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^

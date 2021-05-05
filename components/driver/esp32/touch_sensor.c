@@ -187,9 +187,9 @@ esp_err_t touch_pad_get_trigger_source(touch_trigger_src_t *src)
 
 esp_err_t touch_pad_set_group_mask(uint16_t set1_mask, uint16_t set2_mask, uint16_t en_mask)
 {
-    TOUCH_CHECK((set1_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch set1 bitmask error", ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK((set2_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch set2 bitmask error", ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK((en_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch work_en bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((set1_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch set1 bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((set2_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch set2 bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((en_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch work_en bitmask error", ESP_ERR_INVALID_ARG);
 
     TOUCH_ENTER_CRITICAL();
     touch_hal_set_group_mask(set1_mask, set2_mask);
@@ -211,9 +211,9 @@ esp_err_t touch_pad_get_group_mask(uint16_t *set1_mask, uint16_t *set2_mask, uin
 
 esp_err_t touch_pad_clear_group_mask(uint16_t set1_mask, uint16_t set2_mask, uint16_t en_mask)
 {
-    TOUCH_CHECK((set1_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch set1 bitmask error", ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK((set2_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch set2 bitmask error", ESP_ERR_INVALID_ARG);
-    TOUCH_CHECK((en_mask <= SOC_TOUCH_SENSOR_BIT_MASK_MAX), "touch work_en bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((set1_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch set1 bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((set2_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch set2 bitmask error", ESP_ERR_INVALID_ARG);
+    TOUCH_CHECK((en_mask <= TOUCH_PAD_BIT_MASK_ALL), "touch work_en bitmask error", ESP_ERR_INVALID_ARG);
 
     TOUCH_ENTER_CRITICAL();
     touch_hal_clear_channel_mask(en_mask);
@@ -287,6 +287,10 @@ esp_err_t touch_pad_config(touch_pad_t touch_num, uint16_t threshold)
 
 esp_err_t touch_pad_init(void)
 {
+#ifdef CONFIG_ESP32_RTC_EXT_CRYST_ADDIT_CURRENT_V2
+    ESP_LOGE(TOUCH_TAG, "Touch Pad can't work because it provides current to external XTAL");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif // CONFIG_ESP32_RTC_EXT_CRYST_ADDIT_CURRENT_V2
     if (rtc_touch_mux == NULL) {
         rtc_touch_mux = xSemaphoreCreateMutex();
     }

@@ -29,6 +29,7 @@ SECTIONS
     *libbootloader_support.a:bootloader_common_loader.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_flash.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_random.*(.literal .text .literal.* .text.*)
+    *libbootloader_support.a:bootloader_random*.*(.literal.bootloader_random_disable .text.bootloader_random_disable)
     *libbootloader_support.a:bootloader_efuse_esp32s2.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_utility.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:bootloader_sha.*(.literal .text .literal.* .text.*)
@@ -38,13 +39,13 @@ SECTIONS
     *libbootloader_support.a:flash_encrypt.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:flash_partitions.*(.literal .text .literal.* .text.*)
     *libbootloader_support.a:secure_boot.*(.literal .text .literal.* .text.*)
-    *libbootloader_support.a:secure_boot_signatures.*(.literal .text .literal.* .text.*)
+    *libbootloader_support.a:secure_boot_signatures_bootloader.*(.literal .text .literal.* .text.*)
     *libmicro-ecc.a:*.*(.literal .text .literal.* .text.*)
     *libspi_flash.a:*.*(.literal .text .literal.* .text.*)
     *libhal.a:wdt_hal_iram.*(.literal .text .literal.* .text.*)
-    *libsoc.a:rtc_clk.*(.literal .text .literal.* .text.*)
-    *libsoc.a:rtc_time.*(.literal .text .literal.* .text.*)
-    *libsoc.a:i2c_rtc_clk.*(.literal .text .literal.* .text.*)
+    *libesp_hw_support.a:rtc_clk.*(.literal .text .literal.* .text.*)
+    *libesp_hw_support.a:rtc_time.*(.literal .text .literal.* .text.*)
+    *libesp_hw_support.a:regi2c_ctrl.*(.literal .text .literal.* .text.*)
     *libefuse.a:*.*(.literal .text .literal.* .text.*)
     *(.fini.literal)
     *(.fini)
@@ -154,6 +155,14 @@ SECTIONS
     *(.fini.literal)
     *(.fini)
     *(.gnu.version)
+
+    /** CPU will try to prefetch up to 16 bytes of
+      * of instructions. This means that any configuration (e.g. MMU, PMS) must allow
+      * safe access to up to 16 bytes after the last real instruction, add
+      * dummy bytes to ensure this
+      */
+    . += 16;
+
     _text_end = ABSOLUTE(.);
     _etext = .;
   } > iram_seg

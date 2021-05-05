@@ -23,6 +23,7 @@ COMPONENT_SRCDIRS := \
 	lwip/src/netif \
 	port/esp32 \
 	port/esp32/freertos \
+	port/esp32/hooks \
 	port/esp32/netif \
 	port/esp32/debug
 

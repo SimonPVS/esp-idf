@@ -15,7 +15,7 @@
  * (session resumption).
  */
 #include <string.h>
-     
+
 #include "esp_err.h"
 
 #include "utils/includes.h"
@@ -85,7 +85,7 @@ EapType eap_peer_get_type(const char *name, int *vendor)
 	return EAP_TYPE_NONE;
 }
 
-static int 
+static int
 eap_allowed_phase2_type(int vendor, int type)
 {
 	if (vendor != EAP_VENDOR_IETF)
@@ -351,7 +351,7 @@ struct wpabuf * eap_sm_build_identity_resp(struct eap_sm *sm, u8 id, int encrypt
 	eap_buf = eap_msg_alloc(EAP_VENDOR_IETF, EAP_TYPE_IDENTITY,
 				identity_len, EAP_CODE_RESPONSE, id);
 	if (!eap_buf) {
-        return NULL;       
+        return NULL;
     }
 
 	wpabuf_put_data(eap_buf, identity, identity_len);
@@ -476,12 +476,15 @@ int eap_peer_config_init(
 			  sm->config.new_password_len);
 	}
 
-    if (g_wpa_ttls_phase2_type) {
-        sm->config.phase2 = g_wpa_ttls_phase2_type;
+	if (g_wpa_ttls_phase2_type) {
+		sm->config.phase2 = g_wpa_ttls_phase2_type;
+	} else {
+		/* set default config phase2 mode as MSCHAPV2 */
+		sm->config.phase2 = "auth=MSCHAPV2";
 	}
 
 	return 0;
-	
+
 }
 
 void eap_peer_config_deinit(struct eap_sm *sm)
@@ -737,4 +740,3 @@ const struct wpa_config_blob * eap_get_config_blob(struct eap_sm *sm,
 	}
 	return NULL;
 }
-

@@ -13,6 +13,7 @@
 // limitations under the License.
 #include "freertos/FreeRTOS.h"
 #include "hal/clk_gate_ll.h"
+#include "esp_attr.h"
 #include "driver/periph_ctrl.h"
 
 static portMUX_TYPE periph_spinlock = portMUX_INITIALIZER_UNLOCKED;
@@ -67,4 +68,14 @@ IRAM_ATTR void wifi_bt_common_module_disable(void)
         periph_ll_wifi_bt_module_disable_clk_set_rst();
     }
     portEXIT_CRITICAL_SAFE(&periph_spinlock);
-} 
+}
+
+void wifi_module_enable(void)
+{
+    periph_ll_wifi_module_enable_clk_clear_rst();
+}
+
+void wifi_module_disable(void)
+{
+    periph_ll_wifi_module_disable_clk_set_rst();
+}

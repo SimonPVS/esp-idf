@@ -24,7 +24,7 @@ JTAG 调试
     介绍使用 OpenOCD 和 GDB 通过 JTAG 接口调试 {IDF_TARGET_NAME} 时的注意事项和补充内容。
 
 
-.. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+.. include:: {IDF_TARGET_PATH_NAME}.inc
    :start-after: devkit-defs
    :end-before: ---
 
@@ -45,6 +45,7 @@ JTAG 调试
 本文将指导如何在 Linux，Windows 和 MacOS 环境下为 {IDF_TARGET_NAME} 安装 OpenOCD，并使用 GDB 进行软件调试。除了个别操作系统的安装过程有所差别以外，软件用户界面和使用流程都是一样的。
 
 .. note::
+
     本文使用的图片素材来自于 Ubuntu 16.04 LTS 上 Eclipse Neon 3 软件的截图，不同的操作系统（Windows， MacOS 或者 Linux）和 Eclipse 软件版本在用户界面上可能会有细微的差别。
 
 .. _jtag-debugging-how-it-works:
@@ -52,7 +53,7 @@ JTAG 调试
 工作原理
 --------
 
-通过 JTAG（Joint Test Action Group）接口使用 OpenOCD 调试 {IDF_TARGET_NAME} 时所需要的一些关键的软件和硬件包括 **xtensa-{IDF_TARGET_TOOLCHAIN_NAME}-elf-gdb
+通过 JTAG（Joint Test Action Group）接口使用 OpenOCD 调试 {IDF_TARGET_NAME} 时所需要的一些关键的软件和硬件包括 **{IDF_TARGET_TOOLCHAIN_PREFIX}-gdb
 调试器**，**OpenOCD 片上调试器** 和连接到 **{IDF_TARGET_NAME}** 目标的 **JTAG 适配器**。
 
 .. figure:: ../../../_static/jtag-debugging-overview_zh.jpg
@@ -112,7 +113,6 @@ JTAG 正常工作至少需要连接的信号线有：TDI，TDO，TCK，TMS 和 G
 
     另外，我们还可以从源代码编译 OpenOCD 工具，相关详细信息请参阅 :ref:`jtag-debugging-building-openocd` 章节。
 
-
 .. _jtag-debugging-configuring-target:
 
 配置 {IDF_TARGET_NAME} 目标板
@@ -133,7 +133,9 @@ JTAG 正常工作至少需要连接的信号线有：TDI，TDO，TCK，TMS 和 G
 .. toctree::
     :maxdepth: 1
 
-    configure-ft2232h-jtag
+    :esp32: configure-ft2232h-jtag
+    :esp32s2: configure-ft2232h-jtag
+    :esp32c3: configure-builtin-jtag
     configure-other-jtag
 
 
@@ -148,7 +150,7 @@ JTAG 正常工作至少需要连接的信号线有：TDI，TDO，TCK，TMS 和 G
 
 打开终端，按照快速入门中的指南 :ref:`设置好开发环境 <get-started-set-up-env>` ，然后运行如下命令，启动 OpenOCD（该命令在 Windows，Linux，和 macOS 中通用）:
 
-.. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+.. include:: {IDF_TARGET_PATH_NAME}.inc
     :start-after: run-openocd
     :end-before: ---
 
@@ -160,7 +162,7 @@ JTAG 正常工作至少需要连接的信号线有：TDI，TDO，TCK，TMS 和 G
 
 现在应该可以看到如下输入（此日志来自 |run-openocd-device-name|）:
 
-.. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+.. include:: {IDF_TARGET_PATH_NAME}.inc
    :start-after: run-openocd-output
    :end-before: ---
 
@@ -178,7 +180,7 @@ JTAG 正常工作至少需要连接的信号线有：TDI，TDO，TCK，TMS 和 G
 
 除此以外，还支持使用 OpenOCD 通过 JTAG 接口将应用程序镜像烧写到闪存中，命令如下:
 
-.. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+.. include:: {IDF_TARGET_PATH_NAME}.inc
    :start-after: run-openocd-upload
    :end-before: ---
 
@@ -200,7 +202,7 @@ JTAG 正常工作至少需要连接的信号线有：TDI，TDO，TCK，TMS 和 G
 启动调试器
 ----------
 
-{IDF_TARGET_NAME} 的工具链中带有 GNU 调试器（简称 GDB） ``xtensa-{IDF_TARGET_TOOLCHAIN_NAME}-elf-gdb``，它和其它工具链软件存放在同一个 bin 目录下。除了直接在命令行终端中调用并操作 GDB 外，还可以在 IDE (例如 Eclipse，Visual Studio Code 等）中调用它，在图形用户界面的帮助下间接操作 GDB，无需在终端中输入任何命令。
+{IDF_TARGET_NAME} 的工具链中带有 GNU 调试器（简称 GDB） ``{IDF_TARGET_TOOLCHAIN_PREFIX}-gdb``，它和其它工具链软件存放在同一个 bin 目录下。除了直接在命令行终端中调用并操作 GDB 外，还可以在 IDE (例如 Eclipse，Visual Studio Code 等）中调用它，在图形用户界面的帮助下间接操作 GDB，无需在终端中输入任何命令。
 
 关于以上两种调试器的使用方法，详见以下链接。
 
@@ -244,10 +246,7 @@ JTAG 正常工作至少需要连接的信号线有：TDI，TDO，TCK，TMS 和 G
     Linux <building-openocd-linux>
     MacOS <building-openocd-macos>
 
-
 本文档演示所使用的 OpenOCD 是 :ref:`jtag-debugging-setup-openocd` 章节中介绍的预编译好的二进制发行版。
-
-.. highlight:: bash
 
 如果要使用本地从源代码编译的 OpenOCD 程序，需要将相应可执行文件的路径修改为 ``src/openocd``，并设置 ``OPENOCD_SCRIPTS`` 环境变量，这样 OpenOCD 才能找到配置文件。Linux 和 macOS 用户可以执行:
 
@@ -265,16 +264,15 @@ Windows 用户可以执行:
 
 运行本地编译的 OpenOCD 的示例如下（Linux 和 macOS 用户）:
 
-.. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+.. include:: {IDF_TARGET_PATH_NAME}.inc
    :start-after: run-openocd-src-linux
    :end-before: ---
 
 Windows 用户:
 
-.. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+.. include:: {IDF_TARGET_PATH_NAME}.inc
    :start-after: run-openocd-src-win
    :end-before: ---
-
 
 .. _jtag-debugging-tips-and-quirks:
 
@@ -290,12 +288,20 @@ Windows 用户:
 
 
 相关文档
---------
+------------
 
 .. toctree::
+    :hidden:
+    
     :maxdepth: 1
 
     using-debugger
     debugging-examples
     tips-and-quirks
     ../app_trace
+
+- :doc:`using-debugger`
+- :doc:`debugging-examples`
+- :doc:`tips-and-quirks`
+- :doc:`../app_trace`
+- `ESP-Prog 调试板介绍 <https://docs.espressif.com/projects/espressif-esp-iot-solution/zh_CN/latest/hw-reference/ESP-Prog_guide.html>`__ 

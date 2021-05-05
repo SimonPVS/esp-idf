@@ -19,7 +19,7 @@
 #include "bg96.h"
 #include "sim7600.h"
 
-#define BROKER_URL "mqtt://mqtt.eclipse.org"
+#define BROKER_URL "mqtt://mqtt.eclipseprojects.io"
 
 static const char *TAG = "pppos_example";
 static EventGroupHandle_t event_group = NULL;
@@ -59,7 +59,7 @@ static esp_err_t example_handle_cmgs(modem_dce_t *dce, const char *line)
 
 #define MODEM_SMS_MAX_LENGTH (128)
 #define MODEM_COMMAND_TIMEOUT_SMS_MS (120000)
-#define MODEM_PROMPT_TIMEOUT_MS (10)
+#define MODEM_PROMPT_TIMEOUT_MS (100)
 
 static esp_err_t example_send_message_text(modem_dce_t *dce, const char *phone_num, const char *text)
 {
@@ -173,7 +173,7 @@ static void on_ppp_changed(void *arg, esp_event_base_t event_base,
     ESP_LOGI(TAG, "PPP state changed event %d", event_id);
     if (event_id == NETIF_PPP_ERRORUSER) {
         /* User interrupted event from esp-netif */
-        esp_netif_t *netif = event_data;
+        esp_netif_t *netif = *(esp_netif_t**)event_data;
         ESP_LOGI(TAG, "User interrupted event from netif:%p", netif);
     }
 }

@@ -26,7 +26,9 @@ The {IDF_TARGET_NAME} contains multiple types of RAM:
 
 For more details on these internal memory types, see :ref:`memory-layout`.
 
-It's also possible to connect external SPI RAM to the {IDF_TARGET_NAME} - :doc:`external RAM </api-guides/external-ram>` can be integrated into the {IDF_TARGET_NAME}'s memory map using the flash cache, and accessed similarly to DRAM.
+.. only:: SOC_SPIRAM_SUPPORTED
+
+    It's also possible to connect external SPI RAM to the {IDF_TARGET_NAME} - :doc:`external RAM </api-guides/external-ram>` can be integrated into the {IDF_TARGET_NAME}'s memory map using the flash cache, and accessed similarly to DRAM.
 
 DRAM uses capability ``MALLOC_CAP_8BIT`` (accessible in single byte reads and writes). When calling ``malloc()``, the ESP-IDF ``malloc()`` implementation internally calls ``heap_caps_malloc(size, MALLOC_CAP_8BIT)`` in order to allocate DRAM that is byte-addressable. To test the free DRAM heap size at runtime, call cpp:func:`heap_caps_get_free_size(MALLOC_CAP_8BIT)`.
 
@@ -43,7 +45,9 @@ At startup, the DRAM heap contains all data memory which is not statically alloc
 
 To find the amount of statically allocated memory, use the :ref:`idf.py size <idf.py-size>` command.
 
-.. note:: Due to a technical limitation, the maximum statically allocated DRAM usage is 160KB. The remaining 160KB (for a total of 320KB of DRAM) can only be allocated at runtime as heap.
+.. only:: esp32
+
+    .. note:: Due to a technical limitation, the maximum statically allocated DRAM usage is 160KB. The remaining 160KB (for a total of 320KB of DRAM) can only be allocated at runtime as heap.
 
 .. note:: At runtime, the available heap DRAM may be less than calculated at compile time, because at startup some memory is allocated from the heap before the FreeRTOS scheduler is started (including memory for the stacks of initial FreeRTOS tasks).
 
@@ -88,6 +92,10 @@ DMA-Capable Memory
 
 Use the ``MALLOC_CAP_DMA`` flag to allocate memory which is suitable for use with hardware DMA engines (for example SPI and I2S). This capability flag excludes any external PSRAM.
 
+.. only SOC_SPIRAM_SUPPORTED and not esp32::
+
+    The EDMA hardware feature allows DMA buffers to be placed in external PSRAM, but there may be additional alignment constraints. Consult the {IDF_TARGET_NAME} Technical Reference Manual for details. To allocate a DMA-capable external memory buffer, use the ``MALLOC_CAP_SPIRAM`` capabilities flag together with :cpp:func:`heap_caps_aligned_alloc` with the necessary alignment specified.
+
 .. _32-bit accessible memory:
 
 32-Bit Accessible Memory
@@ -100,14 +108,16 @@ which it can't do for a normal malloc() call. This can help to use all the avail
 Memory allocated with ``MALLOC_CAP_32BIT`` can *only* be accessed via 32-bit reads and writes, any other type of access will
 generate a fatal LoadStoreError exception.
 
-External SPI Memory
-^^^^^^^^^^^^^^^^^^^
+.. only:: SOC_SPIRAM_SUPPORTED
 
-When :doc:`external RAM </api-guides/external-ram>` is enabled, external SPI RAM under 4MiB in size can be allocated using standard ``malloc`` calls, or via ``heap_caps_malloc(MALLOC_CAP_SPIRAM)``, depending on configuration. See :ref:`external_ram_config` for more details.
+    External SPI Memory
+    ^^^^^^^^^^^^^^^^^^^
 
-.. only:: esp32
+    When :doc:`external RAM </api-guides/external-ram>` is enabled, external SPI RAM under 4MiB in size can be allocated using standard ``malloc`` calls, or via ``heap_caps_malloc(MALLOC_CAP_SPIRAM)``, depending on configuration. See :ref:`external_ram_config` for more details.
 
-    To use the region above the 4MiB limit, you can use the :doc:`himem API</api-reference/system/himem>`.
+    .. only:: esp32
+
+        To use the region above the 4MiB limit, you can use the :doc:`himem API</api-reference/system/himem>`.
 
 
 API Reference - Heap Allocation

@@ -4,8 +4,8 @@ ESP-TLS
 Overview
 --------
 
-The ESP-TLS component provides a simplified API interface for accessing the commonly used TLS functionality. 
-It supports common scenarios like CA certification validation, SNI, ALPN negotiation, non-blocking connection among others. 
+The ESP-TLS component provides a simplified API interface for accessing the commonly used TLS functionality.
+It supports common scenarios like CA certification validation, SNI, ALPN negotiation, non-blocking connection among others.
 All the configuration can be specified in the ``esp_tls_cfg_t`` data structure. Once done, TLS communication can be conducted using the following APIs:
 
     * :cpp:func:`esp_tls_conn_new`: for opening a new TLS connection.
@@ -13,7 +13,7 @@ All the configuration can be specified in the ``esp_tls_cfg_t`` data structure. 
     * :cpp:func:`esp_tls_conn_write`: for writing into the connection.
     * :cpp:func:`esp_tls_conn_delete`: for freeing up the connection.
 
-Any application layer protocol like HTTP1, HTTP2 etc can be executed on top of this layer.                       
+Any application layer protocol like HTTP1, HTTP2 etc can be executed on top of this layer.
 
 Application Example
 -------------------
@@ -37,6 +37,21 @@ Tree structure for ESP-TLS component
 The ESP-TLS  component has a file :component_file:`esp-tls/esp_tls.h` which contain the public API headers for the component. Internally ESP-TLS component uses one
 of the two SSL/TLS Libraries between mbedtls and wolfssl for its operation. API specific to mbedtls are present in :component_file:`esp-tls/private_include/esp_tls_mbedtls.h` and API
 specific to wolfssl are present in :component_file:`esp-tls/private_include/esp_tls_wolfssl.h`.
+
+TLS Server verification
+-----------------------
+
+The ESP-TLS provides multiple options for TLS server verification on the client side. The ESP-TLS client can verify the server by validating the peer's server certificate or with the help of pre-shared keys. The user should select only one of the following options in the :cpp:type:`esp_tls_cfg_t` structure for TLS server verification. If no option is selected then client will return a fatal error by default at the time of the TLS connection setup.
+
+    *  **cacert_buf** and **cacert_bytes**: The CA certificate can be provided in a buffer to the :cpp:type:`esp_tls_cfg_t` structure. The ESP-TLS will use the CA certificate present in the buffer to verify the server. The following variables in :cpp:type:`esp_tls_cfg_t` structure must be set.
+
+        * ``cacert_buf`` - pointer to the buffer which contains the CA cert.
+        * ``cacert_bytes`` - size of the CA certificate in bytes.
+    * **use_global_ca_store**: The ``global_ca_store`` can be initialized and set at once. Then it can be used to verify the server for all the ESP-TLS connections which have set ``use_global_ca_store = true`` in their respective :cpp:type:`esp_tls_cfg_t` structure. See API Reference section below on information regarding different API used for initializing and setting up the ``global_ca_store``.
+    * **crt_bundle_attach**: The ESP x509 Certificate Bundle API provides an easy way to include a bundle of custom x509 root certificates for TLS server verification. More details can be found at :doc:`ESP x509 Certificate Bundle</api-reference/protocols/esp_crt_bundle>`
+    * **psk_hint_key**: To use pre-shared keys for server verification, :ref:`CONFIG_ESP_TLS_PSK_VERIFICATION` should be enabled in the ESP-TLS menuconfig. Then the pointer to PSK hint and key should be provided to the :cpp:type:`esp_tls_cfg_t` structure. The ESP-TLS will use the PSK for server verification only when no other option regarding the server verification is selected.
+    * **skip server verification**: This is an insecure option provided in the ESP-TLS for testing purpose. The option can be set by enabling :ref:`CONFIG_ESP_TLS_INSECURE` and :ref:`CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY` in the ESP-TLS menuconfig. When this option is enabled the ESP-TLS will skip server verification by default when no other options for server verification are selected in the :cpp:type:`esp_tls_cfg_t` structure.
+      *WARNING:Enabling this option comes with a potential risk of establishing a TLS connection with a server which has a fake identity, provided that the server certificate is not provided either through API or other mechanism like ca_store etc.*
 
 Underlying SSL/TLS Library Options
 ----------------------------------
@@ -122,19 +137,17 @@ SSL/TLS libraries and with all respective configurations set to default.
                 .use_secure_element = true,
             };
 
-.. only:: esp32s2
+.. only:: SOC_DIG_SIGN_SUPPORTED
 
     .. _digital-signature-with-esp-tls:
 
     Digital Signature with ESP-TLS
     ------------------------------
-    ESP-TLS provides support for using the Digital Signature (DS) with ESP32-S2.
+    ESP-TLS provides support for using the Digital Signature (DS) with {IDF_TARGET_NAME}.
     Use of the DS for TLS is supported only when ESP-TLS is used with mbedTLS (default stack) as its underlying SSL/TLS stack.
     For more details on Digital Signature, please refer to the :doc:`Digital Signature Documentation </api-reference/peripherals/ds>`. The technical details of Digital Signature such as
-    how to calculate private key parameters can be found at `{IDF_TARGET_NAME} Technical Reference Manual <{IDF_TARGET_TRM_EN_URL}>`_.
+    how to calculate private key parameters can be found in *{IDF_TARGET_NAME} Technical Reference Manual* > *Digital Signature (DS)* [`PDF <{IDF_TARGET_TRM_EN_URL}#digsig>`__].
     The DS peripheral must be configured before it can be used to perform Digital Signature, see `Configure the DS Peripheral` in :doc:`Digital Signature </api-reference/peripherals/ds>`.
-
-    .. note:: As the DS peripheral support is only available for ESP32-S2, the idf-target should be set to ESP32-S2. See `Selecting the Target` in :doc:`build-system.</api-guides/build-system>`.
 
     The DS peripheral must be initlized with the required encrypted private key parameters (obtained when the DS peripheral is configured). ESP-TLS internally initializes the DS peripheral when
     provided with the required DS context (DS parameters). Please see the below code snippet for passing the DS context to esp-tls context. The DS context passed to the esp-tls context should not be freed till the TLS connection is deleted.

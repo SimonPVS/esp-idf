@@ -20,7 +20,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "soc/i2c_caps.h"
+#include "soc/soc_caps.h"
 
 /**
  * @brief I2C port number, can be I2C_NUM_0 ~ (I2C_NUM_MAX-1).
@@ -37,14 +37,6 @@ typedef enum {
     I2C_MASTER_WRITE = 0,   /*!< I2C write data */
     I2C_MASTER_READ,        /*!< I2C read data */
 } i2c_rw_t;
-
-typedef enum{
-    I2C_CMD_RESTART = 0,   /*!<I2C restart command */
-    I2C_CMD_WRITE,         /*!<I2C write command */
-    I2C_CMD_READ,          /*!<I2C read command */
-    I2C_CMD_STOP,          /*!<I2C stop command */
-    I2C_CMD_END            /*!<I2C end command */
-} i2c_opmode_t;
 
 typedef enum {
     I2C_DATA_MODE_MSB_FIRST = 0,  /*!< I2C data msb first */
@@ -65,31 +57,40 @@ typedef enum {
     I2C_MASTER_ACK_MAX,
 } i2c_ack_type_t;
 
+/**
+ * @brief I2C clock source, sorting from smallest to largest,
+ *        place them in order.
+ *        This can be expanded in the future use.
+ */
 typedef enum {
-    I2C_SCLK_REF_TICK,       /*!< I2C source clock from REF_TICK */
-    I2C_SCLK_APB,            /*!< I2C source clock from APB */
+    I2C_SCLK_DEFAULT = 0,    /*!< I2C source clock not selected*/
+#if SOC_I2C_SUPPORT_APB
+    I2C_SCLK_APB,            /*!< I2C source clock from APB, 80M*/
+#endif
+#if SOC_I2C_SUPPORT_XTAL
+    I2C_SCLK_XTAL,           /*!< I2C source clock from XTAL, 40M */
+#endif
+#if SOC_I2C_SUPPORT_RTC
+    I2C_SCLK_RTC,            /*!< I2C source clock from 8M RTC, 8M */
+#endif
+#if SOC_I2C_SUPPORT_REF_TICK
+    I2C_SCLK_REF_TICK,       /*!< I2C source clock from REF_TICK, 1M */
+#endif
+    I2C_SCLK_MAX,
 } i2c_sclk_t;
 
-/**
- * @brief I2C initialization parameters
- */
-typedef struct{
-    i2c_mode_t mode;     /*!< I2C mode */
-    int sda_io_num;      /*!< GPIO number for I2C sda signal */
-    int scl_io_num;      /*!< GPIO number for I2C scl signal */
-    bool sda_pullup_en;  /*!< Internal GPIO pull mode for I2C sda signal*/
-    bool scl_pullup_en;  /*!< Internal GPIO pull mode for I2C scl signal*/
+/// Use the highest speed that is available for the clock source picked by clk_flags
+#define I2C_CLK_FREQ_MAX                  (-1)
 
-    union {
-        struct {
-            uint32_t clk_speed;     /*!< I2C clock frequency for master mode, (no higher than 1MHz for now) */
-        } master;                   /*!< I2C master config */
-        struct {
-            uint8_t addr_10bit_en;  /*!< I2C 10bit address mode enable for slave mode */
-            uint16_t slave_addr;    /*!< I2C address for slave mode */
-        } slave;                    /*!< I2C slave config */
-    };
-} i2c_config_t;
+#if CONFIG_IDF_TARGET_ESP32
+typedef enum{
+    I2C_CMD_RESTART = 0,   /*!<I2C restart command */
+    I2C_CMD_WRITE,         /*!<I2C write command */
+    I2C_CMD_READ,          /*!<I2C read command */
+    I2C_CMD_STOP,          /*!<I2C stop command */
+    I2C_CMD_END            /*!<I2C end command */
+} i2c_opmode_t __attribute__((deprecated));
+#endif
 
 #ifdef __cplusplus
 }

@@ -10,6 +10,7 @@ CFLAGS=-g -Wno-unused-value -Wno-missing-declarations -Wno-pointer-bool-conversi
                  -I$(COMPONENTS_DIR)/esp_common/include \
                  -I$(COMPONENTS_DIR)/esp_event/include \
                  -I$(COMPONENTS_DIR)/esp_eth/include \
+                 -I$(COMPONENTS_DIR)/esp_hw_support/include \
                  -I$(COMPONENTS_DIR)/esp_netif/include \
                  -I$(COMPONENTS_DIR)/esp_netif/private_include \
                  -I$(COMPONENTS_DIR)/esp_netif/lwip \
@@ -17,9 +18,9 @@ CFLAGS=-g -Wno-unused-value -Wno-missing-declarations -Wno-pointer-bool-conversi
                  -I$(COMPONENTS_DIR)/esp_system/include \
                  -I$(COMPONENTS_DIR)/esp_timer/include \
                  -I$(COMPONENTS_DIR)/esp_wifi/include \
-                 -I$(COMPONENTS_DIR)/freertos/xtensa/include \
                  -I$(COMPONENTS_DIR)/freertos \
                  -I$(COMPONENTS_DIR)/freertos/include \
+                 -I$(COMPONENTS_DIR)/freertos/port/xtensa/include \
                  -I$(COMPONENTS_DIR)/hal/include \
                  -I$(COMPONENTS_DIR)/hal/esp32/include \
                  -I$(COMPONENTS_DIR)/heap/include \
@@ -27,14 +28,15 @@ CFLAGS=-g -Wno-unused-value -Wno-missing-declarations -Wno-pointer-bool-conversi
                  -I$(COMPONENTS_DIR)/lwip/lwip/src/include \
                  -I$(COMPONENTS_DIR)/lwip/port/esp32/include \
                  -I$(COMPONENTS_DIR)/lwip/lwip/src/include/lwip/apps \
+                 -I$(COMPONENTS_DIR)/newlib/platform_include \
                  -I$(COMPONENTS_DIR)/soc/include \
-                 -I$(COMPONENTS_DIR)/soc/soc/include \
-                 -I$(COMPONENTS_DIR)/soc/soc/esp32/include \
+                 -I$(COMPONENTS_DIR)/soc/include \
+                 -I$(COMPONENTS_DIR)/soc/esp32/include \
                  -I$(COMPONENTS_DIR)/soc/src/esp32/include \
                  -I$(COMPONENTS_DIR)/tcpip_adapter/include \
                  -I$(COMPONENTS_DIR)/xtensa/include \
                  -I$(COMPONENTS_DIR)/xtensa/esp32/include \
-                 -I$(COMPILER_ICLUDE_DIR)/include 
+                 -I$(COMPILER_ICLUDE_DIR)/include
 
 
 MDNS_C_DEPENDENCY_INJECTION=-include mdns_di.h
@@ -65,7 +67,7 @@ all: $(TEST_NAME)
 
 mdns.o: ../mdns.c
 	@echo "[CC] $<"
-	@$(CC) $(CFLAGS) --include mdns_mock.h $(MDNS_C_DEPENDENCY_INJECTION) -c $< -o $@
+	@$(CC) $(CFLAGS) -include mdns_mock.h $(MDNS_C_DEPENDENCY_INJECTION) -c $< -o $@
 
 $(TEST_NAME): $(OBJECTS)
 	@echo "[LD] $@"

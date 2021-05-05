@@ -840,10 +840,14 @@ void btm_ble_multi_adv_cleanup(void)
     }
 
 #if BTM_DYNAMIC_MEMORY == TRUE
-    osi_free(btm_multi_adv_cb_ptr);
-    osi_free(btm_multi_adv_idx_q_ptr);
-    btm_multi_adv_cb_ptr = NULL;
-    btm_multi_adv_idx_q_ptr = NULL;
+    if(btm_multi_adv_cb_ptr) {
+       osi_free(btm_multi_adv_cb_ptr);
+       btm_multi_adv_cb_ptr = NULL;
+    }
+    if(btm_multi_adv_idx_q_ptr) {
+       osi_free(btm_multi_adv_idx_q_ptr);
+       btm_multi_adv_idx_q_ptr = NULL;
+    }
 #endif
 }
 
@@ -872,4 +876,3 @@ void *btm_ble_multi_adv_get_ref(UINT8 inst_id)
     return NULL;
 }
 #endif
-

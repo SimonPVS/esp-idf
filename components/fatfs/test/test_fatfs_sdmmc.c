@@ -35,10 +35,10 @@
 #define SDSPI_MISO_PIN  2
 #define SDSPI_CS_PIN    13
 #define SDSPI_CLK_PIN   14
-#define SDSPI_HOST_ID   HSPI_HOST
+#define SDSPI_HOST_ID   SPI2_HOST
 
 
-#ifdef SOC_SDMMC_HOST_SUPPORTED
+#if SOC_SDMMC_HOST_SUPPORTED
 #include "driver/sdmmc_host.h"
 
 
@@ -307,7 +307,7 @@ TEST_CASE("(SD) opendir, readdir, rewinddir, seekdir work as expected using UTF-
 
 #endif  //SDMMC HOST SUPPORTED
 
-#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2)
+#if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)
 //no runners
 static void sdspi_speed_test(void *buf, size_t buf_size, size_t file_size, bool write);
 
@@ -373,4 +373,4 @@ static void sdspi_speed_test(void *buf, size_t buf_size, size_t file_size, bool 
     TEST_ESP_OK(esp_vfs_fat_sdcard_unmount(path, card));
 }
 
-#endif
+#endif //TEMPORARY_DISABLED_FOR_TARGETS(ESP32S2, ESP32C3)

@@ -27,7 +27,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
-#include "freertos/xtensa_api.h"
 #include "sdkconfig.h"
 #include "esp_timer.h"
 #if CONFIG_IDF_TARGET_ESP32
@@ -127,4 +126,3 @@ void os_timer_disarm(ETSTimer *ptimer) __attribute__((alias("ets_timer_disarm"))
 void os_timer_arm_us(ETSTimer *ptimer,uint32_t u_seconds,bool repeat_flag) __attribute__((alias("ets_timer_arm_us")));
 void os_timer_arm(ETSTimer *ptimer,uint32_t milliseconds,bool repeat_flag) __attribute__((alias("ets_timer_arm")));
 void os_timer_done(ETSTimer *ptimer) __attribute__((alias("ets_timer_done")));
-

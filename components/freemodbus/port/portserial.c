@@ -48,7 +48,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"        // for esp_log
 #include "esp_err.h"        // for ESP_ERROR_CHECK macro
-   
+
 /* ----------------------- Modbus includes ----------------------------------*/
 #include "mb.h"
 #include "mbport.h"
@@ -184,7 +184,6 @@ BOOL xMBPortSerialInit(UCHAR ucPORT, ULONG ulBaudRate,
                         UCHAR ucDataBits, eMBParity eParity)
 {
     esp_err_t xErr = ESP_OK;
-    MB_PORT_CHECK((eParity <= MB_PAR_EVEN), FALSE, "mb serial set parity failure.");
     // Set communication port number
     ucUartNumber = ucPORT;
     // Configure serial communication parameters
@@ -200,6 +199,9 @@ BOOL xMBPortSerialInit(UCHAR ucPORT, ULONG ulBaudRate,
         case MB_PAR_EVEN:
             ucParity = UART_PARITY_EVEN;
             break;
+        default:
+            ESP_LOGE(TAG, "Incorrect parity option: %d", eParity);
+            return FALSE;
     }
     switch(ucDataBits){
         case 5:
@@ -283,4 +285,3 @@ BOOL xMBPortSerialGetByte(CHAR* pucByte)
     USHORT usLength = uart_read_bytes(ucUartNumber, (uint8_t*)pucByte, 1, MB_SERIAL_RX_TOUT_TICKS);
     return (usLength == 1);
 }
-

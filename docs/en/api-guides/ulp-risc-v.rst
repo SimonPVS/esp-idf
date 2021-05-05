@@ -11,12 +11,11 @@ The ULP-RISC-V coprocessor is a variant of the ULP, present in ESP32-S2. Similar
 Installing the ULP-RISC-V Toolchain
 -----------------------------------
 
-The ULP-RISC-V coprocessor code is written in C (assembly is also possible) and compiled using the `riscv-embedded toolchain`_.
+The ULP-RISC-V coprocessor code is written in C (assembly is also possible) and compiled using RISC-V toolchain based on GCC.
 
-If you have already set up ESP-IDF with CMake build system according to the :doc:`Getting Started Guide <../../get-started/index>`, then you need to perform an extra step to get the ULP-RISC-V toolchain installed, execute the command below inside the IDF folder::
+If you have already set up ESP-IDF with CMake build system according to the :doc:`Getting Started Guide <../../get-started/index>`, then the toolchain should already be installed.
 
-$ idf_tools.py install riscv-none-embed-gcc
-
+.. note: In earlier versions of ESP-IDF, RISC-V toolchain had a different prefix: `riscv-none-embed-gcc`.
 
 Compiling the ULP-RISC-V Code
 -----------------------------
@@ -56,7 +55,7 @@ To compile the ULP-RISC-V code as part of the component, the following steps mus
 
    5. **Dump the contents of the ELF file into a binary** (``ulp_app_name.bin``) which can then be embedded into the application.
 
-   6. **Generate a list of global symbols** (``ulp_app_name.sym``) in the ELF file using ``riscv-none-embed-nm``.
+   6. **Generate a list of global symbols** (``ulp_app_name.sym``) in the ELF file using ``riscv32-esp-elf-nm``.
 
    7. **Create an LD export script and header file** (``ulp_app_name.ld`` and ``ulp_app_name.h``) containing the symbols from ``ulp_app_name.sym``. This is done using the ``esp32ulp_mapgen.py`` utility.
 
@@ -137,7 +136,9 @@ Once the program is loaded into RTC memory, the application can start it, callin
 ULP-RISC-V Program Flow
 -----------------------
 
-The ULP-RISC-V coprocessor is started by a timer. The timer is started once :cpp:func:`ulp_riscv_run` is called. The timer counts the number of RTC_SLOW_CLK ticks (by default, produced by an internal 90 kHz RC oscillator). The number of ticks is set using ``RTC_CNTL_ULP_CP_TIMER_1_REG`` register. When starting the ULP, ``RTC_CNTL_ULP_CP_TIMER_1_REG`` will be used to set the number of timer ticks.
+{IDF_TARGET_RTC_CLK_FRE:default="150kHz", esp32s2="90kHz"}
+
+The ULP-RISC-V coprocessor is started by a timer. The timer is started once :cpp:func:`ulp_riscv_run` is called. The timer counts the number of RTC_SLOW_CLK ticks (by default, produced by an internal {IDF_TARGET_RTC_CLK_FRE} RC oscillator). The number of ticks is set using ``RTC_CNTL_ULP_CP_TIMER_1_REG`` register. When starting the ULP, ``RTC_CNTL_ULP_CP_TIMER_1_REG`` will be used to set the number of timer ticks.
 
 The application can set ULP timer period values (RTC_CNTL_ULP_CP_TIMER_1_REG) using the :cpp:func:`ulp_set_wakeup_period` function.
 
@@ -147,5 +148,3 @@ The program runs until the field ``RTC_CNTL_COCPU_DONE`` in register ``RTC_CNTL_
 
 To disable the timer (effectively preventing the ULP program from running again), please clear the ``RTC_CNTL_ULP_CP_SLP_TIMER_EN`` bit in the ``RTC_CNTL_STATE0_REG`` register. This can be done both from the ULP code and from the main program.
 
-
-.. _riscv-embedded toolchain: https://xpack.github.io/riscv-none-embed-gcc/

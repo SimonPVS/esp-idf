@@ -86,6 +86,8 @@ set(srcs
     "lwip/src/netif/ppp/upap.c"
     "lwip/src/netif/ppp/utils.c"
     "lwip/src/netif/ppp/vj.c"
+    "port/esp32/hooks/tcp_isn_default.c"
+    "port/esp32/hooks/lwip_default_hooks.c"
     "port/esp32/debug/lwip_debug.c"
     "port/esp32/freertos/sys_arch.c"
     "port/esp32/netif/dhcp_state.c"

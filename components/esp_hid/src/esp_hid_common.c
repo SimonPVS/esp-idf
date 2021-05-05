@@ -19,7 +19,7 @@
 #if (CONFIG_GATTS_ENABLE || CONFIG_GATTC_ENABLE)
 #include "esp_gatt_defs.h"
 #endif
-const char *TAG = "hid_parser";
+static const char *TAG = "hid_parser";
 
 typedef struct {
     uint16_t appearance;
@@ -516,4 +516,3 @@ const char *esp_hid_disconnect_reason_str(esp_hid_transport_t transport, int rea
     }
     return s_unknown_str;
 }
-

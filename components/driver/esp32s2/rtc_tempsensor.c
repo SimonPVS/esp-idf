@@ -14,6 +14,7 @@
 
 #include <stdlib.h>
 #include <ctype.h>
+#include <math.h>
 #include "esp_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -24,6 +25,9 @@
 #include "soc/sens_reg.h"
 #include "soc/sens_struct.h"
 #include "driver/temp_sensor.h"
+#include "regi2c_ctrl.h"
+#include "esp_log.h"
+#include "esp_efuse_rtc_table.h"
 
 static const char *TAG = "tsens";
 
@@ -37,18 +41,6 @@ static const char *TAG = "tsens";
 #define TSENS_ADC_FACTOR  (0.4386)
 #define TSENS_DAC_FACTOR  (27.88)
 #define TSENS_SYS_OFFSET  (20.52)
-
-#include "i2c_rtc_clk.h"
-
-#define ANA_CONFIG2_REG  0x6000E048
-#define ANA_CONFIG2_M   (BIT(18))
-
-#define I2C_ADC            0X69
-#define I2C_ADC_HOSTID     1
-
-#define I2C_SARADC_TSENS_DAC        6
-#define I2C_SARADC_TSENS_DAC_MSB    3
-#define I2C_SARADC_TSENS_DAC_LSB    0
 
 typedef struct {
     int index;
@@ -70,13 +62,15 @@ static const tsens_dac_offset_t dac_offset[TSENS_DAC_MAX] = {
 
 static SemaphoreHandle_t rtc_tsens_mux = NULL;
 
+static float s_deltaT = NAN; // Unused number
+
 esp_err_t temp_sensor_set_config(temp_sensor_config_t tsens)
 {
     CLEAR_PERI_REG_MASK(RTC_CNTL_ANA_CONF_REG, RTC_CNTL_SAR_I2C_FORCE_PD_M);
     SET_PERI_REG_MASK(RTC_CNTL_ANA_CONF_REG, RTC_CNTL_SAR_I2C_FORCE_PU_M);
-    CLEAR_PERI_REG_MASK(ANA_CONFIG_REG, BIT(18));
-    SET_PERI_REG_MASK(ANA_CONFIG2_REG, BIT(16));
-    I2C_WRITEREG_MASK_RTC(I2C_ADC, I2C_SARADC_TSENS_DAC, dac_offset[tsens.dac_offset].set_val);
+    CLEAR_PERI_REG_MASK(ANA_CONFIG_REG, I2C_SAR_M);
+    SET_PERI_REG_MASK(ANA_CONFIG2_REG, ANA_SAR_CFG2_M);
+    REGI2C_WRITE_MASK(I2C_SAR_ADC, I2C_SARADC_TSENS_DAC, dac_offset[tsens.dac_offset].set_val);
     SENS.sar_tctrl.tsens_clk_div = tsens.clk_div;
     SENS.sar_tctrl.tsens_power_up_force = 1;
     SENS.sar_tctrl2.tsens_xpd_wait = TSENS_XPD_WAIT_DEFAULT;
@@ -95,11 +89,11 @@ esp_err_t temp_sensor_get_config(temp_sensor_config_t *tsens)
     TSENS_CHECK(tsens != NULL, ESP_ERR_INVALID_ARG);
     CLEAR_PERI_REG_MASK(RTC_CNTL_ANA_CONF_REG, RTC_CNTL_SAR_I2C_FORCE_PD_M);
     SET_PERI_REG_MASK(RTC_CNTL_ANA_CONF_REG, RTC_CNTL_SAR_I2C_FORCE_PU_M);
-    CLEAR_PERI_REG_MASK(ANA_CONFIG_REG, BIT(18));
-    SET_PERI_REG_MASK(ANA_CONFIG2_REG, BIT(16));
-    tsens->dac_offset = I2C_READREG_MASK_RTC(I2C_ADC, I2C_SARADC_TSENS_DAC);
+    CLEAR_PERI_REG_MASK(ANA_CONFIG_REG, I2C_SAR_M);
+    SET_PERI_REG_MASK(ANA_CONFIG2_REG, ANA_SAR_CFG2_M);
+    tsens->dac_offset = REGI2C_READ_MASK(I2C_SAR_ADC, I2C_SARADC_TSENS_DAC);
     for (int i = TSENS_DAC_L0; i < TSENS_DAC_MAX; i++) {
-        if (tsens->dac_offset == dac_offset[i].set_val) {
+        if ((int)tsens->dac_offset == dac_offset[i].set_val) {
             tsens->dac_offset = dac_offset[i].index;
             break;
         }
@@ -144,6 +138,28 @@ esp_err_t temp_sensor_read_raw(uint32_t *tsens_out)
     return ESP_OK;
 }
 
+static void read_delta_t_from_efuse(void)
+{
+    uint32_t version = esp_efuse_rtc_table_read_calib_version();
+    if (version == 1 || version == 2) {
+        // fetch calibration value for temp sensor from eFuse
+        s_deltaT = esp_efuse_rtc_table_get_parsed_efuse_value(RTCCALIB_IDX_TMPSENSOR, false) / 10.0;
+    } else {
+        // no value to fetch, use 0.
+        s_deltaT = 0;
+    }
+    ESP_LOGD(TAG, "s_deltaT = %f\n", s_deltaT);
+}
+
+static float parse_temp_sensor_raw_value(uint32_t tsens_raw, const int dac_offset)
+{
+    if (isnan(s_deltaT)) { //suggests that the value is not initialized
+        read_delta_t_from_efuse();
+    }
+    float result = (TSENS_ADC_FACTOR * (float)tsens_raw - TSENS_DAC_FACTOR * dac_offset - TSENS_SYS_OFFSET) - s_deltaT;
+    return result;
+}
+
 esp_err_t temp_sensor_read_celsius(float *celsius)
 {
     TSENS_CHECK(celsius != NULL, ESP_ERR_INVALID_ARG);
@@ -154,7 +170,7 @@ esp_err_t temp_sensor_read_celsius(float *celsius)
         ret = temp_sensor_read_raw(&tsens_out);
         TSENS_CHECK(ret == ESP_OK, ret);
         const tsens_dac_offset_t *dac = &dac_offset[tsens.dac_offset];
-        *celsius = (TSENS_ADC_FACTOR * (float)tsens_out - TSENS_DAC_FACTOR * dac->offset - TSENS_SYS_OFFSET);
+        *celsius = parse_temp_sensor_raw_value(tsens_out, dac->offset);
         if (*celsius < dac->range_min || *celsius > dac->range_max) {
             ESP_LOGW(TAG, "Exceeding the temperature range!");
             ret = ESP_ERR_INVALID_STATE;

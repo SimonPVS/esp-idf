@@ -1,12 +1,14 @@
 from __future__ import unicode_literals
-from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
-from tiny_test_fw import Utility
+
 import glob
 import json
 import os
 import re
 import threading
+
 import ttfw_idf
+from SimpleWebSocketServer import SimpleWebSocketServer, WebSocket
+from tiny_test_fw import Utility
 
 
 class IDEWSProtocol(WebSocket):
@@ -73,6 +75,7 @@ def test_monitor_ide_integration(env, extra_data):
 
         with WebSocketServer(), ttfw_idf.CustomProcess(' '.join([monitor_path,
                                                                  elf_path,
+                                                                 '--port', str(dut.port),
                                                                  '--ws', 'ws://{}:{}'.format(WebSocketServer.HOST,
                                                                                              WebSocketServer.PORT)]),
                                                        logfile='monitor_{}.log'.format(name)) as p:

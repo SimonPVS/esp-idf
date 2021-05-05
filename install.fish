@@ -1,14 +1,17 @@
 #!/usr/bin/env fish
 
-set basedir $PWD
+set basedir (realpath (dirname (status -f)))
 
 set -x IDF_PATH $basedir
 
+echo "Detecting the Python interpreter"
+source "$IDF_PATH"/tools/detect_python.fish
+
 echo "Installing ESP-IDF tools"
-"$IDF_PATH"/tools/idf_tools.py install
+"$ESP_PYTHON" "$IDF_PATH"/tools/idf_tools.py install
 
 echo "Installing Python environment and packages"
-"$IDF_PATH"/tools/idf_tools.py install-python-env
+"$ESP_PYTHON" "$IDF_PATH"/tools/idf_tools.py install-python-env
 
 echo "All done! You can now run:"
 echo ""

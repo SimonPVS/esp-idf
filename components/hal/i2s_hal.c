@@ -15,6 +15,7 @@
 // The HAL layer for I2S (common part)
 
 #include "soc/soc.h"
+#include "soc/soc_caps.h"
 #include "hal/i2s_hal.h"
 
 #define I2S_TX_PDM_FP_DEF  960   // Set to the recommended value(960) in TRM
@@ -242,6 +243,9 @@ void i2s_hal_config_param(i2s_hal_context_t *hal, const i2s_config_t *i2s_config
         }
         if (i2s_config->mode & I2S_MODE_ADC_BUILT_IN) {
             i2s_ll_build_in_adc_ena(hal->dev);
+            i2s_ll_set_rx_chan_mod(hal->dev, 1);
+            i2s_ll_set_rx_fifo_mod(hal->dev, 1);
+            i2s_ll_set_rx_mono(hal->dev, 0);
         }
         // Buildin ADC and DAC have nothing to do with communication format configuration.
         return;

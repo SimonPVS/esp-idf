@@ -22,6 +22,7 @@ static void test_int_wdt_cache_disabled(void);
 static void test_stack_overflow(void);
 static void test_illegal_instruction(void);
 static void test_instr_fetch_prohibited(void);
+static void test_ub(void);
 
 
 void app_main(void)
@@ -52,6 +53,7 @@ void app_main(void)
     HANDLE_TEST(test_stack_overflow);
     HANDLE_TEST(test_illegal_instruction);
     HANDLE_TEST(test_instr_fetch_prohibited);
+    HANDLE_TEST(test_ub);
 
     #undef HANDLE_TEST
 
@@ -80,7 +82,7 @@ static void test_task_wdt(void)
     }
 }
 
-static void test_storeprohibited(void)
+static void __attribute__((no_sanitize_undefined)) test_storeprohibited(void)
 {
     *(int*) 0x1 = 0;
 }
@@ -100,17 +102,39 @@ static void IRAM_ATTR test_int_wdt_cache_disabled(void)
     }
 }
 
+/**
+ * This function overwrites the stack beginning from the valid area continuously towards and beyond
+ * the end of the stack (stack base) of the current task.
+ * This is to test stack protection measures like a watchpoint at the end of the stack.
+ *
+ * @note: This test DOES NOT write beyond the stack limit. It only writes up to exactly the limit itself.
+ *        The FreeRTOS stack protection mechanisms all trigger shortly before the end of the stack.
+ */
 static void test_stack_overflow(void)
 {
-    volatile uint8_t stuff[CONFIG_ESP_MAIN_TASK_STACK_SIZE + 1000];
-    for (int i = 0; i < sizeof(stuff); ++i) {
-        stuff[i] = rand();
+    register uint32_t* sp asm("sp");
+    TaskStatus_t pxTaskStatus;
+    vTaskGetInfo(NULL, &pxTaskStatus, pdFALSE, pdFALSE);
+    uint32_t *end = (uint32_t*) pxTaskStatus.pxStackBase;
+
+    // offset - 20 bytes from SP in order to not corrupt the current frame.
+    // Need to write from higher to lower addresses since the stack grows downwards and the watchpoint/canary is near
+    // the end of the stack (lowest address).
+    for (uint32_t* ptr = sp - 5; ptr != end; --ptr) {
+        *ptr = 0;
     }
+
+    // trigger a context switch to initiate checking the FreeRTOS stack canary
+    vTaskDelay(pdMS_TO_TICKS(0));
 }
 
 static void test_illegal_instruction(void)
 {
+#if __XTENSA__
     __asm__ __volatile__("ill");
+#elif __riscv
+    __asm__ __volatile__("unimp");
+#endif
 }
 
 static void test_instr_fetch_prohibited(void)
@@ -118,6 +142,12 @@ static void test_instr_fetch_prohibited(void)
     typedef void (*fptr_t)(void);
     volatile fptr_t fptr = (fptr_t) 0x4;
     fptr();
+}
+
+static void test_ub(void)
+{
+    uint8_t stuff[1] = {rand()};
+    printf("%d\n", stuff[rand()]);
 }
 
 /* implementations of the utility functions */
@@ -161,7 +191,7 @@ static void die(const char* msg)
 {
     printf("Test error: %s\n\n", msg);
     fflush(stdout);
-    fsync(fileno(stdout));
+    usleep(1000);
     /* Don't use abort here as it would enter the panic handler */
     esp_restart_noos();
 }

@@ -22,6 +22,7 @@
 #include "freertos/FreeRTOS.h"
 #include "esp_err.h"
 #include "esp_event.h"
+#include <sys/socket.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -81,14 +82,26 @@ typedef struct {
     int                         task_prio;                  /*!< Websocket task priority */
     int                         task_stack;                 /*!< Websocket task stack */
     int                         buffer_size;                /*!< Websocket buffer size */
-    const char                  *cert_pem;                  /*!< SSL Certification, PEM format as string, if the client requires to verify server */
+    const char                  *cert_pem;                  /*!< Pointer to certificate data in PEM or DER format for server verify (with SSL), default is NULL, not required to verify the server. PEM-format must have a terminating NULL-character. DER-format requires the length to be passed in cert_len. */
+    size_t                      cert_len;                   /*!< Length of the buffer pointed to by cert_pem. May be 0 for null-terminated pem */
+    const char                  *client_cert;               /*!< Pointer to certificate data in PEM or DER format for SSL mutual authentication, default is NULL, not required if mutual authentication is not needed. If it is not NULL, also `client_key` has to be provided. PEM-format must have a terminating NULL-character. DER-format requires the length to be passed in client_cert_len. */
+    size_t                      client_cert_len;            /*!< Length of the buffer pointed to by client_cert. May be 0 for null-terminated pem */
+    const char                  *client_key;                /*!< Pointer to private key data in PEM or DER format for SSL mutual authentication, default is NULL, not required if mutual authentication is not needed. If it is not NULL, also `client_cert` has to be provided. PEM-format must have a terminating NULL-character. DER-format requires the length to be passed in client_key_len */
+    size_t                      client_key_len;             /*!< Length of the buffer pointed to by client_key_pem. May be 0 for null-terminated pem */
     esp_websocket_transport_t   transport;                  /*!< Websocket transport type, see `esp_websocket_transport_t */
     char                        *subprotocol;               /*!< Websocket subprotocol */
     char                        *user_agent;                /*!< Websocket user-agent */
     char                        *headers;                   /*!< Websocket additional headers */
     int                         pingpong_timeout_sec;       /*!< Period before connection is aborted due to no PONGs received */
     bool                        disable_pingpong_discon;    /*!< Disable auto-disconnect due to no PONG received within pingpong_timeout_sec */
-
+    bool                        use_global_ca_store;        /*!< Use a global ca_store for all the connections in which this bool is set. */
+    bool                        skip_cert_common_name_check;/*!< Skip any validation of server certificate CN field */
+    bool                        keep_alive_enable;          /*!< Enable keep-alive timeout */
+    int                         keep_alive_idle;            /*!< Keep-alive idle time. Default is 5 (second) */
+    int                         keep_alive_interval;        /*!< Keep-alive interval time. Default is 5 (second) */
+    int                         keep_alive_count;           /*!< Keep-alive packet retry send count. Default is 3 counts */
+    size_t                      ping_interval_sec;          /*!< Websocket ping interval, defaults to 10 seconds if not set */
+    struct ifreq                *if_name;                   /*!< The name of interface for data to go through. Use the default interface without setting */
 } esp_websocket_client_config_t;
 
 /**
@@ -133,7 +146,7 @@ esp_err_t esp_websocket_client_start(esp_websocket_client_handle_t client);
  * using esp_websocket_client_close().
  *
  *  Notes:
- *  - Cannot be called from the websocket event handler 
+ *  - Cannot be called from the websocket event handler
  *
  * @param[in]  client  The client
  *
@@ -149,7 +162,7 @@ esp_err_t esp_websocket_client_stop(esp_websocket_client_handle_t client);
  *
  *  Notes:
  *  - Cannot be called from the websocket event handler
- * 
+ *
  * @param[in]  client  The client
  *
  * @return     esp_err_t
@@ -208,7 +221,7 @@ int esp_websocket_client_send_text(esp_websocket_client_handle_t client, const c
  * * Client is stopped the same way as by the `esp_websocket_client_stop()`
  *
  *  Notes:
- *  - Cannot be called from the websocket event handler 
+ *  - Cannot be called from the websocket event handler
  *
  * @param[in]  client  The client
  * @param[in]  timeout Timeout in RTOS ticks for waiting
@@ -222,7 +235,7 @@ esp_err_t esp_websocket_client_close(esp_websocket_client_handle_t client, TickT
  *             Closing sequence is the same as for esp_websocket_client_close()
  *
  *  Notes:
- *  - Cannot be called from the websocket event handler 
+ *  - Cannot be called from the websocket event handler
  *
  * @param[in]  client  The client
  * @param[in]  code    Close status code as defined in RFC6455 section-7.4

@@ -705,6 +705,37 @@ TEST_CASE("nvs api tests", "[nvs]")
     TEST_ESP_OK(nvs_flash_deinit_partition(NVS_DEFAULT_PART_NAME));
 }
 
+TEST_CASE("deinit partition doesn't affect other partition's open handles", "[nvs]")
+{
+    const char *OTHER_PARTITION_NAME = "other_part";
+    PartitionEmulationFixture f(0, 10);
+    PartitionEmulationFixture f_other(0, 10, OTHER_PARTITION_NAME);
+    const char* str = "value 0123456789abcdef0123456789abcdef";
+    const uint8_t blob[8] = {0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7};
+
+    nvs_handle_t handle_1;
+    const uint32_t NVS_FLASH_SECTOR = 6;
+    const uint32_t NVS_FLASH_SECTOR_COUNT_MIN = 3;
+    f.emu.setBounds(NVS_FLASH_SECTOR, NVS_FLASH_SECTOR + NVS_FLASH_SECTOR_COUNT_MIN);
+    f_other.emu.setBounds(NVS_FLASH_SECTOR, NVS_FLASH_SECTOR + NVS_FLASH_SECTOR_COUNT_MIN);
+
+    TEST_ESP_OK(NVSPartitionManager::get_instance()->init_custom(&f.part,
+            NVS_FLASH_SECTOR,
+            NVS_FLASH_SECTOR_COUNT_MIN));
+    TEST_ESP_OK(NVSPartitionManager::get_instance()->init_custom(&f_other.part,
+            NVS_FLASH_SECTOR,
+            NVS_FLASH_SECTOR_COUNT_MIN));
+
+    TEST_ESP_OK(nvs_open_from_partition(OTHER_PARTITION_NAME, "ns", NVS_READWRITE, &handle_1));
+
+    // Deinitializing must not interfere with the open handle from the other partition.
+    TEST_ESP_OK(nvs_flash_deinit_partition(NVS_DEFAULT_PART_NAME));
+
+    TEST_ESP_OK(nvs_set_i32(handle_1, "foo", 0x3456789a));
+    nvs_close(handle_1);
+
+    TEST_ESP_OK(nvs_flash_deinit_partition(OTHER_PARTITION_NAME));
+}
 
 TEST_CASE("nvs iterators tests", "[nvs]")
 {
@@ -1189,9 +1220,9 @@ TEST_CASE("nvs api tests, starting with random data in flash", "[nvs][long]")
             nvs_close(handle_2);
         }
         nvs_close(handle_1);
-    }
 
-    TEST_ESP_OK(nvs_flash_deinit_partition(NVS_DEFAULT_PART_NAME));
+        TEST_ESP_OK(nvs_flash_deinit_partition(f.part.get_partition_name()));
+    }
 }
 extern "C" void nvs_dump(const char *partName);
 
@@ -1488,17 +1519,16 @@ TEST_CASE("test recovery from sudden poweroff", "[long][nvs][recovery][monkey]")
     gen.seed(seed);
     const size_t iter_count = 2000;
 
-    PartitionEmulationFixture f(0, 10);
-
-    const uint32_t NVS_FLASH_SECTOR = 2;
-    const uint32_t NVS_FLASH_SECTOR_COUNT_MIN = 8;
-
-    f.emu.setBounds(NVS_FLASH_SECTOR, NVS_FLASH_SECTOR + NVS_FLASH_SECTOR_COUNT_MIN);
-
     size_t totalOps = 0;
     int lastPercent = -1;
     for (uint32_t errDelay = 0; ; ++errDelay) {
         INFO(errDelay);
+
+        PartitionEmulationFixture f(0, 10);
+        const uint32_t NVS_FLASH_SECTOR = 2;
+        const uint32_t NVS_FLASH_SECTOR_COUNT_MIN = 8;
+        f.emu.setBounds(NVS_FLASH_SECTOR, NVS_FLASH_SECTOR + NVS_FLASH_SECTOR_COUNT_MIN);
+
         f.emu.randomize(seed);
         f.emu.clearStats();
         f.emu.failAfter(errDelay);
@@ -1519,14 +1549,18 @@ TEST_CASE("test recovery from sudden poweroff", "[long][nvs][recovery][monkey]")
         if (NVSPartitionManager::get_instance()->init_custom(&f.part,
                 NVS_FLASH_SECTOR,
                 NVS_FLASH_SECTOR_COUNT_MIN) == ESP_OK) {
+            auto res = ESP_ERR_FLASH_OP_FAIL;
             if (nvs_open("namespace1", NVS_READWRITE, &handle) == ESP_OK) {
-                if(test.doRandomThings(handle, gen, count) != ESP_ERR_FLASH_OP_FAIL) {
-                    nvs_close(handle);
-                    break;
-                }
+                res = test.doRandomThings(handle, gen, count);
                 nvs_close(handle);
             }
+
             TEST_ESP_OK(nvs_flash_deinit_partition(NVS_DEFAULT_PART_NAME));
+            if (res != ESP_ERR_FLASH_OP_FAIL) {
+                // This means we got to the end without an error due to f.emu.failAfter(), therefore errDelay
+                // is high enough that we're not triggering it any more, therefore we're done
+                break;
+            }
         }
 
         TEST_ESP_OK(NVSPartitionManager::get_instance()->init_custom(&f.part,
@@ -1544,6 +1578,7 @@ TEST_CASE("test recovery from sudden poweroff", "[long][nvs][recovery][monkey]")
         TEST_ESP_OK(nvs_flash_deinit_partition(NVS_DEFAULT_PART_NAME));
     }
 }
+
 TEST_CASE("test for memory leaks in open/set", "[leaks]")
 {
     PartitionEmulationFixture f(0, 10);
@@ -2633,7 +2668,7 @@ TEST_CASE("check and read data from partition generated via partition generation
             CHECK(childpid > 0);
             int status;
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
         }
     }
 
@@ -2649,7 +2684,7 @@ TEST_CASE("check and read data from partition generated via partition generation
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
     }
 }
@@ -2666,7 +2701,7 @@ TEST_CASE("check and read data from partition generated via partition generation
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
         childpid = fork();
 
@@ -2684,7 +2719,7 @@ TEST_CASE("check and read data from partition generated via partition generation
         } else {
             CHECK(childpid > 0);
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
         }
     }
 
@@ -2700,7 +2735,7 @@ TEST_CASE("check and read data from partition generated via partition generation
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
     }
 }
@@ -2720,7 +2755,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
         childpid = fork();
         if (childpid == 0) {
@@ -2739,7 +2774,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
         } else {
             CHECK(childpid > 0);
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
 
             childpid = fork();
             if (childpid == 0) {
@@ -2755,7 +2790,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
             } else {
                 CHECK(childpid > 0);
                 waitpid(childpid, &status, 0);
-                CHECK(WEXITSTATUS(status) != -1);
+                CHECK(WEXITSTATUS(status) == 0);
 
             }
 
@@ -2780,7 +2815,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
     }
 
@@ -2801,7 +2836,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
         childpid = fork();
         if (childpid == 0) {
@@ -2820,7 +2855,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
         } else {
             CHECK(childpid > 0);
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
 
             childpid = fork();
             if (childpid == 0) {
@@ -2836,7 +2871,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
             } else {
                 CHECK(childpid > 0);
                 waitpid(childpid, &status, 0);
-                CHECK(WEXITSTATUS(status) != -1);
+                CHECK(WEXITSTATUS(status) == 0);
 
             }
 
@@ -2860,7 +2895,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
     }
 
@@ -3016,7 +3051,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
         childpid = fork();
 
@@ -3034,7 +3069,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
         } else {
             CHECK(childpid > 0);
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
         }
     }
 
@@ -3056,7 +3091,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
     }
 
@@ -3105,7 +3140,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
         childpid = fork();
 
@@ -3116,7 +3151,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
         } else {
             CHECK(childpid > 0);
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
 
             childpid = fork();
             if (childpid == 0) {
@@ -3133,7 +3168,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
             } else {
                 CHECK(childpid > 0);
                 waitpid(childpid, &status, 0);
-                CHECK(WEXITSTATUS(status) != -1);
+                CHECK(WEXITSTATUS(status) == 0);
 
             }
         }
@@ -3226,7 +3261,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
     }
 
     SpiFlashEmulator emu("../nvs_partition_generator/partition_encrypted_using_keyfile.bin");
@@ -3256,7 +3291,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
         childpid = fork();
 
@@ -3267,7 +3302,7 @@ TEST_CASE("test nvs apis for nvs partition generator utility with encryption ena
         } else {
             CHECK(childpid > 0);
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
         }
     }
 
@@ -3288,7 +3323,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
         childpid = fork();
         if (childpid == 0) {
@@ -3309,7 +3344,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
         } else {
             CHECK(childpid > 0);
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
 
             childpid = fork();
             if (childpid == 0) {
@@ -3327,7 +3362,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
             } else {
                 CHECK(childpid > 0);
                 waitpid(childpid, &status, 0);
-                CHECK(WEXITSTATUS(status) != -1);
+                CHECK(WEXITSTATUS(status) == 0);
 
             }
 
@@ -3360,7 +3395,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
     }
 
@@ -3381,7 +3416,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
         childpid = fork();
         if (childpid == 0) {
@@ -3396,7 +3431,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
         } else {
             CHECK(childpid > 0);
             waitpid(childpid, &status, 0);
-            CHECK(WEXITSTATUS(status) != -1);
+            CHECK(WEXITSTATUS(status) == 0);
 
             childpid = fork();
             if (childpid == 0) {
@@ -3417,7 +3452,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
             } else {
                 CHECK(childpid > 0);
                 waitpid(childpid, &status, 0);
-                CHECK(WEXITSTATUS(status) != -1);
+                CHECK(WEXITSTATUS(status) == 0);
 
                 childpid = fork();
                 if (childpid == 0) {
@@ -3435,7 +3470,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
                 } else {
                     CHECK(childpid > 0);
                     waitpid(childpid, &status, 0);
-                    CHECK(WEXITSTATUS(status) != -1);
+                    CHECK(WEXITSTATUS(status) == 0);
 
                 }
 
@@ -3480,7 +3515,7 @@ TEST_CASE("check and read data from partition generated via manufacturing utilit
     } else {
         CHECK(childpid > 0);
         waitpid(childpid, &status, 0);
-        CHECK(WEXITSTATUS(status) != -1);
+        CHECK(WEXITSTATUS(status) == 0);
 
     }
 

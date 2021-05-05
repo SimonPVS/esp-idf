@@ -543,7 +543,7 @@ static tBTA_JV_STATUS bta_jv_free_set_pm_profile_cb(UINT32 jv_handle)
                         p_cb = &p_pcb->p_pm_cb;
                     }
                 }
-            } 
+            }
 #if BTA_JV_L2CAP_INCLUDED
             else {
                 if (jv_handle < BTA_JV_MAX_L2C_CONN) {
@@ -856,6 +856,7 @@ void bta_jv_free_scn(tBTA_JV_MSG *p_data)
     tBTA_JV_FREE_SCN evt_data = {
         .status = BTA_JV_SUCCESS,
         .server_status = BTA_JV_SERVER_STATUS_MAX,
+        .scn = scn
     };
 
     tBTA_JV_FREE_SCN_USER_DATA *user_data = NULL;
@@ -949,6 +950,7 @@ static void bta_jv_start_discovery_cback(UINT16 result, void *user_data)
         status = BTA_JV_FAILURE;
         if (result == SDP_SUCCESS || result == SDP_DB_FULL) {
             tSDP_DISC_REC       *p_sdp_rec = NULL;
+            tSDP_DISC_ATTR *p_attr = NULL;
             tSDP_PROTOCOL_ELEM  pe;
             logu("bta_jv_cb.uuid", bta_jv_cb.uuid.uu.uuid128);
             tBT_UUID su = shorten_sdp_uuid(&bta_jv_cb.uuid);
@@ -957,7 +959,13 @@ static void bta_jv_start_discovery_cback(UINT16 result, void *user_data)
                 p_sdp_rec = SDP_FindServiceUUIDInDb(p_bta_jv_cfg->p_sdp_db, &su, p_sdp_rec);
                 APPL_TRACE_DEBUG("p_sdp_rec:%p", p_sdp_rec);
                 if (p_sdp_rec && SDP_FindProtocolListElemInRec(p_sdp_rec, UUID_PROTOCOL_RFCOMM, &pe)){
-                    dcomp.scn[dcomp.scn_num++] = (UINT8) pe.params[0];
+                    dcomp.scn[dcomp.scn_num] = (UINT8) pe.params[0];
+                    if ((p_attr = SDP_FindAttributeInRec(p_sdp_rec, ATTR_ID_SERVICE_NAME)) != NULL) {
+                        dcomp.service_name[dcomp.scn_num] = (char *)p_attr->attr_value.v.array;
+                    } else {
+                        dcomp.service_name[dcomp.scn_num] = NULL;
+                    }
+                    dcomp.scn_num++;
                     status = BTA_JV_SUCCESS;
                 }
             } while (p_sdp_rec);
@@ -1880,7 +1888,7 @@ void bta_jv_rfcomm_close(tBTA_JV_MSG *p_data)
         cc->p_cback(BTA_JV_RFCOMM_CLOSE_EVT, (tBTA_JV *)&evt_data, user_data);
     }
     bta_jv_free_rfc_cb(p_cb, p_pcb);
-    APPL_TRACE_DEBUG("%s: sec id in use:%d, rfc_cb in use:%d",__func__, 
+    APPL_TRACE_DEBUG("%s: sec id in use:%d, rfc_cb in use:%d",__func__,
                      get_sec_id_used(), get_rfc_cb_used());
 }
 
@@ -2154,6 +2162,7 @@ void bta_jv_rfcomm_start_server(tBTA_JV_MSG *p_data)
         evt_data.status = BTA_JV_SUCCESS;
         evt_data.handle = p_pcb->handle;
         evt_data.sec_id = sec_id;
+        evt_data.scn = rs->local_scn;
         evt_data.use_co = TRUE;
 
         PORT_ClearKeepHandleFlag(handle);
@@ -2257,22 +2266,39 @@ void bta_jv_rfcomm_write(tBTA_JV_MSG *p_data)
     evt_data.status = BTA_JV_FAILURE;
     evt_data.handle = p_pcb->handle;
     evt_data.req_id = wc->req_id;
-    evt_data.cong   = p_pcb->cong;
+    evt_data.old_cong = p_pcb->cong;
     bta_jv_pm_conn_busy(p_pcb->p_pm_cb);
-    evt_data.len = wc->len;
-    if (!evt_data.cong &&
+    evt_data.len = -1;
+    if (!evt_data.old_cong &&
             PORT_WriteDataCO(p_pcb->port_handle, &evt_data.len, wc->len, wc->p_data) ==
             PORT_SUCCESS) {
         evt_data.status = BTA_JV_SUCCESS;
     }
     // update congestion flag
-    evt_data.cong   = p_pcb->cong;
+    evt_data.cong = p_pcb->cong;
     if (p_cb->p_cback) {
         p_cb->p_cback(BTA_JV_RFCOMM_WRITE_EVT, (tBTA_JV *)&evt_data, p_pcb->user_data);
     } else {
         APPL_TRACE_ERROR("bta_jv_rfcomm_write :: WARNING ! No JV callback set");
     }
 
+}
+
+/*******************************************************************************
+**
+** Function     bta_jv_rfcomm_flow_control
+**
+** Description  give credits to the peer
+**
+** Returns      void
+**
+*******************************************************************************/
+void bta_jv_rfcomm_flow_control(tBTA_JV_MSG *p_data)
+{
+    tBTA_JV_API_RFCOMM_FLOW_CONTROL *fc = &(p_data->rfcomm_fc);
+
+    tBTA_JV_PCB *p_pcb = fc->p_pcb;
+    PORT_FlowControl_GiveCredit(p_pcb->port_handle, TRUE, fc->credits_given);
 }
 
 /*******************************************************************************

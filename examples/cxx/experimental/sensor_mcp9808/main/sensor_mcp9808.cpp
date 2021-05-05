@@ -1,3 +1,12 @@
+/* ESP MCP9808 Sensor/I2C C++ Example
+
+   This example code is in the Public Domain (or CC0 licensed, at your option.)
+
+   Unless required by applicable law or agreed to in writing, this
+   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+   CONDITIONS OF ANY KIND, either express or implied.
+*/
+
 #include <iostream>
 #include "i2c_cxx.hpp"
 
@@ -38,7 +47,8 @@ extern "C" void app_main(void)
 
         cout << "Current temperature: " << calc_temp(data[0], data[1]) << endl;
     } catch (const I2CException &e) {
-        cout << "I2C Exception with error: " << e.error << endl;
+        cout << "I2C Exception with error: "  << e.what();
+        cout << " (" << e.error<< ")" << endl;
         cout << "Coulnd't read sensor!" << endl;
     }
 }

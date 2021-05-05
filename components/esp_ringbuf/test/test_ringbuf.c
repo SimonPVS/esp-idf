@@ -185,7 +185,7 @@ TEST_CASE("Test ring buffer No-Split", "[esp_ringbuf]")
     }
 
     //Write pointer should be near the end, test wrap around
-    uint32_t write_pos_before, write_pos_after;
+    UBaseType_t write_pos_before, write_pos_after;
     vRingbufferGetInfo(buffer_handle, NULL, NULL, &write_pos_before, NULL, NULL);
     //Send large item that causes wrap around
     send_item_and_check(buffer_handle, large_item, LARGE_ITEM_SIZE, TIMEOUT_TICKS, false);
@@ -216,7 +216,7 @@ TEST_CASE("Test ring buffer Allow-Split", "[esp_ringbuf]")
     }
 
     //Write pointer should be near the end, test wrap around
-    uint32_t write_pos_before, write_pos_after;
+    UBaseType_t write_pos_before, write_pos_after;
     vRingbufferGetInfo(buffer_handle, NULL, NULL, &write_pos_before, NULL, NULL);
     //Send large item that causes wrap around
     send_item_and_check(buffer_handle, large_item, LARGE_ITEM_SIZE, TIMEOUT_TICKS, false);
@@ -247,7 +247,7 @@ TEST_CASE("Test ring buffer Byte Buffer", "[esp_ringbuf]")
     }
 
     //Write pointer should be near the end, test wrap around
-    uint32_t write_pos_before, write_pos_after;
+    UBaseType_t write_pos_before, write_pos_after;
     vRingbufferGetInfo(buffer_handle, NULL, NULL, &write_pos_before, NULL, NULL);
     //Send large item that causes wrap around
     send_item_and_check(buffer_handle, large_item, LARGE_ITEM_SIZE, TIMEOUT_TICKS, false);
@@ -678,8 +678,8 @@ static IRAM_ATTR __attribute__((noinline)) bool iram_ringbuf_test(void)
     result = result && (handle != NULL);
     spi_flash_guard_get()->start(); // Disables flash cache
     xRingbufferGetMaxItemSize(handle);
-    vRingbufferDelete(handle);
     spi_flash_guard_get()->end(); // Re-enables flash cache
+    vRingbufferDelete(handle);
 
     return result;
 }

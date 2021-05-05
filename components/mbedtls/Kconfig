@@ -115,16 +115,26 @@ menu "mbedTLS"
             Free peer certificate after its usage in handshake process.
 
     config MBEDTLS_DYNAMIC_FREE_CONFIG_DATA
-        bool "Free certificate, key and DHM data after its usage"
+        bool "Free private key and DHM data after its usage"
         default n
         depends on MBEDTLS_DYNAMIC_BUFFER
         help
-            Free certificate, private key and DHM data after its usage in handshake process.
+            Free private key and DHM data after its usage in handshake process.
 
             The option will decrease heap cost when handshake, but also lead to problem:
 
             Becasue all certificate, private key and DHM data are freed so users should register
             certificate and private key to ssl config object again.
+
+    config MBEDTLS_DYNAMIC_FREE_CA_CERT
+        bool "Free SSL ca certificate after its usage"
+        default y
+        depends on MBEDTLS_DYNAMIC_FREE_CONFIG_DATA
+        help
+            Free ca certificate after its usage in the handshake process.
+            This option will decrease the heap footprint for the TLS handshake, but may lead to a problem:
+            If the respective ssl object needs to perform the TLS handshake again,
+            the ca certificate should once again be registered to the ssl object.
 
     config MBEDTLS_DEBUG
         bool "Enable mbedTLS debugging"
@@ -222,6 +232,7 @@ menu "mbedTLS"
 
     config MBEDTLS_HARDWARE_AES
         bool "Enable hardware AES acceleration"
+        default n if IDF_TARGET_ESP32S3
         default y
         depends on !SPIRAM_CACHE_WORKAROUND_STRATEGY_DUPLDST
         help
@@ -254,6 +265,7 @@ menu "mbedTLS"
 
     config MBEDTLS_HARDWARE_MPI
         bool "Enable hardware MPI (bignum) acceleration"
+        default n if IDF_TARGET_ESP32S3
         default y
         depends on !SPIRAM_CACHE_WORKAROUND_STRATEGY_DUPLDST
         help
@@ -266,6 +278,7 @@ menu "mbedTLS"
 
     config MBEDTLS_HARDWARE_SHA
         bool "Enable hardware SHA acceleration"
+        default n if IDF_TARGET_ESP32S3
         default y
         depends on !SPIRAM_CACHE_WORKAROUND_STRATEGY_DUPLDST
         help
@@ -279,6 +292,12 @@ menu "mbedTLS"
 
             SHA hardware acceleration is faster than software in some situations but
             slower in others. You should benchmark to find the best setting for you.
+
+    config MBEDTLS_ROM_MD5
+        bool "Use MD5 implementation in ROM"
+        default y
+        help
+            Use ROM MD5 in mbedTLS.
 
     config MBEDTLS_ATCA_HW_ECDSA_SIGN
         bool "Enable hardware ECDSA sign acceleration when using ATECC608A"
@@ -295,24 +314,48 @@ menu "mbedTLS"
             when using ATECC608A cryptoauth chip (integrated with ESP32-WROOM-32SE)
 
     config MBEDTLS_HAVE_TIME
-        bool "Enable mbedtls time"
-        depends on !ESP32_TIME_SYSCALL_USE_NONE
+        bool "Enable mbedtls time support"
+        depends on !ESP_TIME_FUNCS_USE_NONE
         default y
         help
-            System has time.h and time().
-            The time does not need to be correct, only time differences are used.
+            Enable use of time.h functions (time() and gmtime()) by mbedTLS.
+
+            This option doesn't require the system time to be correct, but enables
+            functionality that requires relative timekeeping - for example periodic
+            expiry of TLS session tickets or session cache entries.
+
+            Disabling this option will save some firmware size, particularly if
+            the rest of the firmware doesn't call any standard timekeeeping
+            functions.
 
     config MBEDTLS_HAVE_TIME_DATE
         bool "Enable mbedtls certificate expiry check"
         depends on MBEDTLS_HAVE_TIME
         default n
         help
-            System has time.h and time(), gmtime() and the clock is correct.
-            The time needs to be correct (not necesarily very accurate, but at least
-            the date should be correct). This is used to verify the validity period of
-            X.509 certificates.
+            Enables X.509 certificate expiry checks in mbedTLS.
 
-            It is suggested that you should get the real time by "SNTP".
+            If this option is disabled (default) then X.509 certificate
+            "valid from" and "valid to" timestamp fields are ignored.
+
+            If this option is enabled, these fields are compared with the
+            current system date and time. The time is retrieved using the
+            standard time() and gmtime() functions. If the certificate is not
+            valid for the current system time then verification will fail with
+            code MBEDTLS_X509_BADCERT_FUTURE or MBEDTLS_X509_BADCERT_EXPIRED.
+
+            Enabling this option requires adding functionality in the firmware
+            to set the system clock to a valid timestamp before using TLS. The
+            recommended way to do this is via ESP-IDF's SNTP functionality, but
+            any method can be used.
+
+            In the case where only a small number of certificates are trusted by
+            the device, please carefully consider the tradeoffs of enabling this
+            option. There may be undesired consequences, for example if all
+            trusted certificates expire while the device is offline and a TLS
+            connection is required to update. Or if an issue with the SNTP
+            server means that the system time is invalid for an extended period
+            after a reset.
 
     config MBEDTLS_ECDSA_DETERMINISTIC
         bool "Enable deterministic ECDSA"
@@ -802,6 +845,17 @@ menu "mbedTLS"
         default n
         help
             Enable the pthread wrapper layer for the threading layer.
+
+    config MBEDTLS_LARGE_KEY_SOFTWARE_MPI
+        bool "Fallback to software implementation for larger MPI values"
+        depends on MBEDTLS_HARDWARE_MPI
+        default y if IDF_TARGET_ESP32C3  # HW max 3072 bits
+        default n
+        help
+            Fallback to software implementation for RSA key lengths
+            larger than SOC_RSA_MAX_BIT_LEN. If this is not active
+            then the ESP will be unable to process keys greater
+            than SOC_RSA_MAX_BIT_LEN.
 
     menuconfig MBEDTLS_SECURITY_RISKS
         bool "Show configurations with potential security risks"

@@ -13,8 +13,11 @@
 // limitations under the License.
 
 /*
- Tests for the adc device driver
+ Tests for the adc device driver on ESP32-S2 only
 */
+#include "sdkconfig.h"
+#if CONFIG_IDF_TARGET_ESP32S2
+
 
 #include "esp_system.h"
 #include "esp_intr_alloc.h"
@@ -22,7 +25,6 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "driver/adc.h"
-#include "driver/dac.h"
 #include "driver/rtc_io.h"
 #include "driver/gpio.h"
 #include "unity.h"
@@ -35,10 +37,11 @@
 #include "soc/adc_periph.h"
 #include "test/test_common_adc.h"
 #include "esp_rom_sys.h"
-
-#if !DISABLED_FOR_TARGETS(ESP8266, ESP32, ESP32S3) // This testcase for ESP32S2
+#include "driver/dac.h"
 
 #include "soc/system_reg.h"
+#include "soc/spi_reg.h"
+#include "soc/soc.h"
 #include "soc/lldesc.h"
 #include "test/test_adc_dac_dma.h"
 
@@ -440,10 +443,12 @@ int test_adc_dig_dma_single_unit(adc_unit_t adc)
 
     TEST_ESP_OK( adc_check_patt_table(adc, adc_test_num, adc_list[adc_test_num - 1]) );
     adc_dma_data_multi_st_check(adc, (void *)dma_addr, int_mask);
-    
+
     adc_dac_dma_linker_deinit();
     adc_dac_dma_isr_deregister(adc_dma_isr, NULL);
     TEST_ESP_OK( adc_digi_deinit() );
+    vTaskDelay(10 / portTICK_RATE_MS);
+
     return 0;
 }
 
@@ -632,4 +637,4 @@ TEST_CASE("test_adc_digi_slope_debug", "[adc_dma][ignore]")
     }
 }
 
-#endif // !DISABLED_FOR_TARGETS(ESP8266, ESP32)
+#endif // CONFIG_IDF_TARGET_ESP32S2

@@ -14,6 +14,7 @@
 
 #include <stdlib.h>
 #include "spi_flash_chip_generic.h"
+#include "spi_flash_chip_issi.h"
 #include "spi_flash_defs.h"
 
 /* Driver for ISSI flash chip, as used in ESP32 D2WD */
@@ -57,7 +58,6 @@ esp_err_t spi_flash_chip_issi_get_io_mode(esp_flash_t *chip, esp_flash_io_mode_t
     return ret;
 }
 
-
 static const char chip_name[] = "issi";
 
 // The issi chip can use the functions for generic chips except from set read mode and probe,
@@ -77,7 +77,6 @@ const spi_flash_chip_t esp_flash_chip_issi = {
     .get_chip_write_protect = spi_flash_chip_generic_get_write_protect,
     .set_chip_write_protect = spi_flash_chip_generic_set_write_protect,
 
-    // TODO support protected regions on ISSI flash
     .num_protectable_regions = 0,
     .protectable_regions = NULL,
     .get_protected_regions = NULL,
@@ -92,4 +91,9 @@ const spi_flash_chip_t esp_flash_chip_issi = {
     .wait_idle = spi_flash_chip_generic_wait_idle,
     .set_io_mode = spi_flash_chip_issi_set_io_mode,
     .get_io_mode = spi_flash_chip_issi_get_io_mode,
+
+    .read_reg = spi_flash_chip_generic_read_reg,
+    .yield = spi_flash_chip_generic_yield,
+    .sus_setup = spi_flash_chip_generic_suspend_cmd_conf,
+    .read_unique_id = spi_flash_chip_generic_read_unique_id,
 };

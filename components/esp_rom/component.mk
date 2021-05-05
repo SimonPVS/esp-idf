@@ -1,6 +1,5 @@
-COMPONENT_ADD_INCLUDEDIRS := include
+COMPONENT_ADD_INCLUDEDIRS := include esp32
 COMPONENT_SRCDIRS := patches .
-COMPONENT_PRIV_INCLUDEDIRS := esp32
 
 #Linker scripts used to link the final application.
 #Warning: These linker scripts are only used when the normal app is compiled; the bootloader
@@ -40,5 +39,6 @@ endif
 
 COMPONENT_ADD_LDFLAGS += -L $(COMPONENT_PATH)/esp32/ld \
                          $(addprefix -T ,$(LINKER_SCRIPTS)) \
+                         -l$(COMPONENT_NAME) -Wl,--wrap=longjmp \
 
 COMPONENT_ADD_LINKER_DEPS += $(addprefix esp32/ld/, $(LINKER_SCRIPTS))

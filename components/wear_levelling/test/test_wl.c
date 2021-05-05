@@ -13,6 +13,8 @@
 #include "esp32s2/clk.h"
 #elif CONFIG_IDF_TARGET_ESP32S3
 #include "esp32s3/clk.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#include "esp32c3/clk.h"
 #endif
 #include "soc/cpu.h"
 #include "esp_rom_sys.h"
@@ -139,7 +141,7 @@ TEST_CASE("multiple tasks can access wl handle simultaneously", "[wear_levelling
     TEST_ESP_OK(wl_erase_range(handle, 0, sector_size * 8));
     read_write_test_arg_t args1 = READ_WRITE_TEST_ARG_INIT(0, 1, handle, sector_size/sizeof(uint32_t));
     read_write_test_arg_t args2 = READ_WRITE_TEST_ARG_INIT(sector_size, 2, handle, sector_size/sizeof(uint32_t));
-    const size_t stack_size = 4096;
+    const size_t stack_size = 8192;
 
     printf("writing 1 and 2\n");
     const int cpuid_0 = 0;
@@ -236,7 +238,7 @@ TEST_CASE("multiple write is correct", "[wear_levelling]")
     check_mem_data(handle, init_val, buff);
 
     uint32_t start;
-    RSR(CCOUNT, start);
+    start = cpu_hal_get_cycle_count();
 
 
     for (int m=0 ; m< 100000 ; m++) {
@@ -249,7 +251,7 @@ TEST_CASE("multiple write is correct", "[wear_levelling]")
         check_mem_data(handle, init_val, buff);
 
         uint32_t end;
-        RSR(CCOUNT, end);
+        end = cpu_hal_get_cycle_count();
         uint32_t ms = (end - start) / (esp_clk_cpu_freq() / 1000);
         printf("loop %4i pass, time= %ims\n", m, ms);
         if (ms > 10000) {

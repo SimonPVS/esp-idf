@@ -6,6 +6,7 @@
 #include "esp_wifi_netif.h"
 #include <string.h>
 
+
 TEST_CASE("esp_netif: init and destroy", "[esp_netif]")
 {
     esp_netif_config_t cfg = ESP_NETIF_DEFAULT_WIFI_STA();
@@ -275,5 +276,76 @@ TEST_CASE("esp_netif: get/set hostname", "[esp_netif]")
     TEST_ASSERT_EQUAL(ESP_OK, esp_netif_get_hostname(esp_netif, &hostname));
     TEST_ASSERT_EQUAL_STRING(hostname, "new_name");
 
+    // test that setting the long name is refused and the previously set value retained
+    #define ESP_NETIF_HOSTNAME_MAX_SIZE    32
+    char long_name[ESP_NETIF_HOSTNAME_MAX_SIZE + 2] = { 0 };
+    memset(long_name, 'A', ESP_NETIF_HOSTNAME_MAX_SIZE+1); // construct the long name
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, esp_netif_set_hostname(esp_netif, long_name));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_netif_get_hostname(esp_netif, &hostname));
+    TEST_ASSERT_EQUAL_STRING(hostname, "new_name");
+
     esp_netif_destroy(esp_netif);
+}
+
+TEST_CASE("esp_netif: convert ip address from string", "[esp_netif]")
+{
+    const char *ipv4_src[] = {"127.168.1.1", "255.255.255.0", "305.500.721.801", "127.168.1..", "abc.def.***.ddd"};
+    esp_ip4_addr_t ipv4;
+    TEST_ASSERT_EQUAL(ESP_OK, esp_netif_str_to_ip4(ipv4_src[0], &ipv4));
+    TEST_ASSERT_EQUAL(ipv4.addr, ESP_IP4TOADDR(127, 168, 1, 1));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_netif_str_to_ip4(ipv4_src[1], &ipv4));
+    TEST_ASSERT_EQUAL(ipv4.addr, ESP_IP4TOADDR(255, 255, 255, 0));
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, esp_netif_str_to_ip4(ipv4_src[2], &ipv4));
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, esp_netif_str_to_ip4(ipv4_src[3], &ipv4));
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, esp_netif_str_to_ip4(ipv4_src[4], &ipv4));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, esp_netif_str_to_ip4(NULL, &ipv4));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, esp_netif_str_to_ip4(ipv4_src[0], NULL));
+
+    const char *ipv6_src[] = {"127:168:6:8:188:65:1:0", "255:255:255:0:0:0:65:56", "305:500:721:888:777:458:555:666", "EFGH.127:168::55"};
+    esp_ip6_addr_t ipv6;
+    TEST_ASSERT_EQUAL(ESP_OK, esp_netif_str_to_ip6(ipv6_src[0], &ipv6));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_netif_str_to_ip6(ipv6_src[1], &ipv6));
+    TEST_ASSERT_EQUAL(ESP_OK, esp_netif_str_to_ip6(ipv6_src[2], &ipv6));
+    TEST_ASSERT_NOT_EQUAL(ESP_OK, esp_netif_str_to_ip6(ipv6_src[3], &ipv6));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, esp_netif_str_to_ip6(NULL, &ipv6));
+    TEST_ASSERT_EQUAL(ESP_ERR_INVALID_ARG, esp_netif_str_to_ip6(ipv6_src[0], NULL));
+}
+
+TEST_CASE("esp_netif: create and destroy default wifi interfaces", "[esp_netif][leaks=0]")
+{
+    // Helper constants to refer default STA and AP's params
+    static const esp_netif_inherent_config_t default_sta_cfg = ESP_NETIF_INHERENT_DEFAULT_WIFI_STA();
+    static const esp_netif_inherent_config_t default_ap_cfg = ESP_NETIF_INHERENT_DEFAULT_WIFI_AP();
+
+    // create default station
+    esp_netif_t *sta = esp_netif_create_default_wifi_sta();
+
+    // check it gets created and has default params
+    TEST_ASSERT_NOT_NULL(sta);
+    TEST_ASSERT_EQUAL_STRING(default_sta_cfg.if_desc, esp_netif_get_desc(sta));
+    TEST_ASSERT_EQUAL(default_sta_cfg.route_prio, esp_netif_get_route_prio(sta));
+
+    // create default access point
+    esp_netif_t *ap = esp_netif_create_default_wifi_ap();
+
+    // check it gets created and has default params
+    TEST_ASSERT_NOT_NULL(ap);
+    TEST_ASSERT_EQUAL_STRING(default_ap_cfg.if_desc, esp_netif_get_desc(ap));
+    TEST_ASSERT_EQUAL(default_ap_cfg.route_prio, esp_netif_get_route_prio(ap));
+
+    // destroy the station
+    esp_wifi_clear_default_wifi_driver_and_handlers(sta);
+    esp_netif_destroy(sta);
+
+    // destroy the AP
+    esp_wifi_clear_default_wifi_driver_and_handlers(ap);
+    esp_netif_destroy(ap);
+
+
+    // quick check on create-destroy cycle of the default station again
+    sta = NULL;
+    sta = esp_netif_create_default_wifi_sta();
+    TEST_ASSERT_NOT_NULL(sta);
+    esp_wifi_clear_default_wifi_driver_and_handlers(sta);
+    esp_netif_destroy(sta);
 }

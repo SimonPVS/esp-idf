@@ -32,13 +32,14 @@
 #include "esp_rom_efuse.h"
 #include "soc/dport_reg.h"
 #include "soc/efuse_periph.h"
-#include "soc/spi_caps.h"
+#include "soc/soc_caps.h"
 #include "soc/io_mux_reg.h"
 #include "soc/apb_ctrl_reg.h"
 #include "soc/efuse_reg.h"
 #include "soc/soc.h"
 #include "soc/io_mux_reg.h"
 #include "driver/gpio.h"
+#include "hal/gpio_hal.h"
 #include "driver/spi_common_internal.h"
 #include "driver/spi_common.h"
 #include "driver/periph_ctrl.h"
@@ -63,7 +64,7 @@ static const char* TAG = "psram";
 #define PSRAM_RESET                0x99
 #define PSRAM_SET_BURST_LEN        0xC0
 #define PSRAM_DEVICE_ID            0x9F
-// ID 
+// ID
 #define PSRAM_ID_KGD_M          0xff
 #define PSRAM_ID_KGD_S             8
 #define PSRAM_ID_KGD            0x5d
@@ -217,7 +218,7 @@ void psram_exec_cmd(int spi_num, psram_cmd_mode_t mode,
     _psram_exec_cmd(spi_num, cmd, cmd_bit_len, addr, addr_bit_len,
         dummy_bits, mosi_data, mosi_bit_len, miso_data, miso_bit_len);
     esp_rom_spi_cmd_start(spi_num, miso_data, miso_bit_len / 8, cs_mask, is_write_erase_operation);
-    
+
     WRITE_PERI_REG(SPI_MEM_USER_REG(spi_num), backup_usr);
     WRITE_PERI_REG(SPI_MEM_USER1_REG(spi_num), backup_usr1);
     WRITE_PERI_REG(SPI_MEM_USER2_REG(spi_num), backup_usr2);
@@ -275,7 +276,7 @@ static void psram_reset_mode(int spi_num)
 
 esp_err_t psram_enable_wrap(uint32_t wrap_size)
 {
-    static int current_wrap_size = 0;
+    static uint32_t current_wrap_size = 0;
     if (current_wrap_size == wrap_size) {
         return ESP_OK;
     }
@@ -379,10 +380,10 @@ static void IRAM_ATTR psram_gpio_config(psram_cache_mode_t mode)
     esp_rom_spiflash_select_qio_pins(psram_io.psram_spiwp_sd3_io, spiconfig);
 
     if (psram_io.psram_cs_io == SPI_CS1_GPIO_NUM) {
-        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[psram_io.psram_cs_io],  FUNC_SPICS1_SPICS1);
+        gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io.psram_cs_io],  FUNC_SPICS1_SPICS1);
     } else {
         esp_rom_gpio_connect_out_signal(psram_io.psram_cs_io, SPICS1_OUT_IDX, 0, 0);
-        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[psram_io.psram_cs_io],  PIN_FUNC_GPIO);
+        gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[psram_io.psram_cs_io],  PIN_FUNC_GPIO);
     }
 }
 

@@ -422,7 +422,8 @@ typedef struct {
 typedef struct {
     tBTM_ESCO_INFO   esco;              /* Current settings             */
 #if BTM_SCO_HCI_INCLUDED == TRUE
-#define BTM_SCO_XMIT_QUEUE_THRS     20
+#define BTM_SCO_XMIT_QUEUE_THRS     30
+#define BTM_SCO_XMIT_QUEUE_HIGH_WM  20
     fixed_queue_t   *xmit_data_q;       /* SCO data transmitting queue  */
     INT16           sent_not_acked;
 #endif
@@ -549,7 +550,7 @@ typedef struct {
 #endif
     UINT16 auth_mode;                   /* Authentication mode */
 #endif
-#if (BLE_PRIVACY_SPT == TRUE)
+#if (BLE_PRIVACY_SPT == TRUE && (!CONTROLLER_RPA_LIST_ENABLE))
     tBLE_ADDR_TYPE      current_addr_type; /* current adv addr type*/
     BD_ADDR             current_addr;      /* current adv addr*/
     bool                current_addr_valid; /* current addr info is valid or not*/
@@ -593,6 +594,7 @@ struct tBTM_SEC_DEV_REC{
 #define BTM_SEC_ROLE_SWITCHED   0x40
 #define BTM_SEC_IN_USE          0x80
     /* LE link security flag */
+#define BTM_SEC_LE_AUTHORIZATION   0x0100   /* LE link is authorized */
 #define BTM_SEC_LE_AUTHENTICATED   0x0200   /* LE link is encrypted after pairing with MITM */
 #define BTM_SEC_LE_ENCRYPTED       0x0400   /* LE link is encrypted */
 #define BTM_SEC_LE_NAME_KNOWN      0x0800   /* not used */
@@ -667,6 +669,9 @@ struct tBTM_SEC_DEV_REC{
 #if BLE_INCLUDED == TRUE
     tBTM_SEC_BLE        ble;
     tBTM_LE_CONN_PRAMS  conn_params;
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+    tBTM_EXT_CONN_PARAMS ext_conn_params;
+#endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
 #endif
 
 // btla-specific ++
@@ -759,7 +764,7 @@ enum {
     BTM_PAIR_STATE_WAIT_LOCAL_OOB_RSP,          /* Waiting for local response to peer OOB data  */
     BTM_PAIR_STATE_WAIT_LOCAL_IOCAPS,           /* Waiting for local IO capabilities and OOB data */
     BTM_PAIR_STATE_INCOMING_SSP,                /* Incoming SSP (got peer IO caps when idle)    */
-    BTM_PAIR_STATE_WAIT_AUTH_COMPLETE,          /* All done, waiting authentication cpmplete    */
+    BTM_PAIR_STATE_WAIT_AUTH_COMPLETE,          /* All done, waiting authentication complete    */
     BTM_PAIR_STATE_WAIT_DISCONNECT              /* Waiting to disconnect the ACL                */
 };
 typedef UINT8 tBTM_PAIRING_STATE;
@@ -1066,8 +1071,14 @@ void btm_sco_process_num_completed_pkts (UINT8 *p);
 #define btm_sco_chk_pend_unpark(hci_status, hci_handle)
 #endif /* BTM_SCO_INCLUDED */
 void btm_qos_setup_complete (UINT8 status, UINT16 handle, FLOW_SPEC *p_flow);
+void btm_qos_setup_timeout (void *p_tle);
 
 
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+void btm_create_sync_callback(UINT8 status);
+void btm_set_phy_callback(UINT8 status);
+void btm_read_phy_callback(uint8_t hci_status, uint16_t conn_handle, uint8_t tx_phy, uint8_t rx_phy);
+#endif
 /* Internal functions provided by btm_sco.c
 ********************************************
 */
@@ -1209,6 +1220,8 @@ void btm_sec_handle_remote_legacy_auth_cmp(UINT16 handle);
 void btm_sec_update_legacy_auth_state(tACL_CONN *p_acl_cb, UINT8 legacy_auth_state);
 BOOLEAN btm_sec_legacy_authentication_mutual (tBTM_SEC_DEV_REC *p_dev_rec);
 BOOLEAN btm_find_sec_dev_in_list (void *p_node_data, void *context);
+
+BOOLEAN btm_sec_dev_authorization(BD_ADDR bd_addr, BOOLEAN authorized);
 
 /*
 #ifdef __cplusplus

@@ -27,6 +27,8 @@
 #include "esp32s2/rtc.h"
 #elif CONFIG_IDF_TARGET_ESP32S3
 #include "esp32s3/rtc.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#include "esp32c3/rtc.h"
 #endif
 
 #include "esp_private/startup_internal.h"
@@ -42,5 +44,5 @@ int64_t IRAM_ATTR __attribute__((weak)) esp_system_get_time(void)
 
 uint32_t IRAM_ATTR __attribute__((weak)) esp_system_get_time_resolution(void)
 {
-    return 1000000L / rtc_clk_slow_freq_get_hz();
+    return 1000000000L / rtc_clk_slow_freq_get_hz();
 }

@@ -14,19 +14,22 @@
 #include "sdkconfig.h"
 #include "soc/soc.h"
 #include "soc/rtc.h"
-#include "soc/dport_reg.h"
 #include "soc/efuse_periph.h"
 #include "soc/rtc_cntl_reg.h"
 
+#define CPU_RESET_REASON RTC_SW_CPU_RESET
+
 #ifdef CONFIG_IDF_TARGET_ESP32
+#include "soc/dport_reg.h"
 #include "esp32/rom/rtc.h"
+#undef CPU_RESET_REASON
 #define CPU_RESET_REASON SW_CPU_RESET
 #elif CONFIG_IDF_TARGET_ESP32S2
 #include "esp32s2/rom/rtc.h"
-#define CPU_RESET_REASON RTC_SW_CPU_RESET
 #elif CONFIG_IDF_TARGET_ESP32S3
-#define CPU_RESET_REASON RTC_SW_CPU_RESET
 #include "esp32s3/rom/rtc.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#include "esp32c3/rom/rtc.h"
 #endif
 #include "esp_rom_uart.h"
 
@@ -77,6 +80,7 @@ __attribute__((weak)) void bootloader_clock_configure(void)
         rtc_clk_32k_bootstrap(CONFIG_ESP_SYSTEM_RTC_EXT_XTAL_BOOTSTRAP_CYCLES);
     }
 #endif // CONFIG_ESP_SYSTEM_RTC_EXT_XTAL
+
+    REG_WRITE(RTC_CNTL_INT_ENA_REG, 0);
+    REG_WRITE(RTC_CNTL_INT_CLR_REG, UINT32_MAX);
 }
-
-

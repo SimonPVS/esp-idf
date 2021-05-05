@@ -95,7 +95,7 @@ MEMORY
      Start of RTC slow memory is reserved for ULP co-processor code + data, if enabled.
   */
   rtc_slow_seg(RW)  :                org = 0x50000000 + CONFIG_ESP32_ULP_COPROC_RESERVE_MEM,
-                                     len = 0x1000 - CONFIG_ESP32_ULP_COPROC_RESERVE_MEM
+                                     len = 0x2000 - CONFIG_ESP32_ULP_COPROC_RESERVE_MEM
 
   /* external memory ,including data and text */
   extern_ram_seg(RWX)  :             org = 0x3F800000,
@@ -134,3 +134,12 @@ REGION_ALIAS("rtc_data_location", rtc_data_seg );
 #else
   REGION_ALIAS("default_rodata_seg", dram0_0_seg);
 #endif // CONFIG_APP_BUILD_USE_FLASH_SECTIONS
+
+/**
+ *  If rodata default segment is placed in `drom0_0_seg`, then flash's first rodata section must
+ *  also be first in the segment.
+ */
+#ifdef CONFIG_APP_BUILD_USE_FLASH_SECTIONS
+  ASSERT(_rodata_start == ORIGIN(default_rodata_seg),
+         ".flash.appdesc section must be placed at the beginning of the rodata segment.")
+#endif

@@ -21,13 +21,17 @@
 #include "soc/gpio_sig_map.h"
 #include "soc/rtc.h"
 #include "hal/clk_gate_ll.h"
+#include "hal/gpio_hal.h"
 #if CONFIG_IDF_TARGET_ESP32S2
 #include "esp32s2/rom/usb/cdc_acm.h"
 #include "esp32s2/rom/usb/usb_common.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#include "esp32c3/rom/ets_sys.h"
 #endif
 #include "esp_rom_gpio.h"
 #include "esp_rom_uart.h"
 #include "esp_rom_sys.h"
+#include "esp_rom_caps.h"
 
 #ifdef CONFIG_ESP_CONSOLE_UART_NONE
 void bootloader_console_init(void)
@@ -42,7 +46,12 @@ void bootloader_console_init(void)
 {
     const int uart_num = CONFIG_ESP_CONSOLE_UART_NUM;
 
+#if !ESP_ROM_SUPPORT_MULTIPLE_UART
+    /* esp_rom_install_channel_put is not available unless multiple UARTs are supported */
+    esp_rom_install_uart_printf();
+#else
     esp_rom_install_channel_putc(1, esp_rom_uart_putc);
+#endif
 
     // Wait for UART FIFO to be empty.
     esp_rom_uart_tx_wait_idle(0);
@@ -52,15 +61,17 @@ void bootloader_console_init(void)
     const int uart_tx_gpio = CONFIG_ESP_CONSOLE_UART_TX_GPIO;
     const int uart_rx_gpio = CONFIG_ESP_CONSOLE_UART_RX_GPIO;
     // Switch to the new UART (this just changes UART number used for esp_rom_printf in ROM code).
+#if ESP_ROM_SUPPORT_MULTIPLE_UART
     esp_rom_uart_set_as_console(uart_num);
+#endif
     // If console is attached to UART1 or if non-default pins are used,
     // need to reconfigure pins using GPIO matrix
     if (uart_num != 0 ||
             uart_tx_gpio != UART_NUM_0_TXD_DIRECT_GPIO_NUM ||
             uart_rx_gpio != UART_NUM_0_RXD_DIRECT_GPIO_NUM) {
         // Change default UART pins back to GPIOs
-        PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, PIN_FUNC_GPIO);
-        PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, PIN_FUNC_GPIO);
+        gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_U0RXD_U, PIN_FUNC_GPIO);
+        gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_U0TXD_U, PIN_FUNC_GPIO);
         // Route GPIO signals to/from pins
         const uint32_t tx_idx = uart_periph_signal[uart_num].tx_sig;
         const uint32_t rx_idx = uart_periph_signal[uart_num].rx_sig;
@@ -75,7 +86,7 @@ void bootloader_console_init(void)
 
     // Set configured UART console baud rate
     uint32_t clock_hz = rtc_clk_apb_freq_get();
-#if CONFIG_IDF_TARGET_ESP32S3
+#if ESP_ROM_UART_CLK_IS_XTAL
     clock_hz = UART_CLK_FREQ_ROM; // From esp32-s3 on, UART clock source is selected to XTAL in ROM
 #endif
     esp_rom_uart_set_clock_baudrate(uart_num, clock_hz, CONFIG_ESP_CONSOLE_UART_BAUDRATE);
@@ -100,3 +111,11 @@ void bootloader_console_init(void)
     esp_rom_install_channel_putc(1, bootloader_console_write_char_usb);
 }
 #endif //CONFIG_ESP_CONSOLE_USB_CDC
+
+#ifdef CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG
+void bootloader_console_init(void)
+{
+    //Nothing to do; ROM already outputs here by default.
+    //(But also to the UART; should we disable that? hmm.)
+}
+#endif //CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG

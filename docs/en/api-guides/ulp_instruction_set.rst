@@ -358,15 +358,15 @@ Note that when accessing RTC memories and RTC registers, ULP coprocessor has low
 **Operands**
   - *Rsrc* – Register R[0..3], holds the 16-bit value to store
   - *Rdst* – Register R[0..3], address of the destination, in 32-bit words
-  - *Offset* – 10-bit signed value, offset in bytes
+  - *Offset* – 13-bit signed value, offset in bytes
 
 **Cycles**
   4 cycles to execute, 4 cycles to fetch next instruction
 
 **Description**
-  The instruction stores the 16-bit value of Rsrc to the lower half-word of memory with address Rdst+offset. The upper half-word is written with the current program counter (PC), expressed in words, shifted left by 5 bits::
+  The instruction stores the 16-bit value of Rsrc to the lower half-word of memory with address Rdst+offset. The upper half-word is written with the current program counter (PC) (expressed in words, shifted left by 5 bits) OR'd with Rdst (0..3)::
 
-    Mem[Rdst + offset / 4]{31:0} = {PC[10:0], 5'b0, Rsrc[15:0]}
+    Mem[Rdst + offset / 4]{31:0} = {PC[10:0], 3'b0, Rdst, Rsrc[15:0]}
 
   The application can use higher 16 bits to determine which instruction in the ULP program has written any particular word into memory.
 
@@ -395,7 +395,7 @@ Note that when accessing RTC memories and RTC registers, ULP coprocessor has low
 
    *Rsrc* – Register R[0..3], holds address of destination, in 32-bit words
 
-   *Offset* – 10-bit signed value, offset in bytes
+   *Offset* – 13-bit signed value, offset in bytes
 
 **Cycles**
   4 cycles to execute, 4 cycles to fetch next instruction
@@ -786,7 +786,7 @@ Note that when accessing RTC memories and RTC registers, ULP coprocessor has low
 **Operands**
   - *Rdst* – Destination Register R[0..3], result will be stored to this register
   - *Sar_sel* – Select ADC: 0 = SARADC1, 1 = SARADC2
-  - *Mux*  -  selected PAD, SARADC Pad[Mux+1] is enabled
+  - *Mux*  -  selected PAD, SARADC Pad[Mux-1] is enabled. If the user passes Mux value 1, then ADC pad 0 gets used.
 
 **Cycles**
   ``23 + max(1, SAR_AMP_WAIT1) + max(1, SAR_AMP_WAIT2) + max(1, SAR_AMP_WAIT3) + SARx_SAMPLE_CYCLE + SARx_SAMPLE_BIT`` cycles to execute, 4 cycles to fetch next instruction

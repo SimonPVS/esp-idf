@@ -18,6 +18,7 @@
 #include "esp_netif.h"
 #include "protocol_examples_common.h"
 #include "esp_tls.h"
+#include "esp_crt_bundle.h"
 
 #include "esp_http_client.h"
 
@@ -37,6 +38,10 @@ static const char *TAG = "HTTP_CLIENT";
 */
 extern const char howsmyssl_com_root_cert_pem_start[] asm("_binary_howsmyssl_com_root_cert_pem_start");
 extern const char howsmyssl_com_root_cert_pem_end[]   asm("_binary_howsmyssl_com_root_cert_pem_end");
+
+extern const char postman_root_cert_pem_start[] asm("_binary_postman_root_cert_pem_start");
+extern const char postman_root_cert_pem_end[]   asm("_binary_postman_root_cert_pem_end");
+
 
 esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 {
@@ -124,6 +129,7 @@ static void http_rest_with_url(void)
         .query = "esp",
         .event_handler = _http_event_handler,
         .user_data = local_response_buffer,        // Pass address of local buffer to get response
+        .disable_auto_redirect = true,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
@@ -340,6 +346,7 @@ static void http_auth_basic_redirect(void)
 }
 #endif
 
+#if CONFIG_ESP_HTTP_CLIENT_ENABLE_DIGEST_AUTH
 static void http_auth_digest(void)
 {
     esp_http_client_config_t config = {
@@ -358,13 +365,14 @@ static void http_auth_digest(void)
     }
     esp_http_client_cleanup(client);
 }
+#endif
 
 static void https_with_url(void)
 {
     esp_http_client_config_t config = {
         .url = "https://www.howsmyssl.com",
         .event_handler = _http_event_handler,
-        .cert_pem = howsmyssl_com_root_cert_pem_start,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_err_t err = esp_http_client_perform(client);
@@ -518,6 +526,7 @@ static void https_async(void)
     esp_http_client_config_t config = {
         .url = "https://postman-echo.com/post",
         .event_handler = _http_event_handler,
+        .cert_pem = postman_root_cert_pem_start,
         .is_async = true,
         .timeout_ms = 5000,
     };
@@ -628,6 +637,50 @@ static void http_native_request(void)
     esp_http_client_cleanup(client);
 }
 
+static void http_partial_download(void)
+{
+    esp_http_client_config_t config = {
+        .url = "http://jigsaw.w3.org/HTTP/TE/foo.txt",
+        .event_handler = _http_event_handler,
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+    // Download a file excluding first 10 bytes
+    esp_http_client_set_header(client, "Range", "bytes=10-");
+    esp_err_t err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP Status = %d, content_length = %d",
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
+    }
+
+    // Download last 10 bytes of a file
+    esp_http_client_set_header(client, "Range", "bytes=-10");
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP Status = %d, content_length = %d",
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
+    }
+
+    // Download 10 bytes from 11 to 20
+    esp_http_client_set_header(client, "Range", "bytes=11-20");
+    err = esp_http_client_perform(client);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "HTTP Status = %d, content_length = %d",
+                esp_http_client_get_status_code(client),
+                esp_http_client_get_content_length(client));
+    } else {
+        ESP_LOGE(TAG, "HTTP request failed: %s", esp_err_to_name(err));
+    }
+
+    esp_http_client_cleanup(client);
+}
+
 static void http_test_task(void *pvParameters)
 {
     http_rest_with_url();
@@ -636,7 +689,9 @@ static void http_test_task(void *pvParameters)
     http_auth_basic();
     http_auth_basic_redirect();
 #endif
+#if CONFIG_ESP_HTTP_CLIENT_ENABLE_DIGEST_AUTH
     http_auth_digest();
+#endif
     http_relative_redirect();
     http_absolute_redirect();
     https_with_url();
@@ -647,6 +702,7 @@ static void http_test_task(void *pvParameters)
     https_async();
     https_with_invalid_url();
     http_native_request();
+    http_partial_download();
 
     ESP_LOGI(TAG, "Finish http example");
     vTaskDelete(NULL);

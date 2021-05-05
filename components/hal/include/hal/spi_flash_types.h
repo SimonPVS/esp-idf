@@ -15,6 +15,7 @@
 #pragma once
 
 #include <esp_types.h>
+#include <esp_bit_defs.h>
 #include "esp_flash_err.h"
 
 #ifdef __cplusplus
@@ -23,13 +24,19 @@ extern "C" {
 
 /** Definition of a common transaction. Also holds the return value. */
 typedef struct {
-    uint8_t command;            ///< Command to send, always 8bits
+    uint8_t reserved;           ///< Reserved, must be 0.
     uint8_t mosi_len;           ///< Output data length, in bytes
     uint8_t miso_len;           ///< Input data length, in bytes
     uint8_t address_bitlen;     ///< Length of address in bits, set to 0 if command does not need an address
     uint32_t address;           ///< Address to perform operation on
     const uint8_t *mosi_data;   ///< Output data to salve
     uint8_t *miso_data;         ///< [out] Input data from slave, little endian
+    uint32_t flags;             ///< Flags for this transaction. Set to 0 for now.
+#define SPI_FLASH_TRANS_FLAG_CMD16          BIT(0)  ///< Send command of 16 bits
+#define SPI_FLASH_TRANS_FLAG_IGNORE_BASEIO  BIT(1)  ///< Not applying the basic io mode configuration for this transaction
+#define SPI_FLASH_TRANS_FLAG_BYTE_SWAP      BIT(2)  ///< Used for DTR mode, to swap the bytes of a pair of rising/falling edge
+    uint16_t command;           ///< Command to send
+    uint8_t dummy_bitlen;       ///< Basic dummy bits to use
 } spi_flash_trans_t;
 
 /**
@@ -53,6 +60,9 @@ typedef enum {
 ///Lowest speed supported by the driver, currently 5 MHz
 #define ESP_FLASH_SPEED_MIN     ESP_FLASH_5MHZ
 
+// These bits are not quite like "IO mode", but are able to be appended into the io mode and used by the HAL.
+#define SPI_FLASH_CONFIG_CONF_BITS      BIT(31) ///< OR the io_mode with this mask, to enable the dummy output feature or replace the first several dummy bits into address to meet the requirements of conf bits. (Used in DIO/QIO/OIO mode)
+
 /** @brief Mode used for reading from SPI flash */
 typedef enum {
     SPI_FLASH_SLOWRD = 0, ///< Data read using single I/O, some limits on speed
@@ -64,6 +74,55 @@ typedef enum {
 
     SPI_FLASH_READ_MODE_MAX,    ///< The fastest io mode supported by the host is ``ESP_FLASH_READ_MODE_MAX-1``.
 } esp_flash_io_mode_t;
+
+/// Configuration structure for the flash chip suspend feature.
+typedef struct {
+    uint32_t sus_mask;     ///< SUS/SUS1/SUS2 bit in flash register.
+    struct {
+        uint32_t cmd_rdsr    :8;             ///< Read flash status register(2) command.
+        uint32_t sus_cmd     :8;             ///< Flash suspend command.
+        uint32_t res_cmd     :8;             ///< Flash resume command.
+        uint32_t reserved    :8;             ///< Reserved, set to 0.
+    };
+} spi_flash_sus_cmd_conf;
+
+/// Structure for flash encryption operations.
+typedef struct
+{
+    /**
+     * @brief Enable the flash encryption
+    */
+    void (*flash_encryption_enable)(void);
+    /**
+     * @brief Disable the flash encryption
+    */
+    void (*flash_encryption_disable)(void);
+    /**
+     * Prepare flash encryption before operation.
+     *
+     * @param address The destination address in flash for the write operation.
+     * @param buffer Data for programming
+     * @param size Size to program.
+     *
+     * @note address and buffer must be 8-word aligned.
+     */
+    void (*flash_encryption_data_prepare)(uint32_t address, const uint32_t* buffer, uint32_t size);
+    /**
+     * @brief flash data encryption operation is done.
+     */
+    void (*flash_encryption_done)(void);
+    /**
+     * Destroy encrypted result
+    */
+    void (*flash_encryption_destroy)(void);
+    /**
+     * Check if is qualified to encrypt the buffer
+     *
+     * @param address the address of written flash partition.
+     * @param length Buffer size.
+     */
+    bool (*flash_encryption_check)(uint32_t address, uint32_t length);
+} spi_flash_encryption_t;
 
 ///Slowest io mode supported by ESP32, currently SlowRd
 #define SPI_FLASH_READ_MODE_MIN SPI_FLASH_SLOWRD
@@ -149,9 +208,9 @@ struct spi_flash_host_driver_s {
      */
     int (*read_data_slicer)(spi_flash_host_inst_t *host, uint32_t address, uint32_t len, uint32_t *align_addr, uint32_t page_size);
     /**
-     * Check whether the host is idle to perform new operations.
+     * Check the host status, 0:busy, 1:idle, 2:suspended.
      */
-    bool (*host_idle)(spi_flash_host_inst_t *host);
+    uint32_t (*host_status)(spi_flash_host_inst_t *host);
     /**
      * Configure the host to work at different read mode. Responsible to compensate the timing and set IO mode.
      */
@@ -167,6 +226,26 @@ struct spi_flash_host_driver_s {
      * modified, the cache needs to be flushed. Left NULL if not supported.
      */
     esp_err_t (*flush_cache)(spi_flash_host_inst_t* host, uint32_t addr, uint32_t size);
+
+    /**
+     * Suspend check erase/program operation, reserved for ESP32-C3 and ESP32-S3 spi flash ROM IMPL.
+     */
+    void (*check_suspend)(spi_flash_host_inst_t *host);
+
+    /**
+     * Resume flash from suspend manually
+     */
+    void (*resume)(spi_flash_host_inst_t *host);
+
+    /**
+     * Set flash in suspend status manually
+     */
+    void (*suspend)(spi_flash_host_inst_t *host);
+
+    /**
+     * Suspend feature setup for setting cmd and status register mask.
+     */
+    esp_err_t (*sus_setup)(spi_flash_host_inst_t *host, const spi_flash_sus_cmd_conf *sus_conf);
 };
 
 #ifdef __cplusplus

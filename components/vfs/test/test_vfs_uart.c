@@ -98,7 +98,7 @@ TEST_CASE("CRs are removed from the stdin correctly", "[vfs]")
 
     rb = fread(dst, 1, 6, stdin);           // ask for 6
     TEST_ASSERT_EQUAL(6, rb);               // get 6
-    
+
     TEST_ASSERT_EQUAL_UINT8_ARRAY("1234567890\n", buf, 11);
     dst += rb;
 
@@ -117,7 +117,7 @@ TEST_CASE("CRs are removed from the stdin correctly", "[vfs]")
     TEST_ASSERT_EQUAL(2, rb);               // get two characters
     TEST_ASSERT_EQUAL_UINT8_ARRAY("\r1", dst, 2);
     dst += rb;
-    
+
     fwrite_str_loopback(send_str + 13, 6);  // Send the rest
     vTaskDelay(10 / portTICK_PERIOD_MS);
 
@@ -325,14 +325,14 @@ TEST_CASE("Can use termios for UART", "[vfs]")
         TEST_ASSERT_EQUAL(230423, baudrate);
 
         tios.c_cflag |= BOTHER;
-        tios.c_ispeed = tios.c_ospeed = 213;
+        tios.c_ispeed = tios.c_ospeed = 42321;
         TEST_ASSERT_EQUAL(0, tcsetattr(uart_fd, TCSANOW, &tios));
         TEST_ASSERT_EQUAL(0, tcgetattr(uart_fd, &tios_result));
         TEST_ASSERT_EQUAL(BOTHER, tios_result.c_cflag & BOTHER);
-        TEST_ASSERT_EQUAL(213, tios_result.c_ispeed);
-        TEST_ASSERT_EQUAL(213, tios_result.c_ospeed);
+        TEST_ASSERT_EQUAL(42321, tios_result.c_ispeed);
+        TEST_ASSERT_EQUAL(42321, tios_result.c_ospeed);
         TEST_ASSERT_EQUAL(ESP_OK, uart_get_baudrate(UART_NUM_1, &baudrate));
-        TEST_ASSERT_EQUAL(213, baudrate);
+        TEST_ASSERT_EQUAL(42321, baudrate);
 
         memset(&tios_result, 0xFF, sizeof(struct termios));
     }

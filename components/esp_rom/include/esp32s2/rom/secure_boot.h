@@ -16,6 +16,7 @@
 #define _ROM_SECURE_BOOT_H_
 
 #include <stdint.h>
+#include "ets_sys.h"
 #include "rsa_pss.h"
 
 #ifdef __cplusplus
@@ -28,17 +29,6 @@ struct ets_secure_boot_signature_t;
 typedef struct ets_secure_boot_sig_block ets_secure_boot_sig_block_t;
 typedef struct ets_secure_boot_signature ets_secure_boot_signature_t;
 typedef struct ets_secure_boot_key_digests ets_secure_boot_key_digests_t;
-
-/* 64KB 'staging buffer' for loading the verified bootloader
-
-   Comes from the "shared buffers" region (see shared_buffers.h)
-
-   The bootloader can't be safely linked into this address range
-   (may be possible with some cleverness.)
-*/
-#define SECURE_BOOT_STAGING_BUFFER_START ((uint32_t)(g_shared_buffers.secure_boot_staging_buf))
-#define SECURE_BOOT_STAGING_BUFFER_SZ    sizeof(g_shared_buffers.secure_boot_staging_buf)
-#define SECURE_BOOT_STAGING_BUFFER_END   (SECURE_BOOT_STAGING_BUFFER_START + SECURE_BOOT_STAGING_BUFFER_SZ)
 
 /* Anti-FI measure: use full words for success/fail, instead of
    0/non-zero
@@ -94,6 +84,8 @@ ets_secure_boot_status_t ets_secure_boot_verify_signature(const ets_secure_boot_
  */
 void ets_secure_boot_revoke_public_key_digest(int index);
 
+#define CRC_SIGN_BLOCK_LEN 1196
+#define SIG_BLOCK_PADDING 4096
 #define ETS_SECURE_BOOT_V2_SIGNATURE_MAGIC 0xE7
 
 /* Secure Boot V2 signature block

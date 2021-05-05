@@ -2,14 +2,15 @@ Unit Testing in {IDF_TARGET_NAME}
 =================================
 :link_to_translation:`zh_CN:[中文]`
 
-ESP-IDF comes with a unit test application that is based on the Unity - unit test framework. Unit tests are integrated in the ESP-IDF repository and are placed in the ``test`` subdirectories of each component respectively.
+ESP-IDF comes with two possibilities to test software.
+
+- A unit test application which runs on the target and that is based on the Unity - unit test framework. These unit tests are integrated in the ESP-IDF repository and are placed in the ``test`` subdirectories of each component respectively. Target-based unit tests are covered in this document.
+- Linux-host based unit tests in which all the hardware is abstracted via mocks. Linux-host based tests are still under development and only a small fraction of IDF components supports them currently. They are covered here: :doc:`target based unit testing <linux-host-testing>`.
 
 Normal Test Cases
 ------------------
 
-Unit tests are located in the ``test`` subdirectory of a component.
-Tests are written in C, and a single C source file can contain multiple test cases.
-Test files start with the word "test".
+Unit tests are located in the ``test`` subdirectory of a component. Tests are written in C, and a single C source file can contain multiple test cases. Test files start with the word "test".
 
 Each test file should include the ``unity.h`` header and the header for the C module to be tested.
 
@@ -22,8 +23,8 @@ Tests are added in a function in the C file as follows:
             // Add test here
     }
 
-The first argument is a descriptive name for the test, the second argument is an identifier in square brackets.
-Identifiers are used to group related test, or tests with specific properties.
+- The first argument is a descriptive name for the test.
+- The second argument is an identifier in square brackets. Identifiers are used to group related test, or tests with specific properties.
 
 .. note::
     There is no need to add a main function with ``UNITY_BEGIN()`` and ``​UNITY_END()`` in each test case. ``unity_platform.c`` will run ``UNITY_BEGIN()`` autonomously, and run the test cases, then call ``​UNITY_END()``.
@@ -44,8 +45,7 @@ See http://www.throwtheswitch.org/unity for more information about writing tests
 Multi-device Test Cases
 -------------------------
 
-The normal test cases will be executed on one DUT (Device Under Test). However, components that require some form of communication (e.g., GPIO, SPI) require another device to communicate with, thus cannot be tested normal test cases.
-Multi-device test cases involve writing multiple test functions, and running them on multiple DUTs.
+The normal test cases will be executed on one DUT (Device Under Test). However, components that require some form of communication (e.g., GPIO, SPI) require another device to communicate with, thus cannot be tested normal test cases. Multi-device test cases involve writing multiple test functions, and running them on multiple DUTs.
 
 The following is an example of a multi-device test case:
 
@@ -75,13 +75,13 @@ The following is an example of a multi-device test case:
 
     TEST_CASE_MULTIPLE_DEVICES("gpio multiple devices test example", "[driver]", gpio_master_test, gpio_slave_test);
 
-
 The macro ``TEST_CASE_MULTIPLE_DEVICES`` is used to declare a multi-device test case.
-The first argument is test case name, the second argument is test case description.
-From the third argument, up to 5 test functions can be defined, each function will be the entry point of tests running on each DUT.
 
-Running test cases from different DUTs could require synchronizing between DUTs. We provide ``unity_wait_for_signal`` and ``unity_send_signal`` to support synchronizing with UART.
-As the scenario in the above example, the slave should get GPIO level after master set level. DUT UART console will prompt and user interaction is required:
+- The first argument is test case name.
+- The second argument is test case description.
+- From the third argument, up to 5 test functions can be defined, each function will be the entry point of tests running on each DUT.
+
+Running test cases from different DUTs could require synchronizing between DUTs. We provide ``unity_wait_for_signal`` and ``unity_send_signal`` to support synchronizing with UART. As the scenario in the above example, the slave should get GPIO level after master set level. DUT UART console will prompt and user interaction is required:
 
 DUT1 (master) console::
 
@@ -98,9 +98,7 @@ Once the signal is sent from DUT2, you need to press "Enter" on DUT1, then DUT1 
 Multi-stage Test Cases
 -----------------------
 
-The normal test cases are expected to finish without reset (or only need to check if reset happens). Sometimes we expect to run some specific tests after certain kinds of reset.
-For example, we expect to test if the reset reason is correct after a wakeup from deep sleep. We need to create a deep-sleep reset first and then check the reset reason.
-To support this, we can define multi-stage test cases, to group a set of test functions::
+The normal test cases are expected to finish without reset (or only need to check if reset happens). Sometimes we expect to run some specific tests after certain kinds of reset. For example, we expect to test if the reset reason is correct after a wakeup from deep sleep. We need to create a deep-sleep reset first and then check the reset reason. To support this, we can define multi-stage test cases, to group a set of test functions::
 
     static void trigger_deepsleep(void)
     {
@@ -118,16 +116,12 @@ To support this, we can define multi-stage test cases, to group a set of test fu
 
 Multi-stage test cases present a group of test functions to users. It needs user interactions (select cases and select different stages) to run the case.
 
-
 Tests For Different Targets
----------------------------
+------------------------------
 
-Some tests (especially those related to hardware) cannot run on all targets. Below is a guide how
-to make your unit tests run on only specified targets.
+Some tests (especially those related to hardware) cannot run on all targets. Below is a guide how to make your unit tests run on only specified targets.
 
-1. Wrap your test code by ``!(TEMPORARY_)DISABLED_FOR_TARGETS()`` macros and place them either in
-   the original test file, or sepeprate the code into files grouped by functions, but make sure all
-   these files will be processed by the compiler. E.g.: ::
+1. Wrap your test code by ``!(TEMPORARY_)DISABLED_FOR_TARGETS()`` macros and place them either in the original test file, or sepeprate the code into files grouped by functions, but make sure all these files will be processed by the compiler. E.g.::
 
       #if !TEMPORARY_DISABLED_FOR_TARGETS(ESP32, ESP8266)
       TEST_CASE("a test that is not ready for esp32 and esp8266 yet", "[]")
@@ -135,11 +129,7 @@ to make your unit tests run on only specified targets.
       }
       #endif //!TEMPORARY_DISABLED_FOR_TARGETS(ESP32, ESP8266)
 
-   Once you need one of the tests to be compiled on a specified target, just modify the targets
-   in the disabled list. It's more encouraged to use some general conception that can be
-   described in ``soc_caps.h`` to control the disabling of tests. If this is done but some of the
-   tests are not ready yet, use both of them (and remove ``!(TEMPORARY_)DISABLED_FOR_TARGETS()``
-   later). E.g.: ::
+Once you need one of the tests to be compiled on a specified target, just modify the targets in the disabled list. It's more encouraged to use some general conception that can be described in ``soc_caps.h`` to control the disabling of tests. If this is done but some of the tests are not ready yet, use both of them (and remove ``!(TEMPORARY_)DISABLED_FOR_TARGETS()`` later). E.g.: ::
 
       #if SOC_SDIO_SLAVE_SUPPORTED
       #if !TEMPORARY_DISABLED_FOR_TARGETS(ESP64)
@@ -150,53 +140,40 @@ to make your unit tests run on only specified targets.
       #endif //!TEMPORARY_DISABLED_FOR_TARGETS(ESP64)
       #endif //SOC_SDIO_SLAVE_SUPPORTED
 
-2. For test code that you are 100% for sure that will not be supported (e.g. no peripheral at
-   all), use ``DISABLED_FOR_TARGETS``; for test code that should be disabled temporarily, or due to
-   lack of runners, etc., use ``TEMPORARY_DISABLED_FOR_TARGETS``.
+2. For test code that you are 100% for sure that will not be supported (e.g. no peripheral at all), use ``DISABLED_FOR_TARGETS``; for test code that should be disabled temporarily, or due to lack of runners, etc., use ``TEMPORARY_DISABLED_FOR_TARGETS``.
 
 Some old ways of disabling unit tests for targets, that have obvious disadvantages, are deprecated:
 
-- DON'T put the test code under ``test/target`` folder and use CMakeLists.txt to choose one of the
-  target folder. This is prevented because test code is more likely to be reused than the
-  implementations. If you put something into ``test/esp32`` just to avoid building it on esp32s2,
-  it's hard to make the code tidy if you want to enable the test again on esp32s3.
+- DON'T put the test code under ``test/target`` folder and use CMakeLists.txt to choose one of the target folder. This is prevented because test code is more likely to be reused than the implementations. If you put something into ``test/esp32`` just to avoid building it on esp32s2, it's hard to make the code tidy if you want to enable the test again on esp32s3.
 
-- DON'T use ``CONFIG_IDF_TARGET_xxx`` macros to disable the test items any more. This makes it
-  harder to track disabled tests and enable them again. Also, a black-list style ``#if !disabled``
-  is preferred to white-list style ``#if CONFIG_IDF_TARGET_xxx``, since you will not silently
-  disable cases when new targets are added in the future. But for test implementations, it's
-  allowed to use ``#if CONFIG_IDF_TARGET_xxx`` to pick one of the implementation code.
+- DON'T use ``CONFIG_IDF_TARGET_xxx`` macros to disable the test items any more. This makes it harder to track disabled tests and enable them again. Also, a black-list style ``#if !disabled`` is preferred to white-list style ``#if CONFIG_IDF_TARGET_xxx``, since you will not silently disable cases when new targets are added in the future. But for test implementations, it's allowed to use ``#if CONFIG_IDF_TARGET_xxx`` to pick one of the implementation code.
 
-  - Test item: some items that will be performed on some targets, but skipped on other
-    targets. E.g.
+  - Test item: some items that will be performed on some targets, but skipped on other targets. E.g.
 
-    There are three test items SD 1-bit, SD 4-bit and SDSPI. For ESP32-S2, which doesn't have
-    SD host, among the tests only SDSPI is enabled on ESP32-S2.
+    There are three test items SD 1-bit, SD 4-bit and SDSPI. For ESP32-S2, which doesn't have SD host, among the tests only SDSPI is enabled on ESP32-S2.
 
   - Test implementation: some code will always happen, but in different ways. E.g.
 
-    There is no SDIO PKT_LEN register on ESP8266. If you want to get the length from the slave
-    as a step in the test process, you can have different implementation code protected by
-    ``#if CONFIG_IDF_TARGET_`` reading in different ways.
+    There is no SDIO PKT_LEN register on ESP8266. If you want to get the length from the slave as a step in the test process, you can have different implementation code protected by ``#if CONFIG_IDF_TARGET_`` reading in different ways.
 
-    But please avoid using ``#else`` macro. When new target is added, the test case will fail at
-    building stage, so that the maintainer will be aware of this, and choose one of the
-    implementations explicitly.
+    But please avoid using ``#else`` macro. When new target is added, the test case will fail at building stage, so that the maintainer will be aware of this, and choose one of the implementations explicitly.
 
 Building Unit Test App
 ----------------------
 
-Follow the setup instructions in the top-level esp-idf README.
-Make sure that ``IDF_PATH`` environment variable is set to point to the path of esp-idf top-level directory.
+Follow the setup instructions in the top-level esp-idf README. Make sure that ``IDF_PATH`` environment variable is set to point to the path of esp-idf top-level directory.
 
 Change into ``tools/unit-test-app`` directory to configure and build it:
 
 * ``idf.py menuconfig`` - configure unit test app.
-
 * ``idf.py -T all build`` - build unit test app with tests for each component having tests in the ``test`` subdirectory.
 * ``idf.py -T "xxx yyy" build`` - build unit test app with tests for some space-separated specific components (For instance: ``idf.py -T heap build`` - build unit tests only for ``heap`` component directory).
 * ``idf.py -T all -E "xxx yyy" build`` - build unit test app with all unit tests, except for unit tests of some components (For instance: ``idf.py -T all -E "ulp mbedtls" build`` - build all unit tests exludes ``ulp`` and ``mbedtls`` components).
 
+.. note::
+
+    Due to inherent limitations of Windows command prompt, following syntax has to be used in order to build unit-test-app with multiple components: ``idf.py -T xxx -T yyy build`` or with escaped quoates: ``idf.py -T \`"xxx yyy\`" build`` in PowerShell or ``idf.py -T \^"ssd1306 hts221\^" build`` in Windows command prompt.
+    
 When the build finishes, it will print instructions for flashing the chip. You can simply run ``idf.py flash`` to flash all build output.
 
 You can also run ``idf.py -T all flash`` or ``idf.py -T xxx flash`` to build and flash. Everything needed will be rebuilt automatically before flashing.
@@ -229,7 +206,7 @@ When unit test app is idle, press "Enter" will make it print test menu with all 
     (14)    "SPI Master clockdiv calculation routines" [spi]
     (15)    "SPI Master test" [spi][ignore]
     (16)    "SPI Master test, interaction of multiple devs" [spi][ignore]
-    (17)    "SPI Master no response when switch from host1 (HSPI) to host2 (VSPI)" [spi]
+    (17)    "SPI Master no response when switch from host1 (SPI2) to host2 (SPI3)" [spi]
     (18)    "SPI Master DMA test, TX and RX in different regions" [spi]
     (19)    "SPI Master DMA test: length, start, not aligned" [spi]
     (20)    "reset reason check for deepsleep" [{IDF_TARGET_PATH_NAME}][test_env=UT_T2_1][multi_stage]
@@ -248,8 +225,7 @@ Test cases can be run by inputting one of the following:
 
 - An asterisk to run all test cases
 
-``[multi_device]`` and ``[multi_stage]`` tags tell the test runner whether a test case is a multiple devices or multiple stages of test case.
-These tags are automatically added by ```TEST_CASE_MULTIPLE_STAGES`` and ``TEST_CASE_MULTIPLE_DEVICES`` macros.
+``[multi_device]`` and ``[multi_stage]`` tags tell the test runner whether a test case is a multiple devices or multiple stages of test case. These tags are automatically added by ```TEST_CASE_MULTIPLE_STAGES`` and ``TEST_CASE_MULTIPLE_DEVICES`` macros.
 
 After you select a multi-device test case, it will print sub-menu::
 
@@ -267,10 +243,7 @@ Similar to multi-device test cases, multi-stage test cases will also print sub-m
             (1)     "trigger_deepsleep"
             (2)     "check_deepsleep_reset_reason"
 
-
-First time you execute this case, input ``1`` to run first stage (trigger deepsleep).
-After DUT is rebooted and able to run test cases, select this case again and input ``2`` to run the second stage.
-The case only passes if the last stage passes and all previous stages trigger reset.
+First time you execute this case, input ``1`` to run first stage (trigger deepsleep). After DUT is rebooted and able to run test cases, select this case again and input ``2`` to run the second stage. The case only passes if the last stage passes and all previous stages trigger reset.
 
 
 Timing Code with Cache Compensated Timer
@@ -282,13 +255,9 @@ However, if the instruction or data is not in cache, it needs to be fetched from
 
 Code and data placements can vary between builds, and some arrangements may be more favorable with regards to cache access (i.e., minimizing cache misses). This can technically affect execution speed, however these factors are usually irrelevant as their effect 'average out' over the device's operation.
 
-The effect of the cache on execution speed, however, can be relevant in benchmarking scenarios (espcially microbenchmarks). There might be some variability in measured time
-between runs and between different builds. A technique for eliminating for some of the
-variability is to place code and data in instruction or data RAM (IRAM/DRAM), respectively. The CPU can access IRAM and DRAM directly, eliminating the cache out of the equation.
-However, this might not always be viable as the size of IRAM and DRAM is limited.
+The effect of the cache on execution speed, however, can be relevant in benchmarking scenarios (espcially microbenchmarks). There might be some variability in measured time between runs and between different builds. A technique for eliminating for some of the variability is to place code and data in instruction or data RAM (IRAM/DRAM), respectively. The CPU can access IRAM and DRAM directly, eliminating the cache out of the equation. However, this might not always be viable as the size of IRAM and DRAM is limited.
 
-The cache compensated timer is an alternative to placing the code/data to be benchmarked in IRAM/DRAM. This timer uses the processor's internal event counters in order to determine the amount
-of time spent on waiting for code/data in case of a cache miss, then subtract that from the recorded wall time.
+The cache compensated timer is an alternative to placing the code/data to be benchmarked in IRAM/DRAM. This timer uses the processor's internal event counters in order to determine the amount of time spent on waiting for code/data in case of a cache miss, then subtract that from the recorded wall time.
 
   .. code-block:: c
 
@@ -308,13 +277,24 @@ One limitation of the cache compensated timer is that the task that benchmarked 
 Mocks
 -----
 
-ESP-IDF has a component which integrates the CMock mocking framework.
-CMock usually uses Unity as a submodule, but due to some Espressif-internal limitations with CI, we still have Unity as an ordinary module in ESP-IDF.
-To use the IDF-supplied Unity component which isn't a submodule, the build system needs to pass an environment variable ``UNITY_IDR`` to CMock.
-This variable simply contains the path to the Unity directory in IDF, e.g. ``export "UNITY_DIR=${IDF_PATH}/components/unity/unity"``.
-Refer to :component_file:`cmock/CMock/lib/cmock_generator.rb` to see how the Unity directory is determined in CMock.
+One of the biggest problems for unit testing in embedded systems are the strong hardware dependencies. This is why ESP-IDF has a component which integrates the `CMock <https://www.throwtheswitch.org/cmock>`_ mocking framework. Ideally, all components other than the one which should be tested *(component under test)* are mocked. This way, the test environment has complete control over all the interaction with the component under test. However, if mocking becomes problematic due to the tests becoming too specific, more "real" IDF code can always be included into the tests.
 
-An example cmake build command to create mocks of a component inside that component's CMakeLists.txt may look like this:
+Besides the usual IDF requirements, ``ruby`` is necessary to generate the mocks. Refer to :component_file:`cmock/CMock/docs/CMock_Summary.md` for more details on how CMock works and how to create and use mocks.
+
+In IDF, adjustments are necessary inside the component(s) that should be mocked as well as inside the unit test, compared to writing normal components or unit tests without mocking.
+
+Adjustments in Mock Component 
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The component that should be mocked requires a separate ``mock`` directory containing all additional files needed specifically for the mocking. Most importantly, it contains ``mock_config.yaml`` which configures CMock. For more details on what the options inside that configuration file mean and how to write your own, please take a look at the :component_file:`CMock documentation <cmock/CMock/docs/CMock_Summary.md>`. It may be necessary to have some more files related to mocking which should also be placed inside the `mock` directory.
+
+Furthermore, the component's ``CMakeLists.txt`` needs a switch to build mocks instead of the actual code. This is usually done by checking the component property ``USE_MOCK`` for the particular component. E.g., the ``spi_flash`` component execute the following code in its ``CMakeLists.txt`` to check whether mocks should be built:
+
+.. code-block:: cmake
+
+    idf_component_get_property(spi_flash_mock ${COMPONENT_NAME} USE_MOCK)
+
+An example CMake build command to create mocks of a component inside its ``CMakeLists.txt`` may look like this:
 
 .. code-block:: cmake
 
@@ -324,6 +304,19 @@ An example cmake build command to create mocks of a component inside that compon
     COMMAND ${CMAKE_COMMAND} -E env "UNITY_DIR=${IDF_PATH}/components/unity/unity" ruby ${CMOCK_DIR}/lib/cmock.rb -o${CMAKE_CURRENT_SOURCE_DIR}/mock/mock_config.yaml ${MOCK_HEADERS}
     )
 
-${MOCK_OUTPUT} contains all CMock generated output files, ${MOCK_HEADERS} contains all headers to be mocked and ${CMOCK_DIR} needs to be set to CMock directory inside IDF. ${CMAKE_COMMAND} is automatically set.
+``${MOCK_OUTPUT}`` contains all CMock generated output files, ``${MOCK_HEADERS}`` contains all headers to be mocked and ``${CMOCK_DIR}`` needs to be set to the CMock directory inside IDF. ``${CMAKE_COMMAND}`` is automatically set by the IDF build system.
 
-Refer to :component_file:`cmock/CMock/docs/CMock_Summary.md` for more details on how CMock works and how to create and use mocks.
+One aspect of CMock's usage is special here: CMock usually uses Unity as a submodule, but due to some Espressif-internal limitations with CI, IDF still uses Unity as an ordinary module in ESP-IDF. To use the IDF-supplied Unity component, which isn't a submodule, the build system needs to pass an environment variable ``UNITY_IDR`` to CMock. This variable simply contains the path to the Unity directory in IDF, e.g. ``export "UNITY_DIR=${IDF_PATH}/components/unity/unity"``. Refer to :component_file:`cmock/CMock/lib/cmock_generator.rb` to see how the Unity directory is determined in CMock.
+
+An example ``CMakeLists.txt`` which enables mocking exists :component_file:`in spi_flash <spi_flash/CMakeLists.txt>`
+
+Adjustments in Unit Test
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The unit test needs to set the component property ``USE_MOCK`` for the component that should be mocked. This lets the dependent component build the mocks instead of the actual component. E.g., in the nvs host test's :component_file:`CMakeLists.txt <nvs_flash/host_test/nvs_page_test/CMakeLists.txt>`, ``spi_flash`` mocks are enabled by the following line:
+
+.. code-block:: cmake
+
+    idf_component_set_property(spi_flash USE_MOCK 1)
+
+Refer to the :component_file:`NVS host unit test <nvs_flash/host_test/nvs_page_test/README.md>` for more information on how to use and control CMock inside a unit test.

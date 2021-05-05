@@ -412,6 +412,11 @@ typedef struct httpd_uri {
      * This is used if a custom processing of the control frames is needed
      */
     bool handle_ws_control_frames;
+
+    /**
+     * Pointer to subprotocol supported by URI
+     */
+    const char *supported_subprotocol;
 #endif
 } httpd_uri_t;
 
@@ -534,6 +539,17 @@ typedef enum {
      * due to chunked encoding / upgrade field present in headers
      */
     HTTPD_400_BAD_REQUEST,
+
+    /* This response means the client must authenticate itself
+     * to get the requested response.
+     */
+    HTTPD_401_UNAUTHORIZED,
+
+    /* The client does not have access rights to the content,
+     * so the server is refusing to give the requested resource.
+     * Unlike 401, the client's identity is known to the server.
+     */
+    HTTPD_403_FORBIDDEN,
 
     /* When requested URI is not found */
     HTTPD_404_NOT_FOUND,
@@ -1476,13 +1492,17 @@ esp_err_t httpd_sess_update_lru_counter(httpd_handle_t handle, int sockfd);
  * @brief   Returns list of current socket descriptors of active sessions
  *
  * @param[in] handle    Handle to server returned by httpd_start
- * @param[in,out] fds   In: Number of fds allocated in the supplied structure client_fds
+ * @param[in,out] fds   In: Size of provided client_fds array
  *                      Out: Number of valid client fds returned in client_fds,
  * @param[out] client_fds  Array of client fds
  *
+ * @note Size of provided array has to be equal or greater then maximum number of opened
+ *       sockets, configured upon initialization with max_open_sockets field in
+ *       httpd_config_t structure.
+ *
  * @return
  *  - ESP_OK              : Successfully retrieved session list
- *  - ESP_ERR_INVALID_ARG : Wrong arguments or list is longer than allocated
+ *  - ESP_ERR_INVALID_ARG : Wrong arguments or list is longer than provided array
  */
 esp_err_t httpd_get_client_list(httpd_handle_t handle, size_t *fds, int *client_fds);
 
@@ -1575,6 +1595,11 @@ typedef struct httpd_ws_frame {
 
 /**
  * @brief Receive and parse a WebSocket frame
+ *
+ * @note    Calling httpd_ws_recv_frame() with max_len as 0 will give actual frame size in pkt->len.
+ *          The user can dynamically allocate space for pkt->payload as per this length and call httpd_ws_recv_frame() again to get the actual data.
+ *          Please refer to the corresponding example for usage.
+ *
  * @param[in]   req         Current request
  * @param[out]  pkt         WebSocket packet
  * @param[in]   max_len     Maximum length for receive

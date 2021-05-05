@@ -416,7 +416,7 @@ void i2c_hal_get_rxfifo_cnt(i2c_hal_context_t *hal, uint32_t *len);
  *
  * @return None
  */
-void i2c_hal_set_bus_timing(i2c_hal_context_t *hal, uint32_t scl_freq, i2c_sclk_t src_clk);
+void i2c_hal_set_bus_timing(i2c_hal_context_t *hal, int scl_freq, i2c_sclk_t src_clk);
 
 /**
  * @brief  Get I2C txFIFO writeable length
@@ -522,3 +522,13 @@ void i2c_hal_master_handle_rx_event(i2c_hal_context_t *hal, i2c_intr_event_t *ev
  * @return None
  */
 void i2c_hal_slave_handle_event(i2c_hal_context_t *hal, i2c_intr_event_t *event);
+
+/**
+ * @brief Synchronize I2C status
+ *
+ * @param hal Context of the HAL layer
+ *
+ * @return None
+ *
+ */
+void i2c_hal_update_config(i2c_hal_context_t *hal);

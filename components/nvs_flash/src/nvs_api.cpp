@@ -19,19 +19,21 @@
 #include "nvs_partition_manager.hpp"
 #include "esp_partition.h"
 #include "sdkconfig.h"
+#include <functional>
 #include "nvs_handle_simple.hpp"
+#include "esp_err.h"
 
-#ifdef ESP_PLATFORM
+#ifdef LINUX_TARGET
+#include "crc.h"
+#define ESP_LOGD(...)
+#else // LINUX_TARGET
 #include <esp32/rom/crc.h>
 
 // Uncomment this line to force output from this module
 // #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 #include "esp_log.h"
 static const char* TAG = "nvs";
-#else
-#include "crc.h"
-#define ESP_LOGD(...)
-#endif
+#endif // ! LINUX_TARGET
 
 class NVSHandleEntry : public intrusive_list_node<NVSHandleEntry> {
 public:
@@ -55,9 +57,9 @@ uint32_t NVSHandleEntry::s_nvs_next_handle;
 
 extern "C" void nvs_dump(const char *partName);
 
-#ifdef ESP_PLATFORM
+#ifndef LINUX_TARGET
 SemaphoreHandle_t nvs::Lock::mSemaphore = nullptr;
-#endif
+#endif // ! LINUX_TARGET
 
 using namespace std;
 using namespace nvs;
@@ -84,8 +86,16 @@ extern "C" void nvs_dump(const char *partName)
 
 static esp_err_t close_handles_and_deinit(const char* part_name)
 {
-    // Delete all corresponding open handles
-    s_nvs_handles.clearAndFreeNodes();
+    auto belongs_to_part = [=](NVSHandleEntry& e) -> bool {
+        return strncmp(e.nvs_handle->get_partition_name(), part_name, NVS_PART_NAME_MAX_SIZE) == 0;
+    };
+
+    auto it = find_if(begin(s_nvs_handles), end(s_nvs_handles), belongs_to_part);
+
+    while (it != end(s_nvs_handles)) {
+        s_nvs_handles.erase(it);
+        it = find_if(begin(s_nvs_handles), end(s_nvs_handles), belongs_to_part);
+    }
 
     // Deinit partition
     return NVSPartitionManager::get_instance()->deinit_partition(part_name);
@@ -93,7 +103,10 @@ static esp_err_t close_handles_and_deinit(const char* part_name)
 
 extern "C" esp_err_t nvs_flash_init_partition_ptr(const esp_partition_t *partition)
 {
-    Lock::init();
+    esp_err_t lock_result = Lock::init();
+    if (lock_result != ESP_OK) {
+        return lock_result;
+    }
     Lock lock;
 
     if (partition == nullptr) {
@@ -116,10 +129,13 @@ extern "C" esp_err_t nvs_flash_init_partition_ptr(const esp_partition_t *partiti
     return init_res;
 }
 
-#ifdef ESP_PLATFORM
+#ifndef LINUX_TARGET
 extern "C" esp_err_t nvs_flash_init_partition(const char *part_name)
 {
-    Lock::init();
+    esp_err_t lock_result = Lock::init();
+    if (lock_result != ESP_OK) {
+        return lock_result;
+    }
     Lock lock;
 
     return NVSPartitionManager::get_instance()->init_partition(part_name);
@@ -127,13 +143,48 @@ extern "C" esp_err_t nvs_flash_init_partition(const char *part_name)
 
 extern "C" esp_err_t nvs_flash_init(void)
 {
+#ifdef CONFIG_NVS_ENCRYPTION
+    esp_err_t ret = ESP_FAIL;
+    const esp_partition_t *key_part = esp_partition_find_first(
+                                          ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS_KEYS, NULL);
+    if (key_part == NULL) {
+        ESP_LOGE(TAG, "CONFIG_NVS_ENCRYPTION is enabled, but no partition with subtype nvs_keys found in the partition table.");
+        return ret;
+    }
+
+    nvs_sec_cfg_t cfg = {};
+    ret = nvs_flash_read_security_cfg(key_part, &cfg);
+    if (ret == ESP_ERR_NVS_KEYS_NOT_INITIALIZED) {
+        ESP_LOGI(TAG, "NVS key partition empty, generating keys");
+        ret = nvs_flash_generate_keys(key_part, &cfg);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to generate keys: [0x%02X] (%s)", ret, esp_err_to_name(ret));
+            return ret;
+        }
+    } else if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read NVS security cfg: [0x%02X] (%s)", ret, esp_err_to_name(ret));
+        return ret;
+    }
+
+    ret = nvs_flash_secure_init_partition(NVS_DEFAULT_PART_NAME, &cfg);
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_LOGE(TAG, "Failed to initialize NVS partition: [0x%02X] (%s)", ret, esp_err_to_name(ret));
+        return ret;
+    }
+    ESP_LOGI(TAG, "NVS partition \"%s\" is encrypted.", NVS_DEFAULT_PART_NAME);
+    return ret;
+#else // CONFIG_NVS_ENCRYPTION
     return nvs_flash_init_partition(NVS_DEFAULT_PART_NAME);
+#endif
 }
 
 #ifdef CONFIG_NVS_ENCRYPTION
 extern "C" esp_err_t nvs_flash_secure_init_partition(const char *part_name, nvs_sec_cfg_t* cfg)
 {
-    Lock::init();
+    esp_err_t lock_result = Lock::init();
+    if (lock_result != ESP_OK) {
+        return lock_result;
+    }
     Lock lock;
 
     return NVSPartitionManager::get_instance()->secure_init_partition(part_name, cfg);
@@ -147,7 +198,10 @@ extern "C" esp_err_t nvs_flash_secure_init(nvs_sec_cfg_t* cfg)
 
 extern "C" esp_err_t nvs_flash_erase_partition(const char *part_name)
 {
-    Lock::init();
+    esp_err_t lock_result = Lock::init();
+    if (lock_result != ESP_OK) {
+        return lock_result;
+    }
     Lock lock;
 
     // if the partition is initialized, uninitialize it first
@@ -171,7 +225,10 @@ extern "C" esp_err_t nvs_flash_erase_partition(const char *part_name)
 
 extern "C" esp_err_t nvs_flash_erase_partition_ptr(const esp_partition_t *partition)
 {
-    Lock::init();
+    esp_err_t lock_result = Lock::init();
+    if (lock_result != ESP_OK) {
+        return lock_result;
+    }
     Lock lock;
 
     if (partition == nullptr) {
@@ -195,11 +252,14 @@ extern "C" esp_err_t nvs_flash_erase(void)
 {
     return nvs_flash_erase_partition(NVS_DEFAULT_PART_NAME);
 }
-#endif // ESP_PLATFORM
+#endif // ! LINUX_TARGET
 
 extern "C" esp_err_t nvs_flash_deinit_partition(const char* partition_name)
 {
-    Lock::init();
+    esp_err_t lock_result = Lock::init();
+    if (lock_result != ESP_OK) {
+        return lock_result;
+    }
     Lock lock;
 
     return close_handles_and_deinit(partition_name);
@@ -519,26 +579,42 @@ extern "C" esp_err_t nvs_get_used_entry_count(nvs_handle_t c_handle, size_t* use
     return err;
 }
 
-#if (defined CONFIG_NVS_ENCRYPTION) && (defined ESP_PLATFORM)
+#if (defined CONFIG_NVS_ENCRYPTION) && (!defined LINUX_TARGET)
 
 extern "C" esp_err_t nvs_flash_generate_keys(const esp_partition_t* partition, nvs_sec_cfg_t* cfg)
 {
+    if (cfg == nullptr || partition == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     auto err = esp_partition_erase_range(partition, 0, partition->size);
     if(err != ESP_OK) {
         return err;
     }
 
     for(uint8_t cnt = 0; cnt < NVS_KEY_SIZE; cnt++) {
-        cfg->eky[cnt] = 0xff;
-        cfg->tky[cnt] = 0xee;
+        /* Adjacent 16-byte blocks should be different */
+        if (((cnt / 16) & 1) == 0) {
+            cfg->eky[cnt] = 0xff;
+            cfg->tky[cnt] = 0xee;
+        } else {
+            cfg->eky[cnt] = 0x99;
+            cfg->tky[cnt] = 0x88;
+        }
     }
 
-    err = esp_partition_write(partition, 0, cfg->eky, NVS_KEY_SIZE);
+    /**
+     * Write key configuration without encryption engine (using raw partition write APIs).
+     * But the read is decrypted through flash encryption engine. This allows unique NVS encryption configuration,
+     * as flash encryption key is randomly generated per device.
+     */
+    err = esp_partition_write_raw(partition, 0, cfg->eky, NVS_KEY_SIZE);
     if(err != ESP_OK) {
         return err;
     }
 
-    err = esp_partition_write(partition, NVS_KEY_SIZE, cfg->tky, NVS_KEY_SIZE);
+    /* Write without encryption, see note above */
+    err = esp_partition_write_raw(partition, NVS_KEY_SIZE, cfg->tky, NVS_KEY_SIZE);
     if(err != ESP_OK) {
         return err;
     }
@@ -571,6 +647,10 @@ extern "C" esp_err_t nvs_flash_generate_keys(const esp_partition_t* partition, n
 
 extern "C" esp_err_t nvs_flash_read_security_cfg(const esp_partition_t* partition, nvs_sec_cfg_t* cfg)
 {
+    if (cfg == nullptr || partition == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     uint8_t eky_raw[NVS_KEY_SIZE], tky_raw[NVS_KEY_SIZE];
     uint32_t crc_raw, crc_read, crc_calc;
 

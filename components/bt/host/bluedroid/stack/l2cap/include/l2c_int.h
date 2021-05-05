@@ -378,7 +378,7 @@ typedef struct {
 typedef struct t_l2c_linkcb {
     BOOLEAN             in_use;                     /* TRUE when in use, FALSE when not */
     tL2C_LINK_STATE     link_state;
-
+    BOOLEAN             is_aux;                     /* This variable used for BLE 5.0 or higher version when do auxiliary connection */
     TIMER_LIST_ENT      timer_entry;                /* Timer list entry for timeout evt */
     UINT16              handle;                     /* The handle used with LM          */
     UINT16              completed_packets;          /* The number of conpleted packets  */
@@ -455,6 +455,9 @@ typedef struct t_l2c_linkcb {
     /* connection parameters update order:
        waiting_update_conn_xx -> updating_conn_xx -> current_used_conn_xx
     */
+   /* create connection retry count*/
+   UINT8                retry_create_con;
+   UINT32               start_time_s;
 #endif
 
 #if (L2CAP_ROUND_ROBIN_CHANNEL_SERVICE == TRUE)
@@ -597,6 +600,7 @@ extern BOOLEAN  l2cu_start_post_bond_timer (UINT16 handle);
 extern void     l2cu_release_lcb (tL2C_LCB *p_lcb);
 extern tL2C_LCB *l2cu_find_lcb_by_bd_addr (BD_ADDR p_bd_addr, tBT_TRANSPORT transport);
 extern tL2C_LCB *l2cu_find_lcb_by_handle (UINT16 handle);
+extern uint8_t l2cu_plcb_active_count(void);
 extern void     l2cu_update_lcb_4_bonding (BD_ADDR p_bd_addr, BOOLEAN is_bonding);
 
 extern UINT8    l2cu_get_conn_role (tL2C_LCB *p_this_lcb);
@@ -609,6 +613,7 @@ extern void     l2cu_change_pri_ccb (tL2C_CCB *p_ccb, tL2CAP_CHNL_PRIORITY prior
 extern tL2C_CCB *l2cu_allocate_ccb (tL2C_LCB *p_lcb, UINT16 cid);
 extern void     l2cu_release_ccb (tL2C_CCB *p_ccb);
 extern tL2C_CCB *l2cu_find_ccb_by_cid (tL2C_LCB *p_lcb, UINT16 local_cid);
+extern tL2C_CCB *l2cu_find_free_ccb(void);
 extern tL2C_CCB *l2cu_find_ccb_by_remote_cid (tL2C_LCB *p_lcb, UINT16 remote_cid);
 extern void     l2cu_adj_id (tL2C_LCB *p_lcb, UINT8 adj_mask);
 extern BOOLEAN  l2c_is_cmd_rejected (UINT8 cmd_code, UINT8 id, tL2C_LCB *p_lcb);

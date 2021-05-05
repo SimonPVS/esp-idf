@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-#include "soc/rmt_caps.h"
+#include "soc/soc_caps.h"
 
 /**
 * @brief RMT channel ID
@@ -29,7 +29,7 @@ typedef enum {
     RMT_CHANNEL_1,  /*!< RMT channel number 1 */
     RMT_CHANNEL_2,  /*!< RMT channel number 2 */
     RMT_CHANNEL_3,  /*!< RMT channel number 3 */
-#if SOC_RMT_CHANNELS_NUM > 4
+#if SOC_RMT_CHANNELS_PER_GROUP > 4
     RMT_CHANNEL_4,  /*!< RMT channel number 4 */
     RMT_CHANNEL_5,  /*!< RMT channel number 5 */
     RMT_CHANNEL_6,  /*!< RMT channel number 6 */
@@ -53,8 +53,13 @@ typedef enum {
  *
  */
 typedef enum {
-    RMT_BASECLK_REF, /*!< RMT source clock is REF_TICK, 1MHz by default */
-    RMT_BASECLK_APB, /*!< RMT source clock is APB CLK, 80Mhz by default */
+#if SOC_RMT_SUPPORT_REF_TICK
+    RMT_BASECLK_REF = 0, /*!< RMT source clock is REF_TICK, 1MHz by default */
+#endif
+    RMT_BASECLK_APB = 1, /*!< RMT source clock is APB CLK, 80Mhz by default */
+#if SOC_RMT_SUPPORT_XTAL
+    RMT_BASECLK_XTAL = 3, /*!< RMT source clock is XTAL clock, 40Mhz by default */
+#endif
     RMT_BASECLK_MAX,
 } rmt_source_clk_t;
 

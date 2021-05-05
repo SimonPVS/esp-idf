@@ -95,6 +95,7 @@ typedef UINT8 tGATT_SEC_ACTION;
 #define GATT_SEC_FLAG_LKEY_UNAUTHED     BTM_SEC_FLAG_LKEY_KNOWN
 #define GATT_SEC_FLAG_LKEY_AUTHED       BTM_SEC_FLAG_LKEY_AUTHED
 #define GATT_SEC_FLAG_ENCRYPTED         BTM_SEC_FLAG_ENCRYPTED
+#define GATT_SEC_FLAG_AUTHORIZATION     BTM_SEC_FLAG_AUTHORIZED
 typedef UINT8 tGATT_SEC_FLAG;
 
 /* Find Information Response Type
@@ -575,8 +576,8 @@ extern void gatt_free(void);
 
 /* from gatt_main.c */
 extern BOOLEAN gatt_disconnect (tGATT_TCB *p_tcb);
-extern BOOLEAN gatt_act_connect (tGATT_REG *p_reg, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_type, tBT_TRANSPORT transport);
-extern BOOLEAN gatt_connect (BD_ADDR rem_bda, tBLE_ADDR_TYPE bd_addr_type, tGATT_TCB *p_tcb, tBT_TRANSPORT transport);
+extern BOOLEAN gatt_act_connect (tGATT_REG *p_reg, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_type, tBT_TRANSPORT transport, BOOLEAN is_aux);
+extern BOOLEAN gatt_connect (BD_ADDR rem_bda, tBLE_ADDR_TYPE bd_addr_type, tGATT_TCB *p_tcb, tBT_TRANSPORT transport, BOOLEAN is_aux);
 extern void gatt_data_process (tGATT_TCB *p_tcb, BT_HDR *p_buf);
 extern void gatt_update_app_use_link_flag ( tGATT_IF gatt_if, tGATT_TCB *p_tcb, BOOLEAN is_add, BOOLEAN check_acl_link);
 

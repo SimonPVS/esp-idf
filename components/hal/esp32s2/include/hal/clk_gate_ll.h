@@ -20,6 +20,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "esp_attr.h"
 #include "soc/periph_defs.h"
 #include "soc/system_reg.h"
 #include "soc/syscon_reg.h"
@@ -48,14 +49,6 @@ static inline uint32_t periph_ll_get_clk_en_mask(periph_module_t periph)
         return DPORT_TIMERGROUP_CLK_EN;
     case PERIPH_TIMG1_MODULE:
         return DPORT_TIMERGROUP1_CLK_EN;
-    case PERIPH_PWM0_MODULE:
-        return DPORT_PWM0_CLK_EN;
-    case PERIPH_PWM1_MODULE:
-        return DPORT_PWM1_CLK_EN;
-    case PERIPH_PWM2_MODULE:
-        return DPORT_PWM2_CLK_EN;
-    case PERIPH_PWM3_MODULE:
-        return DPORT_PWM3_CLK_EN;
     case PERIPH_UHCI0_MODULE:
         return DPORT_UHCI0_CLK_EN;
     case PERIPH_UHCI1_MODULE:
@@ -84,6 +77,8 @@ static inline uint32_t periph_ll_get_clk_en_mask(periph_module_t periph)
         return DPORT_WIFI_CLK_WIFI_BT_COMMON_M;
     case PERIPH_SYSTIMER_MODULE:
         return DPORT_SYSTIMER_CLK_EN;
+    case PERIPH_DEDIC_GPIO_MODULE:
+        return DPORT_CLK_EN_DEDICATED_GPIO;
     case PERIPH_AES_MODULE:
         return DPORT_CRYPTO_AES_CLK_EN;
     case PERIPH_SHA_MODULE:
@@ -126,14 +121,6 @@ static inline uint32_t periph_ll_get_rst_en_mask(periph_module_t periph, bool en
         return DPORT_TIMERGROUP_RST;
     case PERIPH_TIMG1_MODULE:
         return DPORT_TIMERGROUP1_RST;
-    case PERIPH_PWM0_MODULE:
-        return DPORT_PWM0_RST;
-    case PERIPH_PWM1_MODULE:
-        return DPORT_PWM1_RST;
-    case PERIPH_PWM2_MODULE:
-        return DPORT_PWM2_RST;
-    case PERIPH_PWM3_MODULE:
-        return DPORT_PWM3_RST;
     case PERIPH_UHCI0_MODULE:
         return DPORT_UHCI0_RST;
     case PERIPH_UHCI1_MODULE:
@@ -156,6 +143,8 @@ static inline uint32_t periph_ll_get_rst_en_mask(periph_module_t periph, bool en
         return DPORT_TWAI_RST;
     case PERIPH_SYSTIMER_MODULE:
         return DPORT_SYSTIMER_RST;
+    case PERIPH_DEDIC_GPIO_MODULE:
+        return DPORT_RST_EN_DEDICATED_GPIO;
     case PERIPH_AES_MODULE:
         if (enable == true) {
             // Clear reset on digital signature, otherwise AES unit is held in reset also.
@@ -207,6 +196,8 @@ static inline uint32_t periph_ll_get_rst_en_mask(periph_module_t periph, bool en
 static inline uint32_t periph_ll_get_clk_en_reg(periph_module_t periph)
 {
     switch (periph) {
+    case PERIPH_DEDIC_GPIO_MODULE:
+        return DPORT_CPU_PERI_CLK_EN_REG;
     case PERIPH_RNG_MODULE:
     case PERIPH_WIFI_MODULE:
     case PERIPH_WIFI_BT_COMMON_MODULE:
@@ -226,6 +217,8 @@ static inline uint32_t periph_ll_get_clk_en_reg(periph_module_t periph)
 static inline uint32_t periph_ll_get_rst_en_reg(periph_module_t periph)
 {
     switch (periph) {
+    case PERIPH_DEDIC_GPIO_MODULE:
+        return DPORT_CPU_PERI_RST_EN_REG;
     case PERIPH_RNG_MODULE:
     case PERIPH_WIFI_MODULE:
     case PERIPH_WIFI_BT_COMMON_MODULE:
@@ -278,6 +271,17 @@ static inline bool IRAM_ATTR periph_ll_periph_enabled(periph_module_t periph)
         DPORT_REG_GET_BIT(periph_ll_get_clk_en_reg(periph), periph_ll_get_clk_en_mask(periph)) != 0;
 }
 
+static inline void periph_ll_wifi_module_enable_clk_clear_rst(void)
+{
+    DPORT_SET_PERI_REG_MASK(DPORT_WIFI_CLK_EN_REG, DPORT_WIFI_CLK_WIFI_EN_M);
+    DPORT_CLEAR_PERI_REG_MASK(DPORT_CORE_RST_EN_REG, 0);
+}
+
+static inline void periph_ll_wifi_module_disable_clk_set_rst(void)
+{
+    DPORT_CLEAR_PERI_REG_MASK(DPORT_WIFI_CLK_EN_REG, DPORT_WIFI_CLK_WIFI_EN_M);
+    DPORT_SET_PERI_REG_MASK(DPORT_CORE_RST_EN_REG, 0);
+}
 #ifdef __cplusplus
 }
 #endif

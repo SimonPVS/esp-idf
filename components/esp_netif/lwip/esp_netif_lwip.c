@@ -14,6 +14,7 @@
 
 #include <string.h>
 #include <lwip/ip_addr.h>
+#include <lwip/sockets.h>
 
 #include "esp_netif_lwip_internal.h"
 
@@ -31,6 +32,10 @@
 #include "lwip/netif.h"
 #if LWIP_DNS /* don't build if not configured for use in lwipopts.h */
 #include "lwip/dns.h"
+#endif
+
+#if CONFIG_LWIP_HOOK_TCP_ISN_DEFAULT
+#include "lwip_default_hooks.h"
 #endif
 
 #include "esp_netif_lwip_ppp.h"
@@ -243,6 +248,23 @@ uint32_t esp_ip4addr_aton(const char *addr)
     return ipaddr_addr(addr);
 }
 
+esp_err_t esp_netif_str_to_ip4(const char *src, esp_ip4_addr_t *dst)
+{
+    if (src == NULL || dst == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    int err = inet_pton(AF_INET, src, dst);
+    return err == 1 ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t esp_netif_str_to_ip6(const char *src, esp_ip6_addr_t *dst)
+{
+    if (src == NULL || dst == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    int err = inet_pton(AF_INET6, src, dst);
+    return err == 1 ? ESP_OK : ESP_FAIL;
+}
 
 esp_netif_iodriver_handle esp_netif_get_io_driver(esp_netif_t *esp_netif)
 {
@@ -269,6 +291,18 @@ esp_err_t esp_netif_init(void)
 {
     if (tcpip_initialized == false) {
         tcpip_initialized = true;
+#if CONFIG_LWIP_HOOK_TCP_ISN_DEFAULT
+        uint8_t rand_buf[16];
+        /*
+         * This is early startup code where WiFi/BT is yet to be enabled and hence
+         * relevant entropy source is not available. However, bootloader enables
+         * SAR ADC based entropy source at its initialization, and our requirement
+         * of random bytes is pretty small (16), so we can assume that following
+         * API will provide sufficiently random data.
+         */
+        esp_fill_random(rand_buf, sizeof(rand_buf));
+        lwip_init_tcp_isn(esp_log_timestamp(), rand_buf);
+#endif
         tcpip_init(NULL, NULL);
         ESP_LOGD(TAG, "LwIP stack has been initialized");
     }
@@ -279,7 +313,7 @@ esp_err_t esp_netif_init(void)
             return ESP_FAIL;
         }
     }
-    
+
     if (!api_lock_sem) {
         if (ERR_OK != sys_sem_new(&api_lock_sem, 1)) {
             ESP_LOGE(TAG, "esp netif api lock sem init fail");
@@ -303,7 +337,7 @@ esp_err_t esp_netif_deinit(void)
         sys_sem_free(&api_lock_sem);
          */
         return ESP_ERR_NOT_SUPPORTED;
-        
+
     }
     return ESP_ERR_INVALID_STATE;
 }
@@ -1117,19 +1151,20 @@ static esp_err_t esp_netif_set_hostname_api(esp_netif_api_msg_t *msg)
 #if LWIP_NETIF_HOSTNAME
 
     struct netif *p_netif = esp_netif->lwip_netif;
-    if (esp_netif->hostname) {
-        free(esp_netif->hostname);
-    }
-    esp_netif->hostname = strdup(hostname);
-    if (esp_netif->hostname == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
 
     if (strlen(hostname) > ESP_NETIF_HOSTNAME_MAX_SIZE) {
         return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
     }
 
     if (p_netif != NULL) {
+        if (esp_netif->hostname) {
+            free(esp_netif->hostname);
+        }
+        esp_netif->hostname = strdup(hostname);
+        if (esp_netif->hostname == NULL) {
+            p_netif->hostname = CONFIG_LWIP_LOCAL_HOSTNAME;
+            return ESP_ERR_NO_MEM;
+        }
         p_netif->hostname = esp_netif->hostname;
         return ESP_OK;
     } else {
@@ -1206,9 +1241,14 @@ static esp_err_t esp_netif_down_api(esp_netif_api_msg_t *msg)
 
         esp_netif_reset_ip_info(esp_netif);
     }
+#if CONFIG_LWIP_IPV6
     for(int8_t i = 0 ;i < LWIP_IPV6_NUM_ADDRESSES ;i++) {
         netif_ip6_addr_set(lwip_netif, i, IP6_ADDR_ANY6);
+        netif_ip6_addr_set_valid_life(lwip_netif, i, 0);
+        netif_ip6_addr_set_pref_life(lwip_netif, i, 0);
+        netif_ip6_addr_set_state(lwip_netif, i, IP6_ADDR_INVALID);
     }
+#endif
     netif_set_addr(lwip_netif, IP4_ADDR_ANY4, IP4_ADDR_ANY4, IP4_ADDR_ANY4);
     netif_set_down(lwip_netif);
 
@@ -1386,8 +1426,9 @@ static esp_err_t esp_netif_set_dns_info_api(esp_netif_api_msg_t *msg)
     ESP_LOGD(TAG, "set dns if=%p type=%d dns=%x", esp_netif, type, dns->ip.u_addr.ip4.addr);
 
     ip_addr_t *lwip_ip = (ip_addr_t*)&dns->ip;
+#if CONFIG_LWIP_IPV6 && LWIP_IPV4
     lwip_ip->type = IPADDR_TYPE_V4;
-
+#endif
     if (esp_netif->flags & ESP_NETIF_DHCP_SERVER) {
         // if DHCP server configured to set DNS in dhcps API
         if (type != ESP_NETIF_DNS_MAIN) {
@@ -1450,7 +1491,11 @@ esp_err_t esp_netif_get_dns_info(esp_netif_t *esp_netif, esp_netif_dns_type_t ty
         if (dns_ip == IP_ADDR_ANY) {
             return ESP_ERR_ESP_NETIF_DNS_NOT_CONFIGURED;
         }
+#if CONFIG_LWIP_IPV6
         memcpy(&dns->ip.u_addr.ip4, &dns_ip->u_addr.ip4, sizeof(ip4_addr_t));
+#else
+        memcpy(&dns->ip.u_addr.ip4, &dns_ip->addr, sizeof(ip4_addr_t));
+#endif
         return ESP_OK;
     }
 
@@ -1461,6 +1506,7 @@ esp_err_t esp_netif_get_dns_info(esp_netif_t *esp_netif, esp_netif_dns_type_t ty
     return esp_netif_lwip_ipc_call(esp_netif_get_dns_info_api, esp_netif, (void *)&dns_param);
 }
 
+#if CONFIG_LWIP_IPV6
 esp_ip6_addr_type_t esp_netif_ip6_get_addr_type(esp_ip6_addr_t* ip6_addr)
 {
     ip6_addr_t* lwip_ip6_info = (ip6_addr_t*)ip6_addr;
@@ -1556,9 +1602,10 @@ esp_err_t esp_netif_get_ip6_global(esp_netif_t *esp_netif, esp_ip6_addr_t *if_ip
 
     if (p_netif != NULL && netif_is_up(p_netif)) {
         for (i = 1; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
-            if (ip6_addr_ispreferred(netif_ip6_addr_state(p_netif, i))) {
-                memcpy(if_ip6, &p_netif->ip6_addr[i], sizeof(ip6_addr_t));
-                return ESP_OK;
+            if (ip6_addr_ispreferred(netif_ip6_addr_state(p_netif, i)) &&
+                ip6_addr_isglobal(netif_ip6_addr(p_netif, i))) {
+                    memcpy(if_ip6, &p_netif->ip6_addr[i], sizeof(ip6_addr_t));
+                    return ESP_OK;
             }
         }
     }
@@ -1586,6 +1633,7 @@ int esp_netif_get_all_ip6(esp_netif_t *esp_netif, esp_ip6_addr_t if_ip6[])
     }
     return addr_count;
 }
+#endif
 
 esp_netif_flags_t esp_netif_get_flags(esp_netif_t *esp_netif)
 {
@@ -1752,7 +1800,7 @@ esp_err_t esp_netif_dhcps_option(esp_netif_t *esp_netif, esp_netif_dhcp_option_m
 
 esp_err_t esp_netif_dhcpc_option(esp_netif_t *esp_netif, esp_netif_dhcp_option_mode_t opt_op, esp_netif_dhcp_option_id_t opt_id, void *opt_val,
                                  uint32_t opt_len)
-{   
+{
     if (esp_netif == NULL || esp_netif->lwip_netif == NULL) {
         return ESP_ERR_ESP_NETIF_IF_NOT_READY;
     }
@@ -1767,9 +1815,9 @@ esp_err_t esp_netif_dhcpc_option(esp_netif_t *esp_netif, esp_netif_dhcp_option_m
         switch (opt_id) {
             case ESP_NETIF_IP_REQUEST_RETRY_TIME:
                 if (opt_len == sizeof(dhcp->tries)) {
-                    *(uint8_t *)opt_val = dhcp->tries;  
-                }  
-                break;    
+                    *(uint8_t *)opt_val = dhcp->tries;
+                }
+                break;
             default:
                 return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
                 break;
@@ -1787,10 +1835,10 @@ esp_err_t esp_netif_dhcpc_option(esp_netif_t *esp_netif, esp_netif_dhcp_option_m
             default:
                 return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
                 break;
-        } 
+        }
     } else {
         return ESP_ERR_ESP_NETIF_INVALID_PARAMS;
-    }   
+    }
     return ESP_OK;
 }
 

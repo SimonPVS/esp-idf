@@ -16,6 +16,7 @@
 
 #include "esp_event_base.h"
 #include "esp_task.h"
+#include "esp_timer.h"
 
 //#define MDNS_ENABLE_DEBUG
 
@@ -31,7 +32,11 @@
  * such as lwIP mdns resolver (used by standard POSIX API like getaddrinfo, gethostbyname)
  * could not correctly resolve advertised names.
  */
+#ifndef CONFIG_MDNS_STRICT_MODE
 #define MDNS_STRICT_MODE 0
+#else
+#define MDNS_STRICT_MODE 1
+#endif
 
 #if !MDNS_STRICT_MODE
 /* mDNS responders sometimes repeat queries in responses

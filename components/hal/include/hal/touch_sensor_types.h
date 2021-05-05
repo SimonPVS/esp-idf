@@ -15,11 +15,10 @@
 #pragma once
 
 #include <stdbool.h>
-
-#include "soc/soc.h"
-#include "soc/touch_sensor_caps.h"
-#include "sdkconfig.h"
 #include "esp_attr.h"
+#include "soc/soc.h"
+#include "soc/soc_caps.h"
+#include "sdkconfig.h"
 
 /** Touch pad channel */
 typedef enum {
@@ -115,9 +114,10 @@ typedef enum {
 } touch_trigger_src_t;
 
 /********************************/
+#define TOUCH_PAD_BIT_MASK_ALL              ((1<<SOC_TOUCH_SENSOR_NUM)-1)
 #define TOUCH_PAD_SLOPE_DEFAULT             (TOUCH_PAD_SLOPE_7)
 #define TOUCH_PAD_TIE_OPT_DEFAULT           (TOUCH_PAD_TIE_OPT_LOW)
-#define TOUCH_PAD_BIT_MASK_MAX              (SOC_TOUCH_SENSOR_BIT_MASK_MAX)
+#define TOUCH_PAD_BIT_MASK_MAX              (TOUCH_PAD_BIT_MASK_ALL)
 #define TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD    (TOUCH_HVOLT_2V7)
 #define TOUCH_PAD_LOW_VOLTAGE_THRESHOLD     (TOUCH_LVOLT_0V5)
 #define TOUCH_PAD_ATTEN_VOLTAGE_THRESHOLD   (TOUCH_HVOLT_ATTEN_0V5)
@@ -132,7 +132,9 @@ typedef enum {
 #define TOUCH_TRIGGER_MODE_DEFAULT      (TOUCH_TRIGGER_BELOW)   /*!<Interrupts can be triggered if sensor value gets below or above threshold */
 #define TOUCH_TRIGGER_SOURCE_DEFAULT    (TOUCH_TRIGGER_SOURCE_SET1)  /*!<The wakeup trigger source can be SET1 or both SET1 and SET2 */
 
-#elif CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+#endif // CONFIG_IDF_TARGET ESP32
+
+#if !CONFIG_IDF_TARGET_ESP32
 /**
  * Excessive total time will slow down the touch response.
  * Too small measurement time will not be sampled enough, resulting in inaccurate measurements.
@@ -146,9 +148,6 @@ typedef enum {
                                                     The timer frequency is 8Mhz.
                                                     Recommended typical value: Modify this value to make the measurement time around 1ms.
                                                     Range: 0 ~ 0xffff */
-#endif // CONFIG_IDF_TARGET_ESP32
-
-#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
 
 typedef enum {
     TOUCH_PAD_INTR_MASK_DONE = BIT(0),      /*!<Measurement done for one of the enabled channels. */
@@ -287,4 +286,4 @@ typedef struct {
     bool en_proximity;              /*!<enable proximity function for sleep pad */
 } touch_pad_sleep_channel_t;
 
-#endif // CONFIG_IDF_TARGET_ESP32S2
+#endif // !CONFIG_IDF_TARGET_ESP32

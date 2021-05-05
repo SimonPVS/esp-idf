@@ -1,11 +1,13 @@
 from __future__ import unicode_literals
+
 import os
 import re
 import sys
+
 import ttfw_idf
 
 
-@ttfw_idf.idf_example_test(env_tag='Example_WIFI')
+@ttfw_idf.idf_example_test(env_tag='Example_WIFI_Protocols')
 def test_examples_esp_local_ctrl(env, extra_data):
 
     rel_project_path = os.path.join('examples', 'protocols', 'esp_local_ctrl')

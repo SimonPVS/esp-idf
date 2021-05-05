@@ -39,23 +39,18 @@
 #include "sys/param.h"
 #include "esp_system.h"
 #include "esp_efuse.h"
-
-#ifdef CONFIG_IDF_TARGET_ESP32
-#include "esp32/rom/crc.h"
-#elif CONFIG_IDF_TARGET_ESP32S2
-#include "esp32s2/rom/crc.h"
-#include "esp32s2/rom/secure_boot.h"
-#endif
+#include "esp_attr.h"
 
 #define SUB_TYPE_ID(i) (i & 0x0F)
 
+/* Partial_data is word aligned so no reallocation is necessary for encrypted flash write */
 typedef struct ota_ops_entry_ {
     uint32_t handle;
     const esp_partition_t *part;
     bool need_erase;
     uint32_t wrote_size;
     uint8_t partial_bytes;
-    uint8_t partial_data[16];
+    WORD_ALIGNED_ATTR uint8_t partial_data[16];
     LIST_ENTRY(ota_ops_entry_) entries;
 } ota_ops_entry_t;
 
@@ -302,16 +297,33 @@ esp_err_t esp_ota_write_with_offset(esp_ota_handle_t handle, const void *data, s
     return ESP_ERR_INVALID_ARG;
 }
 
-esp_err_t esp_ota_end(esp_ota_handle_t handle)
+static ota_ops_entry_t *get_ota_ops_entry(esp_ota_handle_t handle)
 {
-    ota_ops_entry_t *it;
-    esp_err_t ret = ESP_OK;
-
+    ota_ops_entry_t *it = NULL;
     for (it = LIST_FIRST(&s_ota_ops_entries_head); it != NULL; it = LIST_NEXT(it, entries)) {
         if (it->handle == handle) {
             break;
         }
     }
+   return it;
+}
+
+esp_err_t esp_ota_abort(esp_ota_handle_t handle)
+{
+    ota_ops_entry_t *it = get_ota_ops_entry(handle);
+
+    if (it == NULL) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    LIST_REMOVE(it, entries);
+    free(it);
+    return ESP_OK;
+}
+
+esp_err_t esp_ota_end(esp_ota_handle_t handle)
+{
+    ota_ops_entry_t *it = get_ota_ops_entry(handle);
+    esp_err_t ret = ESP_OK;
 
     if (it == NULL) {
         return ESP_ERR_NOT_FOUND;
@@ -387,7 +399,7 @@ static esp_err_t esp_rewrite_ota_data(esp_partition_subtype_t subtype)
         return ESP_ERR_NOT_FOUND;
     }
 
-    int ota_app_count = get_ota_partition_count();
+    uint8_t ota_app_count = get_ota_partition_count();
     if (SUB_TYPE_ID(subtype) >= ota_app_count) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -874,7 +886,7 @@ esp_err_t esp_ota_erase_last_boot_app_partition(void)
     return ESP_OK;
 }
 
-#if CONFIG_IDF_TARGET_ESP32S2 && CONFIG_SECURE_BOOT_V2_ENABLED
+#if SOC_EFUSE_SECURE_BOOT_KEY_DIGESTS > 1 && CONFIG_SECURE_BOOT_V2_ENABLED
 esp_err_t esp_ota_revoke_secure_boot_public_key(esp_ota_secure_boot_public_key_index_t index) {
 
     if (!esp_secure_boot_enabled()) {

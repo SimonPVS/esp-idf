@@ -4077,7 +4077,7 @@ void btm_sec_encrypt_change (UINT16 handle, UINT8 status, UINT8 encr_enable)
                 p_dev_rec->sec_flags |= BTM_SEC_16_DIGIT_PIN_AUTHED;
             }
         } else {
-            p_dev_rec->sec_flags |= (BTM_SEC_LE_AUTHENTICATED | BTM_SEC_LE_ENCRYPTED);
+            p_dev_rec->sec_flags |= BTM_SEC_LE_ENCRYPTED;
         }
     }
 
@@ -4563,7 +4563,9 @@ void btm_sec_disconnected (UINT16 handle, UINT8 reason)
     /* If page was delayed for disc complete, can do it now */
     btm_cb.discing = FALSE;
 
+#if (CLASSIC_BT_INCLUDED == TRUE)
     btm_acl_resubmit_page();
+#endif
 
     if (!p_dev_rec) {
         return;
@@ -4586,26 +4588,6 @@ void btm_sec_disconnected (UINT16 handle, UINT8 reason)
                     reason, bd_addr[0], bd_addr[1], bd_addr[2], bd_addr[3], bd_addr[4], bd_addr[5], p_dev_rec->sec_bd_name);
 #endif  ///BT_USE_TRACES == TRUE && SMP_INCLUDED == TRUE
     BTM_TRACE_EVENT("%s before update sec_flags=0x%x\n", __func__, p_dev_rec->sec_flags);
-
-    /* If we are in the process of bonding we need to tell client that auth failed */
-    if ( (btm_cb.pairing_state != BTM_PAIR_STATE_IDLE)
-            && (memcmp (btm_cb.pairing_bda, p_dev_rec->bd_addr, BD_ADDR_LEN) == 0)) {
-        btm_sec_change_pairing_state (BTM_PAIR_STATE_IDLE);
-        p_dev_rec->sec_flags &= ~BTM_SEC_LINK_KEY_KNOWN;
-        if (btm_cb.api.p_auth_complete_callback) {
-            /* If the disconnection reason is REPEATED_ATTEMPTS,
-               send this error message to complete callback function
-               to display the error message of Repeated attempts.
-               All others, send HCI_ERR_AUTH_FAILURE. */
-            if (reason == HCI_ERR_REPEATED_ATTEMPTS) {
-                result = HCI_ERR_REPEATED_ATTEMPTS;
-            } else if (old_pairing_flags & BTM_PAIR_FLAGS_WE_STARTED_DD) {
-                result = HCI_ERR_HOST_REJECT_SECURITY;
-            }
-            (*btm_cb.api.p_auth_complete_callback) (p_dev_rec->bd_addr,     p_dev_rec->dev_class,
-                                                    p_dev_rec->sec_bd_name, result);
-        }
-    }
 
 #if BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE
     btm_ble_update_mode_operation(HCI_ROLE_UNKNOWN, p_dev_rec->bd_addr, HCI_SUCCESS);
@@ -4643,6 +4625,26 @@ void btm_sec_disconnected (UINT16 handle, UINT8 reason)
     }
 
     BTM_TRACE_EVENT("%s after update sec_flags=0x%x\n", __func__, p_dev_rec->sec_flags);
+
+    /* If we are in the process of bonding we need to tell client that auth failed */
+    if ( (btm_cb.pairing_state != BTM_PAIR_STATE_IDLE)
+            && (memcmp (btm_cb.pairing_bda, p_dev_rec->bd_addr, BD_ADDR_LEN) == 0)) {
+        btm_sec_change_pairing_state (BTM_PAIR_STATE_IDLE);
+        p_dev_rec->sec_flags &= ~BTM_SEC_LINK_KEY_KNOWN;
+        if (btm_cb.api.p_auth_complete_callback) {
+            /* If the disconnection reason is REPEATED_ATTEMPTS,
+               send this error message to complete callback function
+               to display the error message of Repeated attempts.
+               All others, send HCI_ERR_AUTH_FAILURE. */
+            if (reason == HCI_ERR_REPEATED_ATTEMPTS) {
+                result = HCI_ERR_REPEATED_ATTEMPTS;
+            } else if (old_pairing_flags & BTM_PAIR_FLAGS_WE_STARTED_DD) {
+                result = HCI_ERR_HOST_REJECT_SECURITY;
+            }
+            (*btm_cb.api.p_auth_complete_callback) (p_dev_rec->bd_addr,     p_dev_rec->dev_class,
+                                                    p_dev_rec->sec_bd_name, result);
+        }
+    }
 }
 
 /*******************************************************************************
@@ -6277,3 +6279,39 @@ void btm_sec_handle_remote_legacy_auth_cmp(UINT16 handle)
 }
 #endif /// (CLASSIC_BT_INCLUDED == TRUE)
 #endif  ///SMP_INCLUDED == TRUE
+
+/******************************************************************************
+ **
+ ** Function         btm_sec_dev_authorization
+ **
+ ** Description      This function is used to authorize a specified device(BLE)
+ **
+ ******************************************************************************
+ */
+#if (BLE_INCLUDED == TRUE)
+BOOLEAN btm_sec_dev_authorization(BD_ADDR bd_addr, BOOLEAN authorized)
+{
+#if (SMP_INCLUDED == TRUE)
+    UINT8  sec_flag = 0;
+    tBTM_SEC_DEV_REC *p_dev_rec = btm_find_dev(bd_addr);
+    if (p_dev_rec) {
+        sec_flag = (UINT8)(p_dev_rec->sec_flags >> 8);
+        if (!(sec_flag & BTM_SEC_LINK_KEY_AUTHED)) {
+            BTM_TRACE_ERROR("Authorized should after successful Authentication(MITM protection)\n");
+            return FALSE;
+        }
+
+        if (authorized) {
+            p_dev_rec->sec_flags |= BTM_SEC_LE_AUTHORIZATION;
+        } else {
+            p_dev_rec->sec_flags &= ~(BTM_SEC_LE_AUTHORIZATION);
+        }
+    } else {
+        BTM_TRACE_ERROR("%s, can't find device\n", __func__);
+        return FALSE;
+    }
+    return TRUE;
+#endif  ///SMP_INCLUDED == TRUE
+    return FALSE;
+}
+#endif  /// BLE_INCLUDE == TRUE

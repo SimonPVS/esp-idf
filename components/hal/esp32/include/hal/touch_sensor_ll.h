@@ -62,7 +62,7 @@ static inline void touch_ll_set_meas_time(uint16_t meas_time)
     //touch sensor measure time= meas_cycle / 8Mhz
     SENS.sar_touch_ctrl1.touch_meas_delay = meas_time;
     //the waiting cycles (in 8MHz) between TOUCH_START and TOUCH_XPD
-    SENS.sar_touch_ctrl1.touch_xpd_wait = SOC_TOUCH_PAD_MEASURE_WAIT;
+    SENS.sar_touch_ctrl1.touch_xpd_wait = SOC_TOUCH_PAD_MEASURE_WAIT_MAX;
 }
 
 /**
@@ -233,6 +233,7 @@ static inline void touch_ll_get_tie_option(touch_pad_t touch_num, touch_tie_opt_
  */
 static inline void touch_ll_set_fsm_mode(touch_fsm_mode_t mode)
 {
+    SENS.sar_touch_ctrl2.touch_start_fsm_en = 1;
     SENS.sar_touch_ctrl2.touch_start_en = 0;
     SENS.sar_touch_ctrl2.touch_start_force = mode;
 }

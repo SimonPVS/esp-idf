@@ -1,16 +1,8 @@
-// Copyright 2017 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 //
 // Hot It Works
 // ************
@@ -156,13 +148,19 @@
 
 #include <string.h>
 #include <sys/param.h>
+#include "sdkconfig.h"
 #include "soc/soc.h"
+#include "soc/dport_access.h"
+#if !CONFIG_IDF_TARGET_ESP32C3
 #include "soc/dport_reg.h"
-#if CONFIG_IDF_TARGET_ESP32S2
+#endif
+#if CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
 #include "soc/sensitive_reg.h"
 #endif
+#if __XTENSA__
+#include "xtensa-debug-module.h"
 #include "eri.h"
-#include "trax.h"
+#endif
 #include "soc/timer_periph.h"
 #include "freertos/FreeRTOS.h"
 #include "esp_app_trace.h"
@@ -204,18 +202,6 @@ const static char *TAG = "esp_apptrace";
 #define ESP_APPTRACE_LOGD( format, ... )  ESP_APPTRACE_LOG_LEV(D, ESP_LOG_DEBUG, format, ##__VA_ARGS__)
 #define ESP_APPTRACE_LOGV( format, ... )  ESP_APPTRACE_LOG_LEV(V, ESP_LOG_VERBOSE, format, ##__VA_ARGS__)
 #define ESP_APPTRACE_LOGO( format, ... )  ESP_APPTRACE_LOG_LEV(E, ESP_LOG_NONE, format, ##__VA_ARGS__)
-
-// TODO: move these (and same definitions in trax.c to dport_reg.h)
-#if CONFIG_IDF_TARGET_ESP32
-#define TRACEMEM_MUX_PROBLK0_APPBLK1            0
-#define TRACEMEM_MUX_BLK0_ONLY                  1
-#define TRACEMEM_MUX_BLK1_ONLY                  2
-#define TRACEMEM_MUX_PROBLK1_APPBLK0            3
-#elif CONFIG_IDF_TARGET_ESP32S2
-#define TRACEMEM_MUX_BLK0_NUM                   19
-#define TRACEMEM_MUX_BLK1_NUM                   20
-#define TRACEMEM_BLK_NUM2ADDR(_n_)              (0x3FFB8000UL + 0x4000UL*((_n_)-4))
-#endif
 
 // TRAX is disabled, so we use its registers for our own purposes
 // | 31..XXXXXX..24 | 23 .(host_connect). 23 | 22 .(host_data). 22| 21..(block_id)..15 | 14..(block_len)..0 |
@@ -875,7 +861,7 @@ static esp_err_t esp_apptrace_trax_status_reg_get(uint32_t *val)
 
 static esp_err_t esp_apptrace_trax_dest_init(void)
 {
-    for (int i = 0; i < ESP_APPTRACE_TRAX_BLOCKS_NUM; i++) {
+    for (size_t i = 0; i < ESP_APPTRACE_TRAX_BLOCKS_NUM; i++) {
         s_trace_buf.trax.blocks[i].start = (uint8_t *)s_trax_blocks[i];
         s_trace_buf.trax.blocks[i].sz = ESP_APPTRACE_TRAX_BLOCK_SIZE;
         s_trace_buf.trax.state.markers[i] = 0;

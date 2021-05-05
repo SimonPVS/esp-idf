@@ -57,7 +57,7 @@ The example below show how to register a allocation failure callback::
 
   #include "esp_heap_caps.h"
 
-  void heap_caps_alloc_failed_hook(size_t requested_size, uint32_t caps, const char *function_name) 
+  void heap_caps_alloc_failed_hook(size_t requested_size, uint32_t caps, const char *function_name)
   {
     printf("%s was called but failed to allocate %d bytes with 0x%X capabilities. \n",function_name, requested_size, caps);
   }
@@ -70,7 +70,7 @@ The example below show how to register a allocation failure callback::
       void *ptr = heap_caps_malloc(allocation_size, MALLOC_CAP_DEFAULT);
       ...
   }
-  
+
 Finding Heap Corruption
 ^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -80,7 +80,7 @@ Memory corruption can be one of the hardest classes of bugs to find and fix, as 
 - Increasing the Heap memory debugging `Configuration`_ level to "Light impact" or "Comprehensive" can give you a more accurate message with the first corrupt memory address.
 - Adding regular calls to :cpp:func:`heap_caps_check_integrity_all` or :cpp:func:`heap_caps_check_integrity_addr` in your code will help you pin down the exact time that the corruption happened. You can move these checks around to "close in on" the section of code that corrupted the heap.
 - Based on the memory address which is being corrupted, you can use :ref:`JTAG debugging <jtag-debugging-introduction>` to set a watchpoint on this address and have the CPU halt when it is written to.
-- If you don't have JTAG, but you do know roughly when the corruption happens, then you can set a watchpoint in software just beforehand via :cpp:func:`esp_set_watchpoint`. A fatal exception will occur when the watchpoint triggers. For example ``esp_set_watchpoint(0, (void *)addr, 4, ESP_WATCHPOINT_STORE``. Note that watchpoints are per-CPU and are set on the current running CPU only, so if you don't know which CPU is corrupting memory then you will need to call this function on both CPUs.
+- If you don't have JTAG, but you do know roughly when the corruption happens, then you can set a watchpoint in software just beforehand via :cpp:func:`esp_cpu_set_watchpoint`. A fatal exception will occur when the watchpoint triggers. For example ``esp_cpu_set_watchpoint(0, (void *)addr, 4, ESP_WATCHPOINT_STORE``. Note that watchpoints are per-CPU and are set on the current running CPU only, so if you don't know which CPU is corrupting memory then you will need to call this function on both CPUs.
 - For buffer overflows, `heap tracing`_ in ``HEAP_TRACE_ALL`` mode lets you see which callers are allocating which addresses from the heap. See `Heap Tracing To Find Heap Corruption`_ for more details. If you can find the function which allocates memory with an address immediately before the address which is corrupted, this will probably be the function which overflows the buffer.
 - Calling :cpp:func:`heap_caps_dump` or :cpp:func:`heap_caps_dump_all` can give an indication of what heap blocks are surrounding the corrupted region and may have overflowed/underflowed/etc.
 
@@ -304,20 +304,20 @@ To gather and analyse heap trace do the following on the host:
 
     tb heap_trace_start
     commands
-    mon esp32 sysview start file:///tmp/heap.svdat
+    mon esp sysview start file:///tmp/heap.svdat
     c
     end
 
     tb heap_trace_stop
     commands
-    mon esp32 sysview stop
+    mon esp sysview stop
     end
 
     c
 
 Using this file GDB will connect to the target, reset it, and start tracing when program hits breakpoint at :cpp:func:`heap_trace_start`. Trace data will be saved to ``/tmp/heap_log.svdat``. Tracing will be stopped when program hits breakpoint at :cpp:func:`heap_trace_stop`.
 
-4. Run GDB using the following command ``xtensa-{IDF_TARGET_TOOLCHAIN_NAME}-elf-gdb -x gdbinit </path/to/program/elf>``
+4. Run GDB using the following command ``{IDF_TARGET_TOOLCHAIN_PREFIX}-gdb -x gdbinit </path/to/program/elf>``
 
 5. Quit GDB when program stops at :cpp:func:`heap_trace_stop`. Trace data are saved in ``/tmp/heap.svdat``
 

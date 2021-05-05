@@ -127,8 +127,8 @@ static inline esp_err_t sdio_ringbuf_recv(sdio_ringbuf_t *buf, uint8_t **start, 
 static inline int sdio_ringbuf_return(sdio_ringbuf_t* buf, uint8_t *ptr)
 {
     assert(sdio_ringbuf_offset_ptr(buf, RINGBUF_FREE_PTR, SDIO_SLAVE_SEND_DESC_SIZE) == ptr);
-    int size = (buf->read_ptr + buf->size - buf->free_ptr) % buf->size;
-    int count = size / SDIO_SLAVE_SEND_DESC_SIZE;
+    size_t size = (buf->read_ptr + buf->size - buf->free_ptr) % buf->size;
+    size_t count = size / SDIO_SLAVE_SEND_DESC_SIZE;
     assert(count * SDIO_SLAVE_SEND_DESC_SIZE==size);
     buf->free_ptr = buf->read_ptr;
     return count;
@@ -178,7 +178,7 @@ void sdio_slave_hal_hw_init(sdio_slave_context_t *hal)
 static esp_err_t init_send_queue(sdio_slave_context_t *hal)
 {
     esp_err_t ret;
-    esp_err_t rcv_res;
+    esp_err_t rcv_res __attribute((unused));
     sdio_ringbuf_t *buf = &(hal->send_desc_queue);
 
     //initialize pointers
@@ -725,4 +725,3 @@ void sdio_slave_hal_slvint_fetch_clear(sdio_slave_context_t *hal, sdio_slave_ll_
 {
     sdio_slave_ll_slvint_fetch_clear(hal->slc, out_int_mask);
 }
-

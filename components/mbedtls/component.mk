@@ -5,7 +5,7 @@
 
 COMPONENT_ADD_INCLUDEDIRS := port/include mbedtls/include esp_crt_bundle/include
 
-COMPONENT_SRCDIRS := mbedtls/library port port/$(IDF_TARGET) port/sha port/sha/parallel_engine esp_crt_bundle
+COMPONENT_SRCDIRS := mbedtls/library port port/$(IDF_TARGET) port/sha port/sha/parallel_engine port/aes port/aes/block port/md esp_crt_bundle
 
 COMPONENT_OBJEXCLUDE := mbedtls/library/net_sockets.o
 
@@ -62,7 +62,6 @@ COMPONENT_EMBED_FILES := $(X509_CERTIFICATE_BUNDLE)
 endif
 
 ifdef CONFIG_MBEDTLS_DYNAMIC_BUFFER
-
 WRAP_FUNCTIONS = mbedtls_ssl_handshake_client_step \
                  mbedtls_ssl_handshake_server_step \
                  mbedtls_ssl_read \
@@ -73,10 +72,14 @@ WRAP_FUNCTIONS = mbedtls_ssl_handshake_client_step \
                  mbedtls_ssl_send_alert_message \
                  mbedtls_ssl_close_notify
 
-WRAP_ARGUMENT := -Wl,--wrap=
-
-COMPONENT_ADD_LDFLAGS = -l$(COMPONENT_NAME) $(addprefix $(WRAP_ARGUMENT),$(WRAP_FUNCTIONS))
-
 COMPONENT_SRCDIRS += port/dynamic
+endif
 
+ifdef CONFIG_MBEDTLS_HARDWARE_MPI
+WRAP_FUNCTIONS += mbedtls_mpi_exp_mod
+endif
+
+ifneq ($(origin WRAP_FUNCTIONS),undefined)
+WRAP_ARGUMENT := -Wl,--wrap=
+COMPONENT_ADD_LDFLAGS = -l$(COMPONENT_NAME) $(addprefix $(WRAP_ARGUMENT),$(WRAP_FUNCTIONS))
 endif

@@ -17,8 +17,9 @@
 #include <sys/param.h>
 #include "esp_log.h"
 #include "esp_intr_alloc.h"
+#include "soc/soc_caps.h"
+#include "soc/soc_pins.h"
 #include "soc/gpio_periph.h"
-#include "soc/gpio_caps.h"
 #include "esp_rom_gpio.h"
 #include "esp_rom_sys.h"
 #include "driver/gpio.h"
@@ -28,6 +29,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "soc/sdmmc_periph.h"
+#include "hal/gpio_hal.h"
 
 #define SDMMC_EVENT_QUEUE_LENGTH 32
 
@@ -302,7 +304,7 @@ static void configure_pin(int pin)
     uint32_t reg = GPIO_PIN_MUX_REG[pin];
     assert(reg != UINT32_MAX);
     PIN_INPUT_ENABLE(reg);
-    PIN_FUNC_SELECT(reg, sdmmc_func);
+    gpio_hal_iomux_func_sel(reg, sdmmc_func);
     PIN_SET_DRV(reg, drive_strength);
 }
 
@@ -639,4 +641,3 @@ esp_err_t sdmmc_host_pullup_en(int slot, int width)
     }
     return ESP_OK;
 }
-

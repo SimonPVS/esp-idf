@@ -35,6 +35,9 @@ extern "C" {
 // Get GPIO hardware instance with giving gpio num
 #define GPIO_LL_GET_HW(num) (((num) == 0) ? (&GPIO) : NULL)
 
+#define GPIO_LL_PRO_CPU_INTR_ENA      (BIT(0))
+#define GPIO_LL_PRO_CPU_NMI_INTR_ENA  (BIT(1))
+
 /**
   * @brief Enable pull-up on GPIO.
   *
@@ -147,7 +150,7 @@ static inline void gpio_ll_clear_intr_status_high(gpio_dev_t *hw, uint32_t mask)
 static inline void gpio_ll_intr_enable_on_core(gpio_dev_t *hw, uint32_t core_id, gpio_num_t gpio_num)
 {
     if (core_id == 0) {
-        GPIO.pin[gpio_num].int_ena = GPIO_PRO_CPU_INTR_ENA;     //enable pro cpu intr
+        GPIO.pin[gpio_num].int_ena = GPIO_LL_PRO_CPU_INTR_ENA;     //enable pro cpu intr
     }
 }
 
@@ -389,6 +392,17 @@ static inline void gpio_ll_iomux_in(gpio_dev_t *hw, uint32_t gpio, uint32_t sign
 }
 
 /**
+ * @brief  Select a function for the pin in the IOMUX
+ *
+ * @param  pin_name Pin name to configure
+ * @param  func Function to assign to the pin
+ */
+static inline void gpio_ll_iomux_func_sel(uint32_t pin_name, uint32_t func)
+{
+    PIN_FUNC_SELECT(pin_name, func);
+}
+
+/**
   * @brief Set peripheral output to an GPIO pad through the IOMUX.
   *
   * @param hw Peripheral GPIO hardware instance address.
@@ -401,7 +415,7 @@ static inline void gpio_ll_iomux_out(gpio_dev_t *hw, uint8_t gpio_num, int func,
 {
     hw->func_out_sel_cfg[gpio_num].oen_sel = 0;
     hw->func_out_sel_cfg[gpio_num].oen_inv_sel = oen_inv;
-    PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[gpio_num], func);
+    gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[gpio_num], func);
 }
 
 static inline void gpio_ll_force_hold_all(gpio_dev_t *hw)
@@ -410,12 +424,123 @@ static inline void gpio_ll_force_hold_all(gpio_dev_t *hw)
     SET_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_DG_PAD_FORCE_HOLD);
 }
 
-static inline void gpio_ll_force_unhold_all(gpio_dev_t *hw)
+static inline void gpio_ll_force_unhold_all(void)
 {
     CLEAR_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_DG_PAD_FORCE_HOLD);
     SET_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_DG_PAD_FORCE_UNHOLD);
     SET_PERI_REG_MASK(RTC_CNTL_DIG_ISO_REG, RTC_CNTL_CLR_DG_PAD_AUTOHOLD);
 }
+
+/**
+  * @brief Enable GPIO pin used for wakeup from sleep.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_sel_en(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_SEL_ENABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Disable GPIO pin used for wakeup from sleep.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_sel_dis(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_SEL_DISABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Disable GPIO pull-up in sleep mode.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_pullup_dis(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_PULLUP_DISABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Enable GPIO pull-up in sleep mode.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_pullup_en(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_PULLUP_ENABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Enable GPIO pull-down in sleep mode.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_pulldown_en(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_PULLDOWN_ENABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Disable GPIO pull-down in sleep mode.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_pulldown_dis(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_PULLDOWN_DISABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Disable GPIO input in sleep mode.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_input_disable(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_INPUT_DISABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Enable GPIO input in sleep mode.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_input_enable(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_INPUT_ENABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Disable GPIO output in sleep mode.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_output_disable(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_OUTPUT_DISABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
+/**
+  * @brief Enable GPIO output in sleep mode.
+  *
+  * @param hw Peripheral GPIO hardware instance address.
+  * @param gpio_num GPIO number
+  */
+static inline void gpio_ll_sleep_output_enable(gpio_dev_t *hw, gpio_num_t gpio_num)
+{
+    PIN_SLP_OUTPUT_ENABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
 
 #ifdef __cplusplus
 }

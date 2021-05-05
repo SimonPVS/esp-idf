@@ -16,6 +16,7 @@
 #include <sys/time.h>
 #include <sys/lock.h>
 
+#include "esp_attr.h"
 #include "esp_system.h"
 
 #include "soc/rtc.h"
@@ -39,71 +40,61 @@
 #include "esp32s3/rom/rtc.h"
 #include "esp32s3/clk.h"
 #include "esp32s3/rtc.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#include "esp32c3/rom/rtc.h"
+#include "esp32c3/clk.h"
+#include "esp32c3/rtc.h"
 #endif
 
-#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC ) \
-    || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 ) \
-    || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC ) \
-    || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC_FRC1 ) \
-    || defined( CONFIG_ESP32S3_TIME_SYSCALL_USE_RTC ) \
-    || defined( CONFIG_ESP32S3_TIME_SYSCALL_USE_RTC_FRC1 )
-#define WITH_RTC 1
-#endif
 
-#if defined( CONFIG_ESP32_TIME_SYSCALL_USE_FRC1 ) \
-    || defined( CONFIG_ESP32_TIME_SYSCALL_USE_RTC_FRC1 ) \
-    || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_FRC1 ) \
-    || defined( CONFIG_ESP32S2_TIME_SYSCALL_USE_RTC_FRC1 )
-#define WITH_FRC 1
-#endif
 
 // Offset between FRC timer and the RTC.
 // Initialized after reset or light sleep.
-#if defined(WITH_RTC) && defined(WITH_FRC)
-uint64_t s_microseconds_offset;
+#if defined(CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER) && defined(CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER)
+int64_t s_microseconds_offset = 0;
 #endif
 
-#ifndef WITH_RTC
+#ifndef CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER
 static uint64_t s_boot_time; // when RTC is used to persist time, two RTC_STORE registers are used to store boot time instead
 #endif
 
 static _lock_t s_boot_time_lock;
 
-#if defined( WITH_FRC ) || defined( WITH_RTC )
+#if defined( CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER ) || defined( CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER )
 uint64_t esp_time_impl_get_time_since_boot(void)
 {
     uint64_t microseconds = 0;
 
-#ifdef WITH_FRC
-#ifdef WITH_RTC
+#ifdef CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER
+#ifdef CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER
     microseconds = s_microseconds_offset + esp_system_get_time();
 #else
     microseconds = esp_system_get_time();
-#endif // WITH_RTC
-#elif defined(WITH_RTC)
+#endif // CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER
+#elif defined(CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER)
     microseconds = esp_rtc_get_time_us();
-#endif // WITH_FRC
+#endif // CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER
     return microseconds;
 }
 
 uint64_t esp_time_impl_get_time(void)
 {
     uint64_t microseconds = 0;
-#if defined( WITH_FRC )
+#if defined( CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER )
     microseconds = esp_system_get_time();
-#elif defined( WITH_RTC )
+#elif defined( CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER )
     microseconds = esp_rtc_get_time_us();
-#endif // WITH_FRC
+#endif // CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER
     return microseconds;
 }
 
-#endif // defined( WITH_FRC ) || defined( WITH_RTC )
+#endif // defined( CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER ) || defined( CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER )
 
 
 void esp_time_impl_set_boot_time(uint64_t time_us)
 {
     _lock_acquire(&s_boot_time_lock);
-#ifdef WITH_RTC
+#ifdef CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER
     REG_WRITE(RTC_BOOT_TIME_LOW_REG, (uint32_t) (time_us & 0xffffffff));
     REG_WRITE(RTC_BOOT_TIME_HIGH_REG, (uint32_t) (time_us >> 32));
 #else
@@ -112,20 +103,11 @@ void esp_time_impl_set_boot_time(uint64_t time_us)
     _lock_release(&s_boot_time_lock);
 }
 
-uint64_t esp_clk_rtc_time(void)
-{
-#ifdef WITH_RTC
-    return esp_rtc_get_time_us();
-#else
-    return 0;
-#endif
-}
-
 uint64_t esp_time_impl_get_boot_time(void)
 {
     uint64_t result;
     _lock_acquire(&s_boot_time_lock);
-#ifdef WITH_RTC
+#ifdef CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER
     result = ((uint64_t) REG_READ(RTC_BOOT_TIME_LOW_REG)) + (((uint64_t) REG_READ(RTC_BOOT_TIME_HIGH_REG)) << 32);
 #else
     result = s_boot_time;
@@ -134,63 +116,17 @@ uint64_t esp_time_impl_get_boot_time(void)
     return result;
 }
 
-uint32_t esp_clk_slowclk_cal_get(void)
-{
-    return REG_READ(RTC_SLOW_CLK_CAL_REG);
-}
-
-uint64_t esp_rtc_get_time_us(void)
-{
-    const uint64_t ticks = rtc_time_get();
-    const uint32_t cal = esp_clk_slowclk_cal_get();
-    /* RTC counter result is up to 2^48, calibration factor is up to 2^24,
-     * for a 32kHz clock. We need to calculate (assuming no overflow):
-     *   (ticks * cal) >> RTC_CLK_CAL_FRACT
-     *
-     * An overflow in the (ticks * cal) multiplication would cause time to
-     * wrap around after approximately 13 days, which is probably not enough
-     * for some applications.
-     * Therefore multiplication is split into two terms, for the lower 32-bit
-     * and the upper 16-bit parts of "ticks", i.e.:
-     *   ((ticks_low + 2^32 * ticks_high) * cal) >> RTC_CLK_CAL_FRACT
-     */
-    const uint64_t ticks_low = ticks & UINT32_MAX;
-    const uint64_t ticks_high = ticks >> 32;
-    return ((ticks_low * cal) >> RTC_CLK_CAL_FRACT) +
-           ((ticks_high * cal) << (32 - RTC_CLK_CAL_FRACT));
-}
-
-void esp_clk_slowclk_cal_set(uint32_t new_cal)
-{
-#if defined(WITH_RTC)
-    /* To force monotonic time values even when clock calibration value changes,
-     * we adjust boot time, given current time and the new calibration value:
-     *      T = boot_time_old + cur_cal * ticks / 2^19
-     *      T = boot_time_adj + new_cal * ticks / 2^19
-     * which results in:
-     *      boot_time_adj = boot_time_old + ticks * (cur_cal - new_cal) / 2^19
-     */
-    const int64_t ticks = (int64_t) rtc_time_get();
-    const uint32_t cur_cal = REG_READ(RTC_SLOW_CLK_CAL_REG);
-    int32_t cal_diff = (int32_t) (cur_cal - new_cal);
-    int64_t boot_time_diff = ticks * cal_diff / (1LL << RTC_CLK_CAL_FRACT);
-    uint64_t boot_time_adj = esp_time_impl_get_boot_time() + boot_time_diff;
-    esp_time_impl_set_boot_time(boot_time_adj);
-#endif // WITH_RTC
-    REG_WRITE(RTC_SLOW_CLK_CAL_REG, new_cal);
-}
-
 void esp_set_time_from_rtc(void)
 {
-#if defined( WITH_FRC ) && defined( WITH_RTC )
+#if defined( CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER ) && defined( CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER )
     // initialize time from RTC clock
     s_microseconds_offset = esp_rtc_get_time_us() - esp_system_get_time();
-#endif // WITH_FRC && WITH_RTC
+#endif // CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER && CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER
 }
 
 void esp_sync_counters_rtc_and_frc(void)
 {
-#if defined( WITH_FRC ) && defined( WITH_RTC )
+#if defined( CONFIG_ESP_TIME_FUNCS_USE_ESP_TIMER ) && defined( CONFIG_ESP_TIME_FUNCS_USE_RTC_TIMER )
     struct timeval tv;
     gettimeofday(&tv, NULL);
     settimeofday(&tv, NULL);

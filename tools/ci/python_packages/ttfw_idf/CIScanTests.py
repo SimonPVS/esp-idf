@@ -4,22 +4,27 @@ import json
 import logging
 import os
 from collections import defaultdict
+from copy import deepcopy
 
 from find_apps import find_apps
-from find_build_apps import BUILD_SYSTEMS, BUILD_SYSTEM_CMAKE
+from find_build_apps import BUILD_SYSTEM_CMAKE, BUILD_SYSTEMS
+from idf_py_actions.constants import PREVIEW_TARGETS, SUPPORTED_TARGETS
 from ttfw_idf.IDFAssignTest import ExampleAssignTest, TestAppsAssignTest
-from idf_py_actions.constants import SUPPORTED_TARGETS, PREVIEW_TARGETS
 
 TEST_LABELS = {
     'example_test': 'BOT_LABEL_EXAMPLE_TEST',
     'test_apps': 'BOT_LABEL_CUSTOM_TEST',
-    'component_ut': ['BOT_LABEL_UNIT_TEST', 'BOT_LABEL_UNIT_TEST_S2'],
+    'component_ut': ['BOT_LABEL_UNIT_TEST',
+                     'BOT_LABEL_UNIT_TEST_32',
+                     'BOT_LABEL_UNIT_TEST_S2',
+                     'BOT_LABEL_UNIT_TEST_C3'],
 }
 
 BUILD_ALL_LABELS = [
     'BOT_LABEL_BUILD',
     'BOT_LABEL_BUILD_ALL_APPS',
     'BOT_LABEL_REGULAR_TEST',
+    'BOT_LABEL_WEEKEND_TEST',
 ]
 
 
@@ -44,11 +49,10 @@ def _judge_build_or_not(action, build_all):  # type: (str, bool) -> (bool, bool)
 
     for label in labels:
         if os.getenv(label):
-            logging.info('Build test cases apps')
+            logging.info('Build only test cases apps')
             return True, False
-        else:
-            logging.info('Skip all')
-            return False, False
+    logging.info('Skip all')
+    return False, False
 
 
 def output_json(apps_dict_list, target, build_system, output_dir):
@@ -69,15 +73,15 @@ def main():
                         default=BUILD_SYSTEM_CMAKE)
     parser.add_argument('-c', '--ci-config-file',
                         required=True,
-                        help="gitlab ci config target-test file")
+                        help='gitlab ci config target-test file')
     parser.add_argument('-o', '--output-path',
                         required=True,
-                        help="output path of the scan result")
-    parser.add_argument("--exclude", nargs="*",
+                        help='output path of the scan result')
+    parser.add_argument('--exclude', nargs='*',
                         help='Ignore specified directory. Can be used multiple times.')
-    parser.add_argument('--preserve', action="store_true",
+    parser.add_argument('--preserve', action='store_true',
                         help='add this flag to preserve artifacts for all apps')
-    parser.add_argument('--build-all', action="store_true",
+    parser.add_argument('--build-all', action='store_true',
                         help='add this flag to build all apps')
 
     args = parser.parse_args()
@@ -122,34 +126,33 @@ def main():
     scan_info_dict = defaultdict(dict)
     # store the test cases dir, exclude these folders when scan for standalone apps
     default_exclude = args.exclude if args.exclude else []
-    exclude_apps = default_exclude
 
     build_system = args.build_system.lower()
     build_system_class = BUILD_SYSTEMS[build_system]
 
-    if build_test_case_apps:
-        for target in SUPPORTED_TARGETS:
-            target_dict = scan_info_dict[target]
-            test_case_apps = target_dict['test_case_apps'] = set()
+    for target in SUPPORTED_TARGETS:
+        exclude_apps = deepcopy(default_exclude)
+
+        if build_test_case_apps:
+            scan_info_dict[target]['test_case_apps'] = set()
             for case in test_cases:
                 app_dir = case.case_info['app_dir']
                 app_target = case.case_info['target']
                 if app_target.lower() != target.lower():
                     continue
-                test_case_apps.update(find_apps(build_system_class, app_dir, True, default_exclude, target.lower()))
-                exclude_apps.append(app_dir)
-    else:
-        for target in SUPPORTED_TARGETS:
+                _apps = find_apps(build_system_class, app_dir, True, exclude_apps, target.lower())
+                if _apps:
+                    scan_info_dict[target]['test_case_apps'].update(_apps)
+                    exclude_apps.append(app_dir)
+        else:
             scan_info_dict[target]['test_case_apps'] = set()
 
-    if build_standalone_apps:
-        for target in SUPPORTED_TARGETS:
-            target_dict = scan_info_dict[target]
-            standalone_apps = target_dict['standalone_apps'] = set()
+        if build_standalone_apps:
+            scan_info_dict[target]['standalone_apps'] = set()
             for path in paths:
-                standalone_apps.update(find_apps(build_system_class, path, True, exclude_apps, target.lower()))
-    else:
-        for target in SUPPORTED_TARGETS:
+                scan_info_dict[target]['standalone_apps'].update(
+                    find_apps(build_system_class, path, True, exclude_apps, target.lower()))
+        else:
             scan_info_dict[target]['standalone_apps'] = set()
 
     test_case_apps_preserve_default = True if build_system == 'cmake' else False

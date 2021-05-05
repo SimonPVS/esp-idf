@@ -445,7 +445,7 @@ static BOOLEAN btc_av_state_opening_handler(btc_sm_event_t event, void *p_data)
             av_state = BTC_AV_STATE_OPENED;
         } else {
             BTC_TRACE_WARNING("BTA_AV_OPEN_EVT::FAILED status: %d\n", p_bta_data->open.status);
-            
+
             conn_stat = ESP_A2D_CONNECTION_STATE_DISCONNECTED;
             av_state = BTC_AV_STATE_IDLE;
         }
@@ -1014,7 +1014,7 @@ static bt_status_t btc_av_init(int service_id)
 #endif
             g_a2dp_on_init = false;
             g_a2dp_on_deinit = true;
-            return BT_STATUS_FAIL;
+            goto av_init_fail;
         }
 
         /* Also initialize the AV state machine */
@@ -1030,9 +1030,15 @@ static bt_status_t btc_av_init(int service_id)
         btc_a2dp_on_init();
         g_a2dp_on_init = true;
         g_a2dp_on_deinit = false;
+
+        esp_a2d_cb_param_t param;
+        memset(&param, 0, sizeof(esp_a2d_cb_param_t));
+        param.a2d_prof_stat.init_state = ESP_A2D_INIT_SUCCESS;
+        btc_a2d_cb_to_app(ESP_A2D_PROF_STATE_EVT, &param);
         return BT_STATUS_SUCCESS;
     }
 
+av_init_fail:
     return BT_STATUS_FAIL;
 }
 
@@ -1099,6 +1105,11 @@ static void clean_up(int service_id)
 #endif
     g_a2dp_on_init = false;
     g_a2dp_on_deinit = true;
+
+    esp_a2d_cb_param_t param;
+    memset(&param, 0, sizeof(esp_a2d_cb_param_t));
+    param.a2d_prof_stat.init_state = ESP_A2D_DEINIT_SUCCESS;
+    btc_a2d_cb_to_app(ESP_A2D_PROF_STATE_EVT, &param);
 }
 
 /*******************************************************************************
@@ -1435,7 +1446,7 @@ void btc_a2dp_call_handler(btc_msg_t *msg)
     }
     case BTC_AV_SINK_API_DISCONNECT_EVT: {
         CHECK_BTAV_INIT();
-        btc_av_disconn_req_t disconn_req;   
+        btc_av_disconn_req_t disconn_req;
         memcpy(&disconn_req.target_bda, &arg->disconn, sizeof(bt_bdaddr_t));
         btc_sm_dispatch(btc_av_cb.sm_handle, BTC_AV_DISCONNECT_REQ_EVT, &disconn_req);
         break;

@@ -23,7 +23,7 @@
  *
  ******************************************************************************/
 
-// #include <assert.h>
+#include <assert.h>
 #include <string.h>
 
 #include "bta/bta_sys.h"
@@ -1170,4 +1170,3 @@ tBTA_DM_CONTRL_STATE bta_dm_pm_obtain_controller_state(void)
 }
 
 #endif
-

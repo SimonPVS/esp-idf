@@ -53,7 +53,9 @@ typedef enum {
     BTC_PID_GAP_BLE,
     BTC_PID_BLE_HID,
     BTC_PID_SPPLIKE,
+#if (BLUFI_INCLUDED == TRUE)
     BTC_PID_BLUFI,
+#endif  ///BLUFI_INCLUDED == TRUE
     BTC_PID_DM_SEC,
     BTC_PID_ALARM,
 #if (CLASSIC_BT_INCLUDED == TRUE)
@@ -85,6 +87,7 @@ typedef enum {
     BTC_PID_LIGHTING_SERVER,
     BTC_PID_SENSOR_SERVER,
     BTC_PID_TIME_SCENE_SERVER,
+    BTC_PID_BLE_MESH_BLE_COEX,
 #endif /* CONFIG_BLE_MESH */
     BTC_PID_NUM,
 } btc_pid_t; //btc profile id
@@ -119,5 +122,6 @@ bt_status_t btc_inter_profile_call(btc_msg_t *msg, void *arg);
 bt_status_t btc_init(void);
 void btc_deinit(void);
 bool btc_check_queue_is_congest(void);
+int get_btc_work_queue_size(void);
 
 #endif /* __BTC_TASK_H__ */

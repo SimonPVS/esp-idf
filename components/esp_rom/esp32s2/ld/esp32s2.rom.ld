@@ -1,7 +1,7 @@
 /**
  * ESP32-S2 ROM address table (except symbols from libgcc and libc)
  * Generated for ROM with MD5sum: 0a2c7ec5109c17884606d23b47045796
- * 
+ *
  * These are all weak symbols that could be overwritten in ESP-IDF.
  */
 
@@ -611,7 +611,7 @@ PROVIDE ( SPIEraseArea = 0x40017470 );
 PROVIDE ( SPIEraseBlock = 0x4001710c );
 PROVIDE ( SPIEraseChip = 0x400170ec );
 PROVIDE ( SPIEraseSector = 0x4001716c );
-PROVIDE ( spi_flash_attach = 0x40017004 );
+PROVIDE ( esp_rom_spiflash_attach = 0x40017004 );
 PROVIDE ( spi_flash_boot_attach = 0x40016fc0 );
 PROVIDE ( spi_flash_check_suspend_cb = 0x3ffffd58 );
 PROVIDE ( SPI_flashchip_data = 0x3ffffd3c );

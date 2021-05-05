@@ -15,25 +15,17 @@
 // The HAL layer for ADC (common part)
 
 #include "hal/adc_hal.h"
+#include "hal/adc_hal_conf.h"
 #include "hal/adc_types.h"
-
-void adc_hal_digi_init(void)
-{
-    adc_hal_init();
-    adc_ll_digi_set_clk_div(SOC_ADC_DIGI_SAR_CLK_DIV_DEFAULT);
-}
 
 void adc_hal_digi_deinit(void)
 {
     adc_ll_digi_clear_pattern_table(ADC_NUM_1);
     adc_ll_digi_clear_pattern_table(ADC_NUM_2);
-    adc_hal_deinit();
 }
 
 void adc_hal_digi_controller_config(const adc_digi_config_t *cfg)
 {
-    /* If enable digital controller, adc xpd should always on. */
-    adc_ll_set_power_manage(ADC_POWER_SW_ON);
     /* Single channel mode or multi channel mode. */
     adc_ll_digi_set_convert_mode(cfg->conv_mode);
     if (cfg->conv_mode & ADC_CONV_SINGLE_UNIT_1) {
@@ -41,7 +33,7 @@ void adc_hal_digi_controller_config(const adc_digi_config_t *cfg)
         if (cfg->adc1_pattern_len) {
             adc_ll_digi_clear_pattern_table(ADC_NUM_1);
             adc_ll_digi_set_pattern_table_len(ADC_NUM_1, cfg->adc1_pattern_len);
-            for (int i = 0; i < cfg->adc1_pattern_len; i++) {
+            for (uint32_t i = 0; i < cfg->adc1_pattern_len; i++) {
                 adc_ll_digi_set_pattern_table(ADC_NUM_1, i, cfg->adc1_pattern[i]);
             }
         }
@@ -51,7 +43,7 @@ void adc_hal_digi_controller_config(const adc_digi_config_t *cfg)
         if (cfg->adc2_pattern_len) {
             adc_ll_digi_clear_pattern_table(ADC_NUM_2);
             adc_ll_digi_set_pattern_table_len(ADC_NUM_2, cfg->adc2_pattern_len);
-            for (int i = 0; i < cfg->adc2_pattern_len; i++) {
+            for (uint32_t i = 0; i < cfg->adc2_pattern_len; i++) {
                 adc_ll_digi_set_pattern_table(ADC_NUM_2, i, cfg->adc2_pattern[i]);
             }
         }

@@ -83,11 +83,11 @@ static esp_err_t apply_path(char const *path)
             ESP_LOGE(TAG, "The path is too long; maximum is %d characters", VFS_TUSB_MAX_PATH);
             return ESP_ERR_INVALID_ARG;
         }
-        strncpy(s_vfstusb.vfs_path, path, path_len);
+        strncpy(s_vfstusb.vfs_path, path, (VFS_TUSB_MAX_PATH - 1));
     } else {
         strncpy(s_vfstusb.vfs_path,
                 VFS_TUSB_PATH_DEFAULT,
-                strlen(VFS_TUSB_PATH_DEFAULT) + 1);
+                (VFS_TUSB_MAX_PATH - 1));
     }
     ESP_LOGV(TAG, "Path is set to `%s`", s_vfstusb.vfs_path);
     return ESP_OK;
@@ -153,7 +153,7 @@ static ssize_t tusb_write(int fd, const void *data, size_t size)
         }
 
     }
-    tinyusb_cdcacm_write_flush(s_vfstusb.cdc_intf, 0);
+    tud_cdc_n_write_flush(s_vfstusb.cdc_intf);
     _lock_release(&(s_vfstusb.write_lock));
     return written_sz;
 }
@@ -207,6 +207,7 @@ static ssize_t tusb_read(int fd, void *data, size_t size)
 static int tusb_fstat(int fd, struct stat *st)
 {
     FD_CHECK(fd, -1);
+    memset(st, 0, sizeof(*st));
     st->st_mode = S_IFCHR;
     return 0;
 }

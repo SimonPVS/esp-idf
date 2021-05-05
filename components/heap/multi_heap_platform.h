@@ -15,7 +15,8 @@
 
 #ifdef MULTI_HEAP_FREERTOS
 
-#include <freertos/FreeRTOS.h>
+#include "freertos/FreeRTOS.h"
+
 #include "sdkconfig.h"
 #include "esp_rom_sys.h"
 #if CONFIG_IDF_TARGET_ESP32
@@ -90,8 +91,6 @@ inline static void multi_heap_assert(bool condition, const char *format, int lin
 #else // MULTI_HEAP_FREERTOS
 
 #include <assert.h>
-
-typedef int multi_heap_lock_t;
 
 #define MULTI_HEAP_PRINTF printf
 #define MULTI_HEAP_STDERR_PRINTF(MSG, ...) fprintf(stderr, MSG, __VA_ARGS__)

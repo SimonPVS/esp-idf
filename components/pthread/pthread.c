@@ -31,7 +31,6 @@
 #include "pthread_internal.h"
 #include "esp_pthread.h"
 
-#define LOG_LOCAL_LEVEL CONFIG_LOG_DEFAULT_LEVEL
 #include "esp_log.h"
 const static char *TAG = "pthread";
 
@@ -593,6 +592,14 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex)
         return EBUSY;
     }
 
+    if (mux->type == PTHREAD_MUTEX_RECURSIVE) {
+        res = xSemaphoreGiveRecursive(mux->sem);
+    } else {
+        res = xSemaphoreGive(mux->sem);
+    }
+    if (res != pdTRUE) {
+        assert(false && "Failed to release mutex!");
+    }
     vSemaphoreDelete(mux->sem);
     free(mux);
 

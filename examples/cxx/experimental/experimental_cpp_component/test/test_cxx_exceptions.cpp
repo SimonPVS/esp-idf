@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <cstring>
 #include "unity.h"
 
 #include "unity_cxx.hpp"
@@ -13,7 +14,7 @@ using namespace idf;
 
 #if CONFIG_IDF_TARGET_ESP32
 #define LEAKS "300"
-#elif CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3
+#elif CONFIG_IDF_TARGET_ESP32S2 || CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3
 #define LEAKS "800"
 #else
 #error "unknown target in CXX tests, can't set leaks threshold"
@@ -48,5 +49,13 @@ TEST_CASE("CHECK_THROW throws", "[cxx exception][leaks=" LEAKS "]")
     TEST_THROW(CHECK_THROW(error), ESPException);
 }
 
-#endif // __cpp_exceptions
+TEST_CASE("ESPException has working what() method", "[cxx exception][leaks=" LEAKS "]")
+{
+    try {
+        throw ESPException(ESP_FAIL);
+    } catch (ESPException &e) {
+        TEST_ASSERT(strcmp(esp_err_to_name(ESP_FAIL), e.what()) == 0);
+    }
+}
 
+#endif // __cpp_exceptions

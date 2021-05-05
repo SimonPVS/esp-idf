@@ -17,6 +17,7 @@
 #include "soc/gpio_periph.h"
 #include "soc/rtc.h"
 #include "hal/emac.h"
+#include "hal/gpio_hal.h"
 
 #define ETH_CRC_LENGTH (4)
 
@@ -63,27 +64,27 @@ void emac_hal_lowlevel_init(emac_hal_context_t *hal)
 {
     /* GPIO configuration */
     /* TX_EN to GPIO21 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO21_U, FUNC_GPIO21_EMAC_TX_EN);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO21_U, FUNC_GPIO21_EMAC_TX_EN);
     PIN_INPUT_DISABLE(GPIO_PIN_MUX_REG[21]);
     /* TXD0 to GPIO19 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO19_U, FUNC_GPIO19_EMAC_TXD0);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO19_U, FUNC_GPIO19_EMAC_TXD0);
     PIN_INPUT_DISABLE(GPIO_PIN_MUX_REG[19]);
     /* TXD1 to GPIO22 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO22_U, FUNC_GPIO22_EMAC_TXD1);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO22_U, FUNC_GPIO22_EMAC_TXD1);
     PIN_INPUT_DISABLE(GPIO_PIN_MUX_REG[22]);
     /* RXD0 to GPIO25 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO25_U, FUNC_GPIO25_EMAC_RXD0);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO25_U, FUNC_GPIO25_EMAC_RXD0);
     PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[25]);
     /* RXD1 to GPIO26 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO26_U, FUNC_GPIO26_EMAC_RXD1);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO26_U, FUNC_GPIO26_EMAC_RXD1);
     PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[26]);
     /* CRS_DV to GPIO27 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO27_U, FUNC_GPIO27_EMAC_RX_DV);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO27_U, FUNC_GPIO27_EMAC_RX_DV);
     PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[27]);
 #if CONFIG_ETH_RMII_CLK_INPUT
 #if CONFIG_ETH_RMII_CLK_IN_GPIO == 0
     /* RMII clock (50MHz) input to GPIO0 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_EMAC_TX_CLK);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_EMAC_TX_CLK);
     PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[0]);
 #else
 #error "ESP32 EMAC only support input RMII clock to GPIO0"
@@ -92,15 +93,15 @@ void emac_hal_lowlevel_init(emac_hal_context_t *hal)
 #if CONFIG_ETH_RMII_CLK_OUTPUT
 #if CONFIG_ETH_RMII_CLK_OUTPUT_GPIO0
     /* APLL clock output to GPIO0 (must be configured to 50MHz!) */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_CLK_OUT1);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0_CLK_OUT1);
     PIN_INPUT_DISABLE(GPIO_PIN_MUX_REG[0]);
 #elif CONFIG_ETH_RMII_CLK_OUT_GPIO == 16
     /* RMII CLK (50MHz) output to GPIO16 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO16_U, FUNC_GPIO16_EMAC_CLK_OUT);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO16_U, FUNC_GPIO16_EMAC_CLK_OUT);
     PIN_INPUT_DISABLE(GPIO_PIN_MUX_REG[16]);
 #elif CONFIG_ETH_RMII_CLK_OUT_GPIO == 17
     /* RMII CLK (50MHz) output to GPIO17 */
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO17_U, FUNC_GPIO17_EMAC_CLK_OUT_180);
+    gpio_hal_iomux_func_sel(PERIPHS_IO_MUX_GPIO17_U, FUNC_GPIO17_EMAC_CLK_OUT_180);
     PIN_INPUT_DISABLE(GPIO_PIN_MUX_REG[17]);
 #endif
 #endif // CONFIG_ETH_RMII_CLK_OUTPUT
@@ -473,7 +474,7 @@ uint32_t emac_hal_transmit_frame(emac_hal_context_t *hal, uint8_t *buf, uint32_t
 
     eth_dma_tx_descriptor_t *desc_iter = hal->tx_desc;
     /* A frame is transmitted in multiple descriptor */
-    for (int i = 0; i < bufcount; i++) {
+    for (size_t i = 0; i < bufcount; i++) {
         /* Check if the descriptor is owned by the Ethernet DMA (when 1) or CPU (when 0) */
         if (desc_iter->TDES0.Own != EMAC_DMADESC_OWNER_CPU) {
             goto err;
@@ -508,7 +509,7 @@ uint32_t emac_hal_transmit_frame(emac_hal_context_t *hal, uint8_t *buf, uint32_t
     }
 
     /* Set Own bit of the Tx descriptor Status: gives the buffer back to ETHERNET DMA */
-    for (int i = 0; i < bufcount; i++) {
+    for (size_t i = 0; i < bufcount; i++) {
         hal->tx_desc->TDES0.Own = EMAC_DMADESC_OWNER_DMA;
         hal->tx_desc = (eth_dma_tx_descriptor_t *)(hal->tx_desc->Buffer2NextDescAddr);
     }
@@ -563,7 +564,7 @@ uint32_t emac_hal_receive_frame(emac_hal_context_t *hal, uint8_t *buf, uint32_t 
             desc_iter = (eth_dma_rx_descriptor_t *)(desc_iter->Buffer2NextDescAddr);
         }
         desc_iter = first_desc;
-        for (int i = 0; i < seg_count - 1; i++) {
+        for (size_t i = 0; i < seg_count - 1; i++) {
             used_descs--;
             write_len = copy_len < CONFIG_ETH_DMA_BUFFER_SIZE ? copy_len : CONFIG_ETH_DMA_BUFFER_SIZE;
             /* copy data to buffer */

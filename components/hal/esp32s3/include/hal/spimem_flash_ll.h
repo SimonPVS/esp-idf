@@ -106,6 +106,143 @@ static inline void spimem_flash_ll_erase_block(spi_mem_dev_t *dev)
 }
 
 /**
+ * Suspend erase/program operation.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ */
+static inline void spimem_flash_ll_suspend(spi_mem_dev_t *dev)
+{
+    dev->flash_sus_cmd.flash_pes = 1;
+}
+
+/**
+ * Resume suspended erase/program operation.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ */
+static inline void spimem_flash_ll_resume(spi_mem_dev_t *dev)
+{
+    dev->flash_sus_cmd.flash_per = 1;
+}
+
+/**
+ * Initialize auto wait idle mode
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param auto_sus Enable/disable Flash Auto-Suspend.
+ */
+static inline void spimem_flash_ll_auto_suspend_init(spi_mem_dev_t *dev, bool auto_sus)
+{
+    dev->flash_sus_ctrl.flash_pes_en = auto_sus; // enable Flash Auto-Suspend.
+}
+
+/**
+ * Initialize auto resume mode
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param auto_res Enable/Disable Flash Auto-Resume.
+ *
+ */
+static inline void spimem_flash_ll_auto_resume_init(spi_mem_dev_t *dev, bool auto_res)
+{
+    dev->misc.auto_per = auto_res;
+}
+
+/**
+ * Setup the flash suspend command, may vary from chips to chips.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param sus_cmd Flash suspend command.
+ *
+ */
+static inline void spimem_flash_ll_suspend_cmd_setup(spi_mem_dev_t *dev, uint32_t sus_cmd)
+{
+    dev->flash_sus_ctrl.flash_pes_command = sus_cmd;
+}
+
+/**
+ * Setup the flash resume command, may vary from chips to chips.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param res_cmd Flash resume command.
+ *
+ */
+static inline void spimem_flash_ll_resume_cmd_setup(spi_mem_dev_t *dev, uint32_t res_cmd)
+{
+    dev->flash_sus_ctrl.flash_per_command = res_cmd;
+}
+
+/**
+ * Setup the flash read suspend status command, may vary from chips to chips.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param pesr_cmd Flash read suspend status command.
+ *
+ */
+static inline void spimem_flash_ll_rd_sus_cmd_setup(spi_mem_dev_t *dev, uint32_t pesr_cmd)
+{
+    abort(); //Not support on esp32s3
+}
+
+/**
+ * Setup to check SUS/SUS1/SUS2 to ensure the suspend status of flashs.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param sus_check_sus_en 1: enable, 0: disable.
+ *
+ */
+static inline void spimem_flash_ll_sus_check_sus_setup(spi_mem_dev_t *dev, bool sus_check_sus_en)
+{
+    abort(); //Not support on esp32s3
+}
+
+/**
+ * Setup to check SUS/SUS1/SUS2 to ensure the resume status of flashs.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param sus_check_sus_en 1: enable, 0: disable.
+ *
+ */
+static inline void spimem_flash_ll_res_check_sus_setup(spi_mem_dev_t *dev, bool res_check_sus_en)
+{
+    abort(); //Not support ont esp32s3
+}
+
+/**
+ * Set 8 bit command to read suspend status
+ *
+ * @param dev Beginning address of the peripheral registers.
+ */
+static inline void spimem_flash_ll_set_read_sus_status(spi_mem_dev_t *dev, uint32_t sus_mask)
+{
+    abort();// Not supported on esp32s3
+}
+
+/**
+ * Initialize auto wait idle mode
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param auto_waiti Enable/disable auto wait-idle function
+ */
+static inline void spimem_flash_ll_auto_wait_idle_init(spi_mem_dev_t *dev, bool auto_waiti)
+{
+    dev->flash_waiti_ctrl.waiti_cmd = 0x05; // Set the command to send, to fetch flash status reg value.
+    dev->flash_waiti_ctrl.waiti_en = auto_waiti;  // enable auto wait-idle function.
+}
+
+/**
+ * Return the suspend status of erase or program operations.
+ *
+ * @param dev Beginning address of the peripheral registers.
+ *
+ * @return true if suspended, otherwise false.
+ */
+static inline bool spimem_flash_ll_sus_status(spi_mem_dev_t *dev)
+{
+    return dev->sus_status.flash_sus;
+}
+
+/**
  * Enable/disable write protection for the flash chip.
  *
  * @param dev Beginning address of the peripheral registers.
@@ -135,7 +272,7 @@ static inline void spimem_flash_ll_get_buffer_data(spi_mem_dev_t *dev, void *buf
     } else {
         // Otherwise, slow(er) path copies word by word
         int copy_len = read_len;
-        for (int i = 0; i < (read_len + 3) / 4; i++) {
+        for (uint32_t i = 0; i < (read_len + 3) / 4; i++) {
             int word_len = MIN(sizeof(uint32_t), copy_len);
             uint32_t word = dev->data_buf[i];
             memcpy(buffer, &word, word_len);
@@ -308,17 +445,18 @@ static inline void spimem_flash_ll_set_mosi_bitlen(spi_mem_dev_t *dev, uint32_t 
 }
 
 /**
- * Set the command with fixed length (8 bits).
+ * Set the command.
  *
  * @param dev Beginning address of the peripheral registers.
  * @param command Command to send
+ * @param bitlen Length of the command
  */
-static inline void spimem_flash_ll_set_command8(spi_mem_dev_t *dev, uint8_t command)
+static inline void spimem_flash_ll_set_command(spi_mem_dev_t *dev, uint32_t command, uint32_t bitlen)
 {
     dev->user.usr_command = 1;
     typeof(dev->user2) user2 = {
         .usr_command_value = command,
-        .usr_command_bitlen = (8 - 1),
+        .usr_command_bitlen = (bitlen - 1),
     };
     dev->user2 = user2;
 }
@@ -358,6 +496,18 @@ static inline void spimem_flash_ll_set_address(spi_mem_dev_t *dev, uint32_t addr
 }
 
 /**
+ * Set the address to send in user mode. Should be called before commands that requires the address e.g. erase sector, read, write...
+ *
+ * @param dev Beginning address of the peripheral registers.
+ * @param addr Address to send
+ */
+static inline void spimem_flash_ll_set_usr_address(spi_mem_dev_t *dev, uint32_t addr, uint32_t bitlen)
+{
+    (void)bitlen;
+    spimem_flash_ll_set_address(dev, addr);
+}
+
+/**
  * Set the length of dummy cycles.
  *
  * @param dev Beginning address of the peripheral registers.
@@ -381,6 +531,12 @@ static inline void spimem_flash_ll_set_dummy_out(spi_mem_dev_t *dev, uint32_t ou
     dev->ctrl.fdummy_out = out_en;
     dev->ctrl.q_pol = out_lev;
     dev->ctrl.d_pol = out_lev;
+}
+
+static inline void spimem_flash_ll_set_hold(spi_mem_dev_t *dev, uint32_t hold_n)
+{
+    dev->ctrl2.cs_hold_time = hold_n - 1;
+    dev->user.cs_hold = (hold_n > 0? 1: 0);
 }
 
 #ifdef __cplusplus

@@ -17,7 +17,6 @@
 #define PORT_COMMON_H_
 
 #include "freertos/FreeRTOS.h"
-#include "freertos/xtensa_api.h"
 #include "esp_log.h"                // for ESP_LOGE macro
 #include "mbconfig.h"
 
@@ -127,6 +126,9 @@ void vMBPortExitCritical(void);
 
 #define MB_PORT_CHECK_EVENT( event, mask ) ( event & mask )
 #define MB_PORT_CLEAR_EVENT( event, mask ) do { event &= ~mask; } while(0)
+
+#define MB_PORT_PARITY_GET(parity) ((parity != UART_PARITY_DISABLE) ? \
+                                        ((parity == UART_PARITY_ODD) ? MB_PAR_ODD : MB_PAR_EVEN) : MB_PAR_NONE)
 
 // Legacy Modbus logging function
 #if MB_TCP_DEBUG

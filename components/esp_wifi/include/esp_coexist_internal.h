@@ -126,10 +126,21 @@ int coex_wifi_channel_set(uint8_t primary, uint8_t secondary);
  * @brief Get coexistence event duration.
  *
  *  @param event : Coexistence event
- *  @param duration: Coexistence event duration 
+ *  @param duration: Coexistence event duration
  *  @return : 0 - success, other - failed
  */
 int coex_event_duration_get(uint32_t event, uint32_t *duration);
+
+#if SOC_COEX_HW_PTI
+/**
+ * @brief Get coexistence event priority.
+ *
+ *  @param event : Coexistence event
+ *  @param pti: Coexistence event priority
+ *  @return : 0 - success, other - failed
+ */
+int coex_pti_get(uint32_t event, uint8_t *pti);
+#endif
 
 /**
  * @brief Clear coexistence status.
@@ -150,7 +161,7 @@ void coex_schm_status_bit_set(uint32_t type, uint32_t status);
 /**
  * @brief Set coexistence scheme interval.
  *
- *  @param interval : Coexistence scheme interval 
+ *  @param interval : Coexistence scheme interval
  *  @return : 0 - success, other - failed
  */
 int coex_schm_interval_set(uint32_t interval);
@@ -165,21 +176,21 @@ uint32_t coex_schm_interval_get(void);
 /**
  * @brief Get current coexistence scheme period.
  *
- *  @return : Coexistence scheme period 
+ *  @return : Coexistence scheme period
  */
 uint8_t coex_schm_curr_period_get(void);
 
 /**
  * @brief Get current coexistence scheme phase.
  *
- *  @return : Coexistence scheme phase 
+ *  @return : Coexistence scheme phase
  */
 void * coex_schm_curr_phase_get(void);
 
 /**
  * @brief Set current coexistence scheme phase index.
  *
- *  @param interval : Coexistence scheme phase index 
+ *  @param interval : Coexistence scheme phase index
  *  @return : 0 - success, other - failed
  */
 int coex_schm_curr_phase_idx_set(int idx);

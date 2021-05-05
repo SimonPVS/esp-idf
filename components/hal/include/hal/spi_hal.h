@@ -37,6 +37,7 @@
 #include "hal/spi_ll.h"
 #include <esp_err.h>
 #include "soc/lldesc.h"
+#include "soc/soc_caps.h"
 
 /**
  * Input parameters to the ``spi_hal_cal_clock_conf`` to calculate the timing configuration
@@ -46,8 +47,8 @@ typedef struct {
     uint32_t no_compensate;             ///< No need to add dummy to compensate the timing, device specific
     uint32_t clock_speed_hz;            ///< Desired frequency.
     uint32_t duty_cycle;                ///< Desired duty cycle of SPI clock
-    uint32_t input_delay_ns;            /**< Maximum delay between SPI launch clock and the data to be valid. 
-                                         *   This is used to compensate/calculate the maximum frequency allowed. 
+    uint32_t input_delay_ns;            /**< Maximum delay between SPI launch clock and the data to be valid.
+                                         *   This is used to compensate/calculate the maximum frequency allowed.
                                          *   Left 0 if not known.
                                          */
     bool use_gpio;                      ///< True if the GPIO matrix is used, otherwise false
@@ -67,10 +68,11 @@ typedef struct {
 /**
  * DMA configuration structure
  * Should be set by driver at initialization
- */ 
+ */
 typedef struct {
     spi_dma_dev_t *dma_in;              ///< Input  DMA(DMA -> RAM) peripheral register address
     spi_dma_dev_t *dma_out;             ///< Output DMA(RAM -> DMA) peripheral register address
+    bool dma_enabled;                   ///< Whether the DMA is enabled, do not update after initialization
     lldesc_t  *dmadesc_tx;              /**< Array of DMA descriptor used by the TX DMA.
                                          *   The amount should be larger than dmadesc_n. The driver should ensure that
                                          *   the data to be sent is shorter than the descriptors can hold.
@@ -79,8 +81,10 @@ typedef struct {
                                          *   The amount should be larger than dmadesc_n. The driver should ensure that
                                          *   the data to be sent is shorter than the descriptors can hold.
                                          */
+    uint32_t tx_dma_chan;               ///< TX DMA channel
+    uint32_t rx_dma_chan;               ///< RX DMA channel
     int dmadesc_n;                      ///< The amount of descriptors of both ``dmadesc_tx`` and ``dmadesc_rx`` that the HAL can use.
-} spi_hal_dma_config_t;
+} spi_hal_config_t;
 
 /**
  * Transaction configuration structure, this should be assigned by driver each time.
@@ -103,12 +107,24 @@ typedef struct {
  * Context that should be maintained by both the driver and the HAL.
  */
 typedef struct {
+    /* These two need to be malloced by the driver first */
+    lldesc_t  *dmadesc_tx;              /**< Array of DMA descriptor used by the TX DMA.
+                                         *   The amount should be larger than dmadesc_n. The driver should ensure that
+                                         *   the data to be sent is shorter than the descriptors can hold.
+                                         */
+    lldesc_t *dmadesc_rx;               /**< Array of DMA descriptor used by the RX DMA.
+                                         *   The amount should be larger than dmadesc_n. The driver should ensure that
+                                         *   the data to be sent is shorter than the descriptors can hold.
+                                         */
+
     /* Configured by driver at initialization, don't touch */
     spi_dev_t     *hw;                  ///< Beginning address of the peripheral registers.
     spi_dma_dev_t *dma_in;              ///< Address of the DMA peripheral registers which stores the data received from a peripheral into RAM (DMA -> RAM).
     spi_dma_dev_t *dma_out;             ///< Address of the DMA peripheral registers which transmits the data from RAM to a peripheral (RAM -> DMA).
     bool  dma_enabled;                  ///< Whether the DMA is enabled, do not update after initialization
-    spi_hal_dma_config_t dma_config;    ///< DMA configuration
+    uint32_t tx_dma_chan;               ///< TX DMA channel
+    uint32_t rx_dma_chan;               ///< RX DMA channel
+    int dmadesc_n;                      ///< The amount of descriptors of both ``dmadesc_tx`` and ``dmadesc_rx`` that the HAL can use.
 
     /* Internal parameters, don't touch */
     spi_hal_trans_config_t trans_config; ///< Transaction configuration
@@ -116,7 +132,7 @@ typedef struct {
 
 /**
  * Device configuration structure, this should be initialised by driver based on different devices respectively.
- * All these parameters will be updated to the peripheral only when ``spi_hal_setup_device``. 
+ * All these parameters will be updated to the peripheral only when ``spi_hal_setup_device``.
  * They may not get updated when ``spi_hal_setup_trans``.
  */
 typedef struct {
@@ -133,7 +149,7 @@ typedef struct {
         uint32_t tx_lsbfirst : 1;       ///< Whether LSB is sent first for TX data, device specific
         uint32_t rx_lsbfirst : 1;       ///< Whether LSB is received first for RX data, device specific
         uint32_t no_compensate : 1;     ///< No need to add dummy to compensate the timing, device specific
-#ifdef SOC_SPI_SUPPORT_AS_CS
+#if SOC_SPI_SUPPORT_AS_CS
         uint32_t as_cs  : 1;            ///< Whether to toggle the CS while the clock toggles, device specific
 #endif
         uint32_t positive_cs : 1;       ///< Whether the postive CS feature is abled, device specific
@@ -143,10 +159,11 @@ typedef struct {
 /**
  * Init the peripheral and the context.
  *
- * @param hal     Context of the HAL layer.
- * @param host_id Index of the SPI peripheral. 0 for SPI1, 1 for HSPI (SPI2) and 2 for VSPI (SPI3).
+ * @param hal        Context of the HAL layer.
+ * @param host_id    Index of the SPI peripheral. 0 for SPI1, 1 for SPI2 and 2 for SPI3.
+ * @param hal_config Configuration of the hal defined by the upper layer.
  */
-void spi_hal_init(spi_hal_context_t *hal, uint32_t host_id, const spi_hal_dma_config_t *hal_dma_config);
+void spi_hal_init(spi_hal_context_t *hal, uint32_t host_id, const spi_hal_config_t *hal_config);
 
 /**
  * Deinit the peripheral (and the context if needed).
@@ -250,4 +267,3 @@ void spi_hal_cal_timing(int eff_clk, bool gpio_is_used, int input_delay_ns, int 
  *                       allowed. Left 0 if not known.
  */
 int spi_hal_get_freq_limit(bool gpio_is_used, int input_delay_ns);
-

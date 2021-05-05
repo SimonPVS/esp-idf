@@ -14,7 +14,7 @@
 
 #include <stdint.h>
 
-#include "soc/mpu_caps.h"
+#include "soc/soc_caps.h"
 
 #include "xt_instr_macros.h"
 
@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-static inline uint32_t mpu_ll_id_to_addr(int id)
+static inline uint32_t mpu_ll_id_to_addr(unsigned id)
 {
     // vpn - id
     // 0x00000000 = 0

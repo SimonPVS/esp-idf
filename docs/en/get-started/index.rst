@@ -2,11 +2,11 @@
 Get Started
 ***********
 
-{IDF_TARGET_CORE_NUM:default="2", esp32="2", esp32s2="1"}
+{IDF_TARGET_CORE_NUM:default="2", esp32="2", esp32s2="1", esp32c3="1"}
 
-{IDF_TARGET_FEATURES:default="WiFi/BT/BLE, silicon revision 1, 2MB external flash", esp32="WiFi/BT/BLE, silicon revision 1, 2MB external flash", esp32s2="WiFi, silicon revision 0, 2MB external flash"}
+{IDF_TARGET_FEATURES:default="WiFi/BT/BLE, silicon revision 1, 2MB external flash", esp32="WiFi/BT/BLE, silicon revision 1, 2MB external flash", esp32s2="WiFi, silicon revision 0, 2MB external flash", esp32c3="WiFi/BLE, silicon revision 0, 2MB external flash"}
 
-{IDF_TARGET_HEAP_SIZE:default="298968", esp32="298968", esp32s2="253900"}
+{IDF_TARGET_HEAP_SIZE:default="298968", esp32="298968", esp32s2="253900", esp32c3="337332"}
 
 
 :link_to_translation:`zh_CN:[中文]`
@@ -28,7 +28,7 @@ Introduction
 
     * Wi-Fi (2.4 GHz band)
     * Bluetooth
-    * Dual high performance cores
+    * Dual high performance Xtensa® 32-bit LX6 CPU cores
     * Ultra Low Power co-processor
     * Multiple peripherals
 
@@ -36,11 +36,19 @@ Introduction
 .. only:: esp32s2
 
     * Wi-Fi (2.4 GHz band)
-    * High performance single-core
+    * High performance single core Xtensa® 32-bit LX7 CPU
     * Ultra Low Power co-processor running either RISC-V or FSM core
     * Multiple peripherals
     * Built-in security hardware
     * USB OTG interface
+
+.. only:: esp32c3
+
+    * Wi-Fi (2.4 GHz band)
+    * Bluetooth Low Energy
+    * High performance 32-bit RISC-V single-core processor
+    * Multiple peripherals
+    * Built-in security hardware
 
 Powered by 40 nm technology, {IDF_TARGET_NAME} provides a robust, highly integrated platform, which helps meet the continuous demands for efficient power usage, compact design, security, high performance, and reliability.
 
@@ -66,7 +74,7 @@ You have a choice to either download and install the following software manually
 **or** get through the onboarding process using the following official plugins for integrated development environments (IDE) described in separate documents
 
     * `Eclipse Plugin <https://github.com/espressif/idf-eclipse-plugin>`_ (`installation link <https://github.com/espressif/idf-eclipse-plugin#installing-idf-plugin-using-update-site-url>`_)
-    * `VS Code Extension <https://github.com/espressif/vscode-esp-idf-extension>`_ (`onboarding <https://github.com/espressif/vscode-esp-idf-extension/blob/master/docs/ONBOARDING.md>`_)
+    * `VS Code Extension <https://github.com/espressif/vscode-esp-idf-extension>`_ (`setup <https://github.com/espressif/vscode-esp-idf-extension/blob/master/docs/tutorial/install.md>`_)
 
 .. figure:: ../../_static/what-you-need.png
     :align: center
@@ -91,6 +99,9 @@ If you have one of {IDF_TARGET_NAME} development boards listed below, you can cl
         ESP32-PICO-KIT <../hw-reference/esp32/get-started-pico-kit>
         ESP32-Ethernet-Kit <../hw-reference/esp32/get-started-ethernet-kit>
         ESP32-DevKit-S(-R) <../hw-reference/esp32/user-guide-devkits-r-v1.1>
+        ESP32-PICO-KIT-1 <../hw-reference/esp32/get-started-pico-kit-1>
+        ESP32-PICO-DevKitM-2 <../hw-reference/esp32/get-started-pico-devkitm-2>
+        ESP32-DevKitM-1 <../hw-reference/esp32/user-guide-devkitm-1>
 
 .. only:: esp32s2
 
@@ -98,8 +109,17 @@ If you have one of {IDF_TARGET_NAME} development boards listed below, you can cl
         :maxdepth: 1
 
         ESP32-S2-Saola-1 <../hw-reference/esp32s2/user-guide-saola-1-v1.2>
+        ESP32-S2-DevKitM-1(U) <../hw-reference/esp32s2/user-guide-devkitm-1-v1>
         ESP32-S2-Kaluga-Kit <../hw-reference/esp32s2/user-guide-esp32-s2-kaluga-1-kit>
 
+.. only:: esp32c3
+
+    .. toctree::
+        :maxdepth: 1
+
+        ESP32-C3-DevKitM-1 <../hw-reference/esp32c3/user-guide-devkitm-1>
+        ESP32-C3-DevKitC-02 <../hw-reference/esp32c3/user-guide-devkitc-02>
+        
 .. _get-started-step-by-step:
 
 Installation Step by Step
@@ -226,6 +246,36 @@ Linux and macOS
     cd ~/esp/esp-idf
     ./install.sh
 
+Alternative File Downloads
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The tools installer downloads a number of files attached to GitHub Releases. If accessing GitHub is slow then it is possible to set an environment variable to prefer Espressif's download server for GitHub asset downloads.
+
+.. note:: This setting only controls individual tools downloaded from GitHub releases, it doesn't change the URLs used to access any Git repositories.
+
+Windows
+-------
+
+To prefer the Espressif download server when running the ESP-IDF Tools Installer check out the following option in the installer window: ``Use Espressif download server instead of downloading tool packages from GitHub.``
+
+.. figure:: ../../_static/esp-idf-installer-download-server.png
+    :align: center
+    :alt: Configuring the ESP-IDF Tools Setup Wizard Espressif download server
+    :figclass: align-center
+
+    Configuring the ESP-IDF Tools Setup Wizard Espressif download server
+
+Linux and macOS
+---------------
+
+To prefer the Espressif download server when installing tools, use the following sequence of commands when running ``install.sh``:
+
+.. code-block:: bash
+
+    cd ~/esp/esp-idf
+    export IDF_GITHUB_ASSETS="dl.espressif.com/github_assets"
+    ./install.sh
+
 Customizing the tools installation path
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -258,6 +308,8 @@ or with Windows PowerShell
 
     .$HOME/esp/esp-idf/export.ps1
 
+.. _get-started-export:
+
 Linux and macOS
 ~~~~~~~~~~~~~~~
 
@@ -266,6 +318,12 @@ In the terminal where you are going to use ESP-IDF, run:
 .. code-block:: bash
 
     . $HOME/esp/esp-idf/export.sh
+
+or for fish (supported only since fish version 3.0.0):
+
+.. code-block:: bash
+
+    . $HOME/esp/esp-idf/export.fish
 
 Note the space between the leading dot and the path!
 
@@ -445,21 +503,22 @@ For more information on idf.py arguments, see :ref:`idf.py`.
 
 Encountered Issues While Flashing?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+{IDF_TARGET_STRAP_GPIO:default="GPIO0", esp32="GPIO0", esp32s2="GPIO0", esp32c3="GPIO9"}
 
 If you run the given command and see errors such as "Failed to connect", there might be several reasons for this. One of the reasons might be issues encountered by ``esptool.py``, the utility that is called by the build system to reset the chip, interact with the ROM bootloader, and flash firmware. One simple solution to try is manual reset described below, and if it does not help you can find more details about possible issues in `Troubleshooting <https://github.com/espressif/esptool#bootloader-wont-respond>`_.
 
-``esptool.py`` resets {IDF_TARGET_NAME} automatically by asserting DTR and RTS control lines of the USB to serial converter chip, i.e., FTDI or CP210x (for more information, see :doc:`establish-serial-connection`). The DTR and RTS control lines are in turn connected to ``GPIO0`` and ``CHIP_PU`` (EN) pins of {IDF_TARGET_NAME}, thus changes in the voltage levels of DTR and RTS will boot {IDF_TARGET_NAME} into Firmware Download mode. As an example, check the `schematic <https://dl.espressif.com/dl/schematics/esp32_devkitc_v4-sch-20180607a.pdf>`_ for the ESP32 DevKitC development board.
+``esptool.py`` resets {IDF_TARGET_NAME} automatically by asserting DTR and RTS control lines of the USB to serial converter chip, i.e., FTDI or CP210x (for more information, see :doc:`establish-serial-connection`). The DTR and RTS control lines are in turn connected to ``{IDF_TARGET_STRAP_GPIO}`` and ``CHIP_PU`` (EN) pins of {IDF_TARGET_NAME}, thus changes in the voltage levels of DTR and RTS will boot {IDF_TARGET_NAME} into Firmware Download mode. As an example, check the `schematic <https://dl.espressif.com/dl/schematics/esp32_devkitc_v4-sch-20180607a.pdf>`_ for the ESP32 DevKitC development board.
 
 In general, you should have no problems with the official esp-idf development boards. However, ``esptool.py`` is not able to reset your hardware automatically in the following cases:
 
-- Your hardware does not have the DTR and RTS lines connected to ``GPIO0`` and ``CIHP_PU``
+- Your hardware does not have the DTR and RTS lines connected to ``{IDF_TARGET_STRAP_GPIO}`` and ``CHIP_PU``
 - The DTR and RTS lines are configured differently
 - There are no such serial control lines at all
 
 Depending on the kind of hardware you have, it may also be possible to manually put your {IDF_TARGET_NAME} board into Firmware Download mode (reset).
 
-- For development boards produced by Espressif, this information can be found in the respective getting started guides or user guides. For example, to manually reset an esp-idf development board, hold down the **Boot** button (``GPIO0``) and press the **EN** button (``CHIP_PU``).
-- For other types of hardware, try pulling ``GPIO0`` down.
+- For development boards produced by Espressif, this information can be found in the respective getting started guides or user guides. For example, to manually reset an esp-idf development board, hold down the **Boot** button (``{IDF_TARGET_STRAP_GPIO}``) and press the **EN** button (``CHIP_PU``).
+- For other types of hardware, try pulling ``{IDF_TARGET_STRAP_GPIO}`` down.
 
 
 Normal Operation
@@ -547,6 +606,47 @@ When flashing, you will see the output log similar to the following:
         Hard resetting via RTS pin...
         Done
 
+.. only:: esp32c3
+
+    .. code-block:: none
+
+        ...
+        esptool.py --chip esp32c3 -p /dev/ttyUSB0 -b 460800 --before=default_reset --after=hard_reset write_flash --flash_mode dio --flash_freq 80m --flash_size 2MB 0x8000 partition_table/partition-table.bin 0x0 bootloader/bootloader.bin 0x10000 hello-world.bin
+        esptool.py v3.0
+        Serial port /dev/ttyUSB0
+        Connecting....
+        Chip is ESP32-C3
+        Features: Wi-Fi
+        Crystal is 40MHz
+        MAC: 7c:df:a1:40:02:a4
+        Uploading stub...
+        Running stub...
+        Stub running...
+        Changing baud rate to 460800
+        Changed.
+        Configuring flash size...
+        Compressed 3072 bytes to 103...
+        Writing at 0x00008000... (100 %)
+        Wrote 3072 bytes (103 compressed) at 0x00008000 in 0.0 seconds (effective 4238.1 kbit/s)...
+        Hash of data verified.
+        Compressed 18960 bytes to 11311...
+        Writing at 0x00000000... (100 %)
+        Wrote 18960 bytes (11311 compressed) at 0x00000000 in 0.3 seconds (effective 584.9 kbit/s)...
+        Hash of data verified.
+        Compressed 145520 bytes to 71984...
+        Writing at 0x00010000... (20 %)
+        Writing at 0x00014000... (40 %)
+        Writing at 0x00018000... (60 %)
+        Writing at 0x0001c000... (80 %)
+        Writing at 0x00020000... (100 %)
+        Wrote 145520 bytes (71984 compressed) at 0x00010000 in 2.3 seconds (effective 504.4 kbit/s)...
+        Hash of data verified.
+
+        Leaving...
+        Hard resetting via RTS pin...
+        Done
+
+
 If there are no issues by the end of the flash process, the board will reboot and start up the “hello_world” application.
 
 If you'd like to use the Eclipse or VS Code IDE instead of running ``idf.py``, check out the :doc:`Eclipse guide <eclipse-setup>`, :doc:`VS Code guide <vscode-setup>`.
@@ -584,7 +684,7 @@ After startup and diagnostic logs scroll up, you should see "Hello world!" print
     	Restarting in 9 seconds...
     	Restarting in 8 seconds...
     	Restarting in 7 seconds...
-    
+
 To exit IDF monitor use the shortcut ``Ctrl+]``.
 
 .. only:: esp32

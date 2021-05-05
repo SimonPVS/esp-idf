@@ -21,6 +21,7 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #if CONFIG_IDF_TARGET_ESP32
+#include "soc/dport_reg.h"
 #include <esp32/rom/spi_flash.h>
 #include <esp32/rom/cache.h>
 #elif CONFIG_IDF_TARGET_ESP32S2
@@ -33,9 +34,13 @@
 #include "esp32s3/rom/cache.h"
 #include "soc/extmem_reg.h"
 #include "soc/cache_memory.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#include "esp32c3/rom/spi_flash.h"
+#include "esp32c3/rom/cache.h"
+#include "soc/extmem_reg.h"
+#include "soc/cache_memory.h"
 #endif
 #include <soc/soc.h>
-#include <soc/dport_reg.h>
 #include "sdkconfig.h"
 #ifndef CONFIG_FREERTOS_UNICORE
 #include "esp_ipc.h"
@@ -120,11 +125,11 @@ void IRAM_ATTR spi_flash_op_block_func(void *arg)
 
 void IRAM_ATTR spi_flash_disable_interrupts_caches_and_other_cpu(void)
 {
-    assert(esp_ptr_in_dram((const void *)get_sp()));
+    assert(esp_ptr_in_dram((const void *)esp_cpu_get_sp()));
 
     spi_flash_op_lock();
 
-    const uint32_t cpuid = xPortGetCoreID();
+    const int cpuid = xPortGetCoreID();
     const uint32_t other_cpuid = (cpuid == 0) ? 1 : 0;
 #ifndef NDEBUG
     // For sanity check later: record the CPU which has started doing flash operation
@@ -136,9 +141,9 @@ void IRAM_ATTR spi_flash_disable_interrupts_caches_and_other_cpu(void)
         // Scheduler hasn't been started yet, it means that spi_flash API is being
         // called from the 2nd stage bootloader or from user_start_cpu0, i.e. from
         // PRO CPU. APP CPU is either in reset or spinning inside user_start_cpu1,
-        // which is in IRAM. So it is safe to disable cache for the other_cpuid here.
+        // which is in IRAM. So it is safe to disable cache for the other_cpuid after
+        // esp_intr_noniram_disable.
         assert(other_cpuid == 1);
-        spi_flash_disable_cache(other_cpuid, &s_flash_op_cache_state[other_cpuid]);
     } else {
         // Temporarily raise current task priority to prevent a deadlock while
         // waiting for IPC task to start on the other CPU
@@ -147,8 +152,8 @@ void IRAM_ATTR spi_flash_disable_interrupts_caches_and_other_cpu(void)
         // Signal to the spi_flash_op_block_task on the other CPU that we need it to
         // disable cache there and block other tasks from executing.
         s_flash_op_can_start = false;
-        esp_err_t ret = esp_ipc_call(other_cpuid, &spi_flash_op_block_func, (void *) other_cpuid);
-        assert(ret == ESP_OK);
+        ESP_ERROR_CHECK(esp_ipc_call(other_cpuid, &spi_flash_op_block_func, (void *) other_cpuid));
+
         while (!s_flash_op_can_start) {
             // Busy loop and wait for spi_flash_op_block_func to disable cache
             // on the other CPU
@@ -173,7 +178,7 @@ void IRAM_ATTR spi_flash_disable_interrupts_caches_and_other_cpu(void)
 
 void IRAM_ATTR spi_flash_enable_interrupts_caches_and_other_cpu(void)
 {
-    const uint32_t cpuid = xPortGetCoreID();
+    const int cpuid = xPortGetCoreID();
     const uint32_t other_cpuid = (cpuid == 0) ? 1 : 0;
 #ifndef NDEBUG
     // Sanity check: flash operation ends on the same CPU as it has started
@@ -314,6 +319,10 @@ static void IRAM_ATTR spi_flash_disable_cache(uint32_t cpuid, uint32_t *saved_st
     icache_state = Cache_Suspend_ICache() << 16;
     dcache_state = Cache_Suspend_DCache();
     *saved_state = icache_state | dcache_state;
+#elif CONFIG_IDF_TARGET_ESP32C3
+    uint32_t icache_state;
+    icache_state = Cache_Suspend_ICache() << 16;
+    *saved_state = icache_state;
 #endif
 }
 
@@ -336,6 +345,8 @@ static void IRAM_ATTR spi_flash_restore_cache(uint32_t cpuid, uint32_t saved_sta
 #elif CONFIG_IDF_TARGET_ESP32S3
     Cache_Resume_DCache(saved_state & 0xffff);
     Cache_Resume_ICache(saved_state >> 16);
+#elif CONFIG_IDF_TARGET_ESP32C3
+    Cache_Resume_ICache(saved_state >> 16);
 #endif
 }
 
@@ -348,7 +359,7 @@ IRAM_ATTR bool spi_flash_cache_enabled(void)
 #endif
 #elif CONFIG_IDF_TARGET_ESP32S2
     bool result = (REG_GET_BIT(EXTMEM_PRO_ICACHE_CTRL_REG, EXTMEM_PRO_ICACHE_ENABLE) != 0);
-#elif CONFIG_IDF_TARGET_ESP32S3
+#elif CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3
     bool result = (REG_GET_BIT(EXTMEM_ICACHE_CTRL_REG, EXTMEM_ICACHE_ENABLE) != 0);
 #endif
     return result;
@@ -463,19 +474,19 @@ esp_err_t esp_enable_cache_wrap(bool icache_wrap_enable, bool dcache_wrap_enable
     int i;
     bool flash_spiram_wrap_together, flash_support_wrap = true, spiram_support_wrap = true;
     uint32_t drom0_in_icache = 1;//always 1 in esp32s2
-#if CONFIG_IDF_TARGET_ESP32S3
+#if CONFIG_IDF_TARGET_ESP32S3 || CONFIG_IDF_TARGET_ESP32C3
     drom0_in_icache = 0;
 #endif
 
     if (icache_wrap_enable) {
-#if CONFIG_ESP32S2_INSTRUCTION_CACHE_LINE_16B || CONFIG_ESP32S3_INSTRUCTION_CACHE_LINE_16B
+#if CONFIG_ESP32S2_INSTRUCTION_CACHE_LINE_16B || CONFIG_ESP32S3_INSTRUCTION_CACHE_LINE_16B || CONFIG_ESP32C3_INSTRUCTION_CACHE_LINE_16B
         icache_wrap_size = 16;
 #else
         icache_wrap_size = 32;
 #endif
     }
     if (dcache_wrap_enable) {
-#if CONFIG_ESP32S2_DATA_CACHE_LINE_16B || CONFIG_ESP32S3_DATA_CACHE_LINE_16B
+#if CONFIG_ESP32S2_DATA_CACHE_LINE_16B || CONFIG_ESP32S3_DATA_CACHE_LINE_16B || CONFIG_ESP32C3_INSTRUCTION_CACHE_LINE_16B
         dcache_wrap_size = 16;
 #else
         dcache_wrap_size = 32;
@@ -864,6 +875,50 @@ esp_err_t esp_enable_cache_wrap(bool icache_wrap_enable, bool dcache_wrap_enable
 }
 #endif
 
+#if CONFIG_IDF_TARGET_ESP32C3
+
+static IRAM_ATTR void esp_enable_cache_flash_wrap(bool icache)
+{
+    uint32_t i_autoload;
+    if (icache) {
+        i_autoload = Cache_Suspend_ICache();
+    }
+    REG_SET_BIT(EXTMEM_CACHE_WRAP_AROUND_CTRL_REG, EXTMEM_CACHE_FLASH_WRAP_AROUND);
+    if (icache) {
+        Cache_Resume_ICache(i_autoload);
+    }
+}
+
+esp_err_t esp_enable_cache_wrap(bool icache_wrap_enable)
+{
+    int flash_wrap_size = 0;
+    bool flash_support_wrap = false;
+
+    if (icache_wrap_enable) {
+        flash_wrap_size = 32;
+    }
+
+#ifdef CONFIG_FLASHMODE_QIO
+    flash_support_wrap = true;
+    extern bool spi_flash_support_wrap_size(uint32_t wrap_size);
+    if (!spi_flash_support_wrap_size(flash_wrap_size)) {
+        flash_support_wrap = false;
+        ESP_EARLY_LOGW(TAG, "Flash do not support wrap size %d.", flash_wrap_size);
+    }
+#else
+    ESP_EARLY_LOGW(TAG, "Flash is not in QIO mode, do not support wrap.");
+#endif // CONFIG_FLASHMODE_QIO
+
+    extern esp_err_t spi_flash_enable_wrap(uint32_t wrap_size);
+    if (flash_support_wrap && flash_wrap_size > 0) {
+        ESP_EARLY_LOGI(TAG, "Flash wrap enabled, size = %d.", flash_wrap_size);
+        spi_flash_enable_wrap(flash_wrap_size);
+        esp_enable_cache_flash_wrap((flash_wrap_size > 0));
+    }
+    return ESP_OK;
+}
+#endif // CONFIG_IDF_TARGET_ESP32C3
+
 void IRAM_ATTR spi_flash_enable_cache(uint32_t cpuid)
 {
 #if CONFIG_IDF_TARGET_ESP32
@@ -876,4 +931,3 @@ void IRAM_ATTR spi_flash_enable_cache(uint32_t cpuid)
     spi_flash_restore_cache(0, 0); // TODO cache_value should be non-zero
 #endif
 }
-

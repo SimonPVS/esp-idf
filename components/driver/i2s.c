@@ -19,18 +19,19 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
-#include "freertos/xtensa_api.h"
 #include "freertos/semphr.h"
 
 #include "soc/lldesc.h"
 #include "driver/gpio.h"
 #include "driver/i2s.h"
-
+#include "hal/gpio_hal.h"
 #if SOC_I2S_SUPPORTS_ADC_DAC
 #include "driver/dac.h"
 #include "hal/i2s_hal.h"
 #include "adc1_private.h"
 #endif
+
+#include "soc/rtc.h"
 
 #include "esp_intr_alloc.h"
 #include "esp_err.h"
@@ -39,6 +40,8 @@
 #include "esp_pm.h"
 #include "esp_efuse.h"
 #include "esp_rom_gpio.h"
+
+#include "sdkconfig.h"
 
 static const char* I2S_TAG = "I2S";
 
@@ -53,6 +56,11 @@ static const char* I2S_TAG = "I2S";
 #define I2S_EXIT_CRITICAL()               portEXIT_CRITICAL(&i2s_spinlock[i2s_num])
 #define I2S_FULL_DUPLEX_SLAVE_MODE_MASK   (I2S_MODE_TX | I2S_MODE_RX | I2S_MODE_SLAVE)
 #define I2S_FULL_DUPLEX_MASTER_MODE_MASK  (I2S_MODE_TX | I2S_MODE_RX | I2S_MODE_MASTER)
+
+//TODO: Refactor to put this logic into LL
+#define I2S_AD_BCK_FACTOR                 (2)
+#define I2S_PDM_BCK_FACTOR                (64)
+#define I2S_BASE_CLK                      (2*APB_CLK_FREQ)
 
 /**
  * @brief DMA buffer object
@@ -107,22 +115,22 @@ static int _i2s_adc_channel = -1;
 static i2s_dma_t *i2s_create_dma_queue(i2s_port_t i2s_num, int dma_buf_count, int dma_buf_len);
 static esp_err_t i2s_destroy_dma_queue(i2s_port_t i2s_num, i2s_dma_t *dma);
 
-static inline void gpio_matrix_out_check(uint32_t gpio, uint32_t signal_idx, bool out_inv, bool oen_inv)
+static inline void gpio_matrix_out_check(int gpio, uint32_t signal_idx, bool out_inv, bool oen_inv)
 {
     //if pin = -1, do not need to configure
     if (gpio != -1) {
-        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[gpio], PIN_FUNC_GPIO);
-        gpio_set_direction(gpio, GPIO_MODE_DEF_OUTPUT);
+        gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[gpio], PIN_FUNC_GPIO);
+        gpio_set_direction(gpio, GPIO_MODE_OUTPUT);
         esp_rom_gpio_connect_out_signal(gpio, signal_idx, out_inv, oen_inv);
     }
 }
 
-static inline void gpio_matrix_in_check(uint32_t gpio, uint32_t signal_idx, bool inv)
+static inline void gpio_matrix_in_check(int gpio, uint32_t signal_idx, bool inv)
 {
     if (gpio != -1) {
-        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[gpio], PIN_FUNC_GPIO);
+        gpio_hal_iomux_func_sel(GPIO_PIN_MUX_REG[gpio], PIN_FUNC_GPIO);
         //Set direction, for some GPIOs, the input function are not enabled as default.
-        gpio_set_direction(gpio, GPIO_MODE_DEF_INPUT);
+        gpio_set_direction(gpio, GPIO_MODE_INPUT);
         esp_rom_gpio_connect_in_signal(gpio, signal_idx, inv);
     }
 }
@@ -190,8 +198,8 @@ static float i2s_apll_get_fi2s(int bits_per_sample, int sdm0, int sdm1, int sdm2
     }
 #endif
     float fout = f_xtal * (sdm2 + sdm1 / 256.0f + sdm0 / 65536.0f + 4);
-    if (fout < APLL_MIN_FREQ || fout > APLL_MAX_FREQ) {
-        return APLL_MAX_FREQ;
+    if (fout < SOC_I2S_APLL_MIN_FREQ || fout > SOC_I2S_APLL_MAX_FREQ) {
+        return SOC_I2S_APLL_MAX_FREQ;
     }
     float fpll = fout / (2 * (odir+2)); //== fi2s (N=1, b=0, a=1)
     return fpll/2;
@@ -236,7 +244,7 @@ static esp_err_t i2s_apll_calculate_fi2s(int rate, int bits_per_sample, int *sdm
     int _odir, _sdm0, _sdm1, _sdm2;
     float avg;
     float min_rate, max_rate, min_diff;
-    if (rate/bits_per_sample/2/8 < APLL_I2S_MIN_RATE) {
+    if (rate/bits_per_sample/2/8 < SOC_I2S_APLL_MIN_RATE) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -244,7 +252,7 @@ static esp_err_t i2s_apll_calculate_fi2s(int rate, int bits_per_sample, int *sdm
     *sdm1 = 0;
     *sdm2 = 0;
     *odir = 0;
-    min_diff = APLL_MAX_FREQ;
+    min_diff = SOC_I2S_APLL_MAX_FREQ;
 
     for (_sdm2 = 4; _sdm2 < 9; _sdm2 ++) {
         max_rate = i2s_apll_get_fi2s(bits_per_sample, 255, 255, _sdm2, 0);
@@ -255,7 +263,7 @@ static esp_err_t i2s_apll_calculate_fi2s(int rate, int bits_per_sample, int *sdm
             *sdm2 = _sdm2;
         }
     }
-    min_diff = APLL_MAX_FREQ;
+    min_diff = SOC_I2S_APLL_MAX_FREQ;
     for (_odir = 0; _odir < 32; _odir ++) {
         max_rate = i2s_apll_get_fi2s(bits_per_sample, 255, 255, *sdm2, _odir);
         min_rate = i2s_apll_get_fi2s(bits_per_sample, 0, 0, *sdm2, _odir);
@@ -265,7 +273,7 @@ static esp_err_t i2s_apll_calculate_fi2s(int rate, int bits_per_sample, int *sdm
             *odir = _odir;
         }
     }
-    min_diff = APLL_MAX_FREQ;
+    min_diff = SOC_I2S_APLL_MAX_FREQ;
     for (_sdm2 = 4; _sdm2 < 9; _sdm2 ++) {
         max_rate = i2s_apll_get_fi2s(bits_per_sample, 255, 255, _sdm2, *odir);
         min_rate = i2s_apll_get_fi2s(bits_per_sample, 0, 0, _sdm2, *odir);
@@ -276,7 +284,7 @@ static esp_err_t i2s_apll_calculate_fi2s(int rate, int bits_per_sample, int *sdm
         }
     }
 
-    min_diff = APLL_MAX_FREQ;
+    min_diff = SOC_I2S_APLL_MAX_FREQ;
     for (_sdm1 = 0; _sdm1 < 256; _sdm1 ++) {
         max_rate = i2s_apll_get_fi2s(bits_per_sample, 255, _sdm1, *sdm2, *odir);
         min_rate = i2s_apll_get_fi2s(bits_per_sample, 0, _sdm1, *sdm2, *odir);
@@ -287,7 +295,7 @@ static esp_err_t i2s_apll_calculate_fi2s(int rate, int bits_per_sample, int *sdm
         }
     }
 
-    min_diff = APLL_MAX_FREQ;
+    min_diff = SOC_I2S_APLL_MAX_FREQ;
     for (_sdm0 = 0; _sdm0 < 256; _sdm0 ++) {
         avg = i2s_apll_get_fi2s(bits_per_sample, _sdm0, *sdm1, *sdm2, *odir);
         if (abs(avg - rate) < min_diff) {
@@ -335,14 +343,21 @@ esp_err_t i2s_set_clk(i2s_port_t i2s_num, uint32_t rate, i2s_bits_per_sample_t b
     }
 
     i2s_stop(i2s_num);
-
-    i2s_hal_set_tx_mode(&(p_i2s_obj[i2s_num]->hal), ch, bits);
+#if SOC_I2S_SUPPORTS_ADC_DAC
+    /* I2S-ADC only support single channel format. */
+    if (!(p_i2s_obj[i2s_num]->mode & I2S_MODE_ADC_BUILT_IN)) {
+        i2s_hal_set_rx_mode(&(p_i2s_obj[i2s_num]->hal), ch, bits);
+    }
+#else
     i2s_hal_set_rx_mode(&(p_i2s_obj[i2s_num]->hal), ch, bits);
-    if (p_i2s_obj[i2s_num]->channel_num != ch) {
+#endif
+    i2s_hal_set_tx_mode(&(p_i2s_obj[i2s_num]->hal), ch, bits);
+
+    if (p_i2s_obj[i2s_num]->channel_num != (int)ch) {
         p_i2s_obj[i2s_num]->channel_num = (ch == 2) ? 2 : 1;
     }
 
-    if (bits != p_i2s_obj[i2s_num]->bits_per_sample) {
+    if ((int)bits != p_i2s_obj[i2s_num]->bits_per_sample) {
         p_i2s_obj[i2s_num]->bits_per_sample = bits;
 
         // Round bytes_per_sample up to next multiple of 16 bits
@@ -419,7 +434,7 @@ esp_err_t i2s_set_clk(i2s_port_t i2s_num, uint32_t rate, i2s_bits_per_sample_t b
             fs = rate / 100;
             i2s_hal_tx_pdm_cfg(&(p_i2s_obj[i2s_num]->hal), fp, fs);
             b_clk = rate * I2S_PDM_BCK_FACTOR * fp / fs;
-            
+
         } else if (p_i2s_obj[i2s_num]->mode & I2S_MODE_RX) {
             uint32_t dsr;
             i2s_hal_get_rx_pdm(&(p_i2s_obj[i2s_num]->hal), &dsr);
@@ -494,7 +509,7 @@ static void IRAM_ATTR i2s_intr_handler_default(void *arg)
         //Avoid spurious interrupt
         return;
     }
-    
+
     i2s_event_t i2s_event;
     int dummy;
 
@@ -858,7 +873,7 @@ static esp_err_t i2s_param_config(i2s_port_t i2s_num, const i2s_config_t *i2s_co
         //initialize the specific ADC channel.
         //in the current stage, we only support ADC1 and single channel mode.
         //In default data mode, the ADC data is in 12-bit resolution mode.
-        adc_power_always_on();
+        adc_power_acquire();
     }
 #endif
     // configure I2S data port interface.
@@ -915,7 +930,7 @@ esp_err_t i2s_driver_install(i2s_port_t i2s_num, const i2s_config_t *i2s_config,
         }
         memset(p_i2s_obj[i2s_num], 0, sizeof(i2s_obj_t));
 
-        portMUX_TYPE i2s_spinlock_unlocked[1] = {portMUX_INITIALIZER_UNLOCKED}; 
+        portMUX_TYPE i2s_spinlock_unlocked[1] = {portMUX_INITIALIZER_UNLOCKED};
         for (int x = 0; x < I2S_NUM_MAX; x++) {
             i2s_spinlock[x] = i2s_spinlock_unlocked[0];
         }
@@ -1026,10 +1041,10 @@ esp_err_t i2s_driver_uninstall(i2s_port_t i2s_num)
 esp_err_t i2s_write(i2s_port_t i2s_num, const void *src, size_t size, size_t *bytes_written, TickType_t ticks_to_wait)
 {
     char *data_ptr, *src_byte;
-    int bytes_can_write;
+    size_t bytes_can_write;
     *bytes_written = 0;
     I2S_CHECK((i2s_num < I2S_NUM_MAX), "i2s_num error", ESP_ERR_INVALID_ARG);
-    I2S_CHECK((size < I2S_MAX_BUFFER_SIZE), "size is too large", ESP_ERR_INVALID_ARG);
+    I2S_CHECK((size < SOC_I2S_MAX_BUFFER_SIZE), "size is too large", ESP_ERR_INVALID_ARG);
     I2S_CHECK((p_i2s_obj[i2s_num]->tx), "tx NULL", ESP_ERR_INVALID_ARG);
     xSemaphoreTake(p_i2s_obj[i2s_num]->tx->mux, (portTickType)portMAX_DELAY);
 #ifdef CONFIG_PM_ENABLE
@@ -1098,7 +1113,7 @@ esp_err_t i2s_write_expand(i2s_port_t i2s_num, const void *src, size_t size, siz
     *bytes_written = 0;
     I2S_CHECK((i2s_num < I2S_NUM_MAX), "i2s_num error", ESP_ERR_INVALID_ARG);
     I2S_CHECK((size > 0), "size must greater than zero", ESP_ERR_INVALID_ARG);
-    I2S_CHECK((aim_bits * size < I2S_MAX_BUFFER_SIZE), "size is too large", ESP_ERR_INVALID_ARG);
+    I2S_CHECK((aim_bits * size < SOC_I2S_MAX_BUFFER_SIZE), "size is too large", ESP_ERR_INVALID_ARG);
     I2S_CHECK((aim_bits >= src_bits), "aim_bits mustn't be less than src_bits", ESP_ERR_INVALID_ARG);
     I2S_CHECK((p_i2s_obj[i2s_num]->tx), "tx NULL", ESP_ERR_INVALID_ARG);
     if (src_bits < I2S_BITS_PER_SAMPLE_8BIT || aim_bits < I2S_BITS_PER_SAMPLE_8BIT) {
@@ -1134,7 +1149,7 @@ esp_err_t i2s_write_expand(i2s_port_t i2s_num, const void *src, size_t size, siz
         data_ptr = (char*)p_i2s_obj[i2s_num]->tx->curr_ptr;
         data_ptr += p_i2s_obj[i2s_num]->tx->rw_pos;
         bytes_can_write = p_i2s_obj[i2s_num]->tx->buf_size - p_i2s_obj[i2s_num]->tx->rw_pos;
-        if (bytes_can_write > size) {
+        if (bytes_can_write > (int)size) {
             bytes_can_write = size;
         }
         tail = bytes_can_write % aim_bytes;
@@ -1160,7 +1175,7 @@ esp_err_t i2s_read(i2s_port_t i2s_num, void *dest, size_t size, size_t *bytes_re
     *bytes_read = 0;
     dest_byte = (char *)dest;
     I2S_CHECK((i2s_num < I2S_NUM_MAX), "i2s_num error", ESP_ERR_INVALID_ARG);
-    I2S_CHECK((size < I2S_MAX_BUFFER_SIZE), "size is too large", ESP_ERR_INVALID_ARG);
+    I2S_CHECK((size < SOC_I2S_MAX_BUFFER_SIZE), "size is too large", ESP_ERR_INVALID_ARG);
     I2S_CHECK((p_i2s_obj[i2s_num]->rx), "rx NULL", ESP_ERR_INVALID_ARG);
     xSemaphoreTake(p_i2s_obj[i2s_num]->rx->mux, (portTickType)portMAX_DELAY);
 #ifdef CONFIG_PM_ENABLE
@@ -1176,7 +1191,7 @@ esp_err_t i2s_read(i2s_port_t i2s_num, void *dest, size_t size, size_t *bytes_re
         data_ptr = (char*)p_i2s_obj[i2s_num]->rx->curr_ptr;
         data_ptr += p_i2s_obj[i2s_num]->rx->rw_pos;
         bytes_can_read = p_i2s_obj[i2s_num]->rx->buf_size - p_i2s_obj[i2s_num]->rx->rw_pos;
-        if (bytes_can_read > size) {
+        if (bytes_can_read > (int)size) {
             bytes_can_read = size;
         }
         memcpy(dest_byte, data_ptr, bytes_can_read);

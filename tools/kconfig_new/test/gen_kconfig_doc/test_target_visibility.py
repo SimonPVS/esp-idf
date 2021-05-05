@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-import kconfiglib
 import os
 import sys
 import unittest
+
+import kconfiglib
 
 try:
     import gen_kconfig_doc
@@ -19,7 +20,7 @@ class ConfigTargetVisibilityTestCase(unittest.TestCase):
 
     def _get_config(self, name):
         sym = self.config.syms.get(name)
-        if sym:
+        if sym and len(sym.nodes) > 0:
             return sym.nodes[0]
         choice = self.config.named_choices.get(name)
         if choice:
@@ -107,5 +108,5 @@ class ConfigTargetVisibilityChipB(ConfigTargetVisibilityTestCase):
         self.invisible('CHIPA_FEATURE_FROM_V3')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

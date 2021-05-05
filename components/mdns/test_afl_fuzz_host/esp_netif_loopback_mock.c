@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "esp32_compat.h"
 #include "esp_netif_lwip_internal.h"
 
 esp_err_t esp_netif_get_ip_info(esp_netif_t *esp_netif, esp_netif_ip_info_t *ip_info)
@@ -26,10 +27,10 @@ esp_err_t esp_netif_dhcpc_get_status(esp_netif_t *esp_netif, esp_netif_dhcp_stat
 
 const char *esp_netif_get_ifkey(esp_netif_t *esp_netif)
 {
-    return esp_netif->if_key;
+    return NULL;
 }
 
 esp_err_t esp_netif_get_ip6_linklocal(esp_netif_t *esp_netif, esp_ip6_addr_t *if_ip6)
-{            
+{
     return ESP_ERR_NOT_SUPPORTED;
-}        
+}

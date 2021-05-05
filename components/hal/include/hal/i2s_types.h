@@ -17,7 +17,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stddef.h>
-#include "soc/i2s_caps.h"
+#include "soc/soc_caps.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -62,8 +62,8 @@ typedef enum {
     // In order to keep compatibility, remain the old definitions and introduce new definitions,
     I2S_COMM_FORMAT_STAND_I2S   = 0X01, /*!< I2S communication I2S Philips standard, data launch at second BCK*/
     I2S_COMM_FORMAT_STAND_MSB   = 0X03, /*!< I2S communication MSB alignment standard, data launch at first BCK*/
-    I2S_COMM_FORMAT_STAND_PCM_SHORT  = 0x04, /*!< PCM Short standard*/
-    I2S_COMM_FORMAT_STAND_PCM_LONG   = 0x0C, /*!< PCM Long standard*/
+    I2S_COMM_FORMAT_STAND_PCM_SHORT  = 0x04, /*!< PCM Short standard, also known as DSP mode. The period of synchronization signal (WS) is 1 bck cycle.*/
+    I2S_COMM_FORMAT_STAND_PCM_LONG   = 0x0C, /*!< PCM Long standard. The period of synchronization signal (WS) is channel_bit*bck cycles.*/
     I2S_COMM_FORMAT_STAND_MAX, /*!< standard max*/
 
     //old definition will be removed in the future.
@@ -115,7 +115,6 @@ typedef enum {
     I2S_CLK_APLL,                    /*!< Clock from APLL*/
 } i2s_clock_src_t;
 
-
 /**
  * @brief I2S configuration parameters for i2s_param_config function
  *
@@ -145,6 +144,7 @@ typedef enum {
     I2S_EVENT_MAX,         /*!< I2S event max index*/
 } i2s_event_type_t;
 
+#if SOC_I2S_SUPPORTS_ADC_DAC
 /**
  * @brief I2S DAC mode for i2s_set_dac_mode.
  *
@@ -157,6 +157,7 @@ typedef enum {
     I2S_DAC_CHANNEL_BOTH_EN  = 0x3,  /*!< Enable both of the I2S built-in DAC channels.*/
     I2S_DAC_CHANNEL_MAX      = 0x4,  /*!< I2S built-in DAC mode max index*/
 } i2s_dac_mode_t;
+#endif //SOC_I2S_SUPPORTS_ADC_DAC
 
 /**
  * @brief Event structure used in I2S event queue

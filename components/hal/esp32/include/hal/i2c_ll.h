@@ -22,6 +22,8 @@
 extern "C" {
 #endif
 
+#define I2C_LL_INTR_MASK          (0x3fff) /*!< I2C all interrupt bitmap */
+
 /**
  * @brief I2C hardware cmd register filed.
  */
@@ -42,7 +44,7 @@ typedef union {
  * @brief I2C interrupt event
  */
 typedef enum {
-    I2C_INTR_EVENT_ERR,        
+    I2C_INTR_EVENT_ERR,
     I2C_INTR_EVENT_ARBIT_LOST,   /*!< I2C arbition lost event */
     I2C_INTR_EVENT_NACK,         /*!< I2C NACK event */
     I2C_INTR_EVENT_TOUT,         /*!< I2C time out event */
@@ -65,6 +67,13 @@ typedef struct {
     uint16_t tout;              /*!< I2C bus timeout period */
 } i2c_clk_cal_t;
 
+// I2C operation mode command
+#define I2C_LL_CMD_RESTART    0    /*!<I2C restart command */
+#define I2C_LL_CMD_WRITE      1    /*!<I2C write command */
+#define I2C_LL_CMD_READ       2    /*!<I2C read command */
+#define I2C_LL_CMD_STOP       3    /*!<I2C stop command */
+#define I2C_LL_CMD_END        4    /*!<I2C end command */
+
 // Get the I2C hardware instance
 #define I2C_LL_GET_HW(i2c_num)        (((i2c_num) == 0) ? &I2C0 : &I2C1)
 // Get the I2C hardware FIFO address
@@ -77,9 +86,10 @@ typedef struct {
 #define I2C_LL_SLAVE_TX_INT           (I2C_TXFIFO_EMPTY_INT_ENA_M)
 // I2C slave RX interrupt bitmap
 #define I2C_LL_SLAVE_RX_INT           (I2C_RXFIFO_FULL_INT_ENA_M | I2C_TRANS_COMPLETE_INT_ENA_M)
-//I2C base clock freq 80M
-#define I2C_BASE_CLK_FREQ             (80000000)
-
+// I2C source clock frequency
+#define I2C_LL_CLK_SRC_FREQ(src_clk)  (80*1000*1000)
+// I2C max timeout value
+#define I2C_LL_MAX_TIMEOUT I2C_TIME_OUT_REG_V
 
 /**
  * @brief  Calculate I2C bus frequency
@@ -329,7 +339,7 @@ static inline void i2c_ll_set_sda_timing(i2c_dev_t *hw, int sda_sample, int sda_
  */
 static inline void i2c_ll_set_txfifo_empty_thr(i2c_dev_t *hw, uint8_t empty_thr)
 {
-    hw->fifo_conf.tx_fifo_empty_thrhd = empty_thr;    
+    hw->fifo_conf.tx_fifo_empty_thrhd = empty_thr;
 }
 
 /**
@@ -342,7 +352,7 @@ static inline void i2c_ll_set_txfifo_empty_thr(i2c_dev_t *hw, uint8_t empty_thr)
  */
 static inline void i2c_ll_set_rxfifo_full_thr(i2c_dev_t *hw, uint8_t full_thr)
 {
-    hw->fifo_conf.rx_fifo_full_thrhd = full_thr;    
+    hw->fifo_conf.rx_fifo_full_thrhd = full_thr;
 }
 
 /**
@@ -533,7 +543,7 @@ static inline void i2c_ll_write_txfifo(i2c_dev_t *hw, uint8_t *ptr, uint8_t len)
     uint32_t fifo_addr = (hw == &I2C0) ? 0x6001301c : 0x6002701c;
     for(int i = 0; i < len; i++) {
         WRITE_PERI_REG(fifo_addr, ptr[i]);
-    }   
+    }
 }
 
 /**
@@ -549,7 +559,7 @@ static inline void i2c_ll_read_rxfifo(i2c_dev_t *hw, uint8_t *ptr, uint8_t len)
 {
     for(int i = 0; i < len; i++) {
         ptr[i] = hw->fifo_data.data;
-    }   
+    }
 }
 
 /**
@@ -854,7 +864,18 @@ static inline void i2c_ll_slave_init(i2c_dev_t *hw)
     hw->fifo_conf.fifo_addr_cfg_en = 0;
 }
 
+/**
+ * @brief  Update I2C configuration
+ *
+ * @param  hw Beginning address of the peripheral registers
+ *
+ * @return None
+ */
+static inline void i2c_ll_update(i2c_dev_t *hw)
+{
+    ;// ESP32 do not support
+}
+
 #ifdef __cplusplus
 }
 #endif
-

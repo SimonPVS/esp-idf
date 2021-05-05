@@ -19,7 +19,6 @@
 #include "esp_log.h"
 
 #include "esp32/rom/cache.h"
-#include "esp_rom_crc.h"
 
 #include "soc/efuse_periph.h"
 #include "soc/rtc_periph.h"
@@ -76,7 +75,7 @@ static bool secure_boot_generate(uint32_t image_len){
         ESP_LOGE(TAG, "bootloader_mmap(0x1000, 0x%x) failed", image_len);
         return false;
     }
-    for (int i = 0; i < image_len; i+= sizeof(digest.iv)) {
+    for (size_t i = 0; i < image_len; i+= sizeof(digest.iv)) {
         ets_secure_boot_hash(&image[i/sizeof(uint32_t)]);
     }
     bootloader_munmap(image);
@@ -223,16 +222,12 @@ esp_err_t esp_secure_boot_permanently_enable(void)
 #define ALIGN_UP(num, align) (((num) + ((align) - 1)) & ~((align) - 1))
 static const char *TAG = "secure_boot_v2";
 
-#define SIG_BLOCK_MAGIC_BYTE 0xe7
-#define CRC_SIGN_BLOCK_LEN 1196
-#define SIG_BLOCK_PADDING 4096
-
-#define DIGEST_LEN 32
-
 static esp_err_t validate_signature_block(const ets_secure_boot_signature_t *sig_block, uint8_t *digest)
 {
     uint32_t crc = esp_rom_crc32_le(0, (uint8_t *)sig_block, CRC_SIGN_BLOCK_LEN);
-    if (sig_block->block[0].magic_byte == SIG_BLOCK_MAGIC_BYTE && sig_block->block[0].block_crc == crc && !memcmp(digest, sig_block->block[0].image_digest, DIGEST_LEN)) {
+    if (sig_block->block[0].magic_byte == ETS_SECURE_BOOT_V2_SIGNATURE_MAGIC
+        && sig_block->block[0].block_crc == crc
+        && !memcmp(digest, sig_block->block[0].image_digest, ESP_SECURE_BOOT_DIGEST_LEN)) {
         ESP_LOGI(TAG, "valid signature block found");
         return ESP_OK;
     }
@@ -243,7 +238,7 @@ static esp_err_t secure_boot_v2_digest_generate(uint32_t flash_offset, uint32_t 
 {
     esp_err_t ret = ESP_FAIL;
 
-    uint8_t image_digest[DIGEST_LEN] = {0};
+    uint8_t image_digest[ESP_SECURE_BOOT_DIGEST_LEN] = {0};
     size_t sig_block_addr = flash_offset + ALIGN_UP(flash_size, FLASH_SECTOR_SIZE);
     ret = bootloader_sha256_flash_contents(flash_offset, sig_block_addr - flash_offset, image_digest);
     if (ret != ESP_OK) {
@@ -266,7 +261,7 @@ static esp_err_t secure_boot_v2_digest_generate(uint32_t flash_offset, uint32_t 
     }
 
     /* Verifying Signature block */
-    uint8_t verified_digest[DIGEST_LEN] = {0};
+    uint8_t verified_digest[ESP_SECURE_BOOT_DIGEST_LEN] = {0};
 
     /* Generating the SHA of the public key components in the signature block */
     bootloader_sha256_handle_t sig_block_sha;
@@ -318,20 +313,30 @@ esp_err_t esp_secure_boot_v2_permanently_enable(const esp_image_metadata_t *imag
         return ret;
     }
 
-    uint8_t boot_pub_key_digest[DIGEST_LEN];
+    uint8_t boot_pub_key_digest[ESP_SECURE_BOOT_DIGEST_LEN];
     uint32_t dis_reg = REG_READ(EFUSE_BLK0_RDATA0_REG);
     bool efuse_key_read_protected = dis_reg & EFUSE_RD_DIS_BLK2;
     bool efuse_key_write_protected = dis_reg & EFUSE_WR_DIS_BLK2;
+    uint32_t efuse_blk2_r0, efuse_blk2_r1, efuse_blk2_r2, efuse_blk2_r3, efuse_blk2_r4, efuse_blk2_r5, efuse_blk2_r6, efuse_blk2_r7;
+    efuse_blk2_r0 = REG_READ(EFUSE_BLK2_RDATA0_REG);
+    efuse_blk2_r1 = REG_READ(EFUSE_BLK2_RDATA1_REG);
+    efuse_blk2_r2 = REG_READ(EFUSE_BLK2_RDATA2_REG);
+    efuse_blk2_r3 = REG_READ(EFUSE_BLK2_RDATA3_REG);
+    efuse_blk2_r4 = REG_READ(EFUSE_BLK2_RDATA4_REG);
+    efuse_blk2_r5 = REG_READ(EFUSE_BLK2_RDATA5_REG);
+    efuse_blk2_r6 = REG_READ(EFUSE_BLK2_RDATA6_REG);
+    efuse_blk2_r7 = REG_READ(EFUSE_BLK2_RDATA7_REG);
+
+    if (efuse_key_read_protected == true) {
+        ESP_LOGE(TAG, "Secure Boot v2 digest(BLK2) read protected, aborting....");
+        return ESP_FAIL;
+    }
+
     if (efuse_key_write_protected == false
-        && efuse_key_read_protected == false
-        && REG_READ(EFUSE_BLK2_RDATA0_REG) == 0
-        && REG_READ(EFUSE_BLK2_RDATA1_REG) == 0
-        && REG_READ(EFUSE_BLK2_RDATA2_REG) == 0
-        && REG_READ(EFUSE_BLK2_RDATA3_REG) == 0
-        && REG_READ(EFUSE_BLK2_RDATA4_REG) == 0
-        && REG_READ(EFUSE_BLK2_RDATA5_REG) == 0
-        && REG_READ(EFUSE_BLK2_RDATA6_REG) == 0
-        && REG_READ(EFUSE_BLK2_RDATA7_REG) == 0) {
+        && efuse_blk2_r0 == 0 && efuse_blk2_r1 == 0
+        && efuse_blk2_r2 == 0 && efuse_blk2_r3 == 0
+        && efuse_blk2_r4 == 0 && efuse_blk2_r5 == 0
+        && efuse_blk2_r6 == 0 && efuse_blk2_r7 == 0) {
         /* Verifies the signature block appended to the image matches with the signature block of the app to be loaded */
         ret = secure_boot_v2_digest_generate(bootloader_data.start_addr, bootloader_data.image_len - SIG_BLOCK_PADDING, boot_pub_key_digest);
         if (ret != ESP_OK) {
@@ -340,26 +345,37 @@ esp_err_t esp_secure_boot_v2_permanently_enable(const esp_image_metadata_t *imag
         }
 
         ESP_LOGI(TAG, "Burning public key hash to efuse.");
-        ret = esp_efuse_write_block(EFUSE_BLK2, boot_pub_key_digest, 0, (DIGEST_LEN * 8));
+        ret = esp_efuse_write_block(EFUSE_BLK2, boot_pub_key_digest, 0, (ESP_SECURE_BOOT_DIGEST_LEN * 8));
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Writing public key hash to efuse failed.");
             return ret;
         }
 
+    } else {
+        uint32_t efuse_blk2_digest[8];
+        efuse_blk2_digest[0] = efuse_blk2_r0;
+        efuse_blk2_digest[1] = efuse_blk2_r1;
+        efuse_blk2_digest[2] = efuse_blk2_r2;
+        efuse_blk2_digest[3] = efuse_blk2_r3;
+        efuse_blk2_digest[4] = efuse_blk2_r4;
+        efuse_blk2_digest[5] = efuse_blk2_r5;
+        efuse_blk2_digest[6] = efuse_blk2_r6;
+        efuse_blk2_digest[7] = efuse_blk2_r7;
+        memcpy(boot_pub_key_digest, efuse_blk2_digest, ESP_SECURE_BOOT_DIGEST_LEN);
+        ESP_LOGW(TAG, "Using pre-loaded secure boot v2 public key digest in EFUSE block 2");
+    }
+
+    if (efuse_key_write_protected == false) {
         ESP_LOGI(TAG, "Write protecting public key digest...");
         ret = esp_efuse_set_write_protect(EFUSE_BLK2);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Write protecting public key digest...failed.");
             return ret;
         }
-
         efuse_key_write_protected = true;
-        efuse_key_read_protected = false;
-    } else {
-        ESP_LOGW(TAG, "Using pre-loaded secure boot v2 public key digest in EFUSE block 2");
     }
 
-    uint8_t app_pub_key_digest[DIGEST_LEN];
+    uint8_t app_pub_key_digest[ESP_SECURE_BOOT_DIGEST_LEN];
     ret = secure_boot_v2_digest_generate(image_data->start_addr, image_data->image_len - SIG_BLOCK_PADDING, app_pub_key_digest);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Application signature block is invalid.");
@@ -367,7 +383,7 @@ esp_err_t esp_secure_boot_v2_permanently_enable(const esp_image_metadata_t *imag
     }
 
     /* Confirming if the public key in the bootloader's signature block matches with the one in the application's signature block */
-    if (memcmp(boot_pub_key_digest, app_pub_key_digest, DIGEST_LEN) != 0) {
+    if (memcmp(boot_pub_key_digest, app_pub_key_digest, ESP_SECURE_BOOT_DIGEST_LEN) != 0) {
         ESP_LOGE(TAG, "Application not signed with a valid private key.");
         return ESP_FAIL;
     }

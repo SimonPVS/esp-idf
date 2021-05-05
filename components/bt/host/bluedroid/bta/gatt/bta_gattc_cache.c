@@ -616,9 +616,11 @@ static void bta_gattc_explore_srvc(UINT16 conn_id, tBTA_GATTC_SERV *p_srvc_cb)
 
     //server discover end, update connection parameters
 #if BLE_INCLUDED == TRUE
+    #if (BT_MULTI_CONNECTION_ENBALE == FALSE)
     if (p_clcb->transport == BTA_TRANSPORT_LE) {
         L2CA_EnableUpdateBleConnParams(p_clcb->p_srcb->server_bda, TRUE);
     }
+    #endif
     //discover service complete, trigger callback
     tBTA_GATTC cb_data;
     cb_data.dis_cmpl.status  = p_clcb->status;
@@ -2194,4 +2196,3 @@ void bta_gattc_cache_reset(BD_ADDR server_bda)
 
 //#endif /* GATTC_CACHE_NVS */
 #endif /* BTA_GATT_INCLUDED */
-
