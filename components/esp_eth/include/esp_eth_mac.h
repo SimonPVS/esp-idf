@@ -1,24 +1,14 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2019-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #pragma once
 
 #include <stdbool.h>
+#include "soc/soc_caps.h"
 #include "esp_eth_com.h"
 #include "sdkconfig.h"
-#if CONFIG_ETH_USE_SPI_ETHERNET
-#include "driver/spi_master.h"
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -106,12 +96,82 @@ struct esp_eth_mac_s {
     *
     * @return
     *      - ESP_OK: transmit packet successfully
-    *      - ESP_ERR_INVALID_ARG: transmit packet failed because of invalid argument
-    *      - ESP_ERR_INVALID_STATE: transmit packet failed because of wrong state of MAC
+    *      - ESP_ERR_NO_MEM: insufficient memory to handle complete frame
     *      - ESP_FAIL: transmit packet failed because some other error occurred
+    *
+    * @note Returned error codes may differ for each specific MAC chip.
     *
     */
     esp_err_t (*transmit)(esp_eth_mac_t *mac, uint8_t *buf, uint32_t length);
+
+    /**
+    * @brief Transmit packet with extended control from scatter-gather buffer descriptors.
+    *
+    * @param[in] mac: Ethernet MAC instance
+    * @param[in] ctrl: optional transmit control structure (chip specific), set to NULL when not required
+    * @param[in] bufs: array of buffer descriptors comprising the frame
+    * @param[in] buf_count: number of valid entries in @a bufs
+    *
+    * @note Typical intended use case is to make possible to construct a frame from multiple higher layer
+    *       buffers without a need of buffer reallocations.
+    *
+    * @return
+    *      - ESP_OK: transmit packet successfully
+    *      - ESP_ERR_INVALID_ARG: invalid argument (e.g. total frame length is zero)
+    *      - ESP_ERR_NO_MEM: insufficient memory to handle complete frame
+    *      - ESP_FAIL: transmit packet failed because some other error occurred
+    *
+    * @note Returned error codes may differ for each specific MAC chip.
+    *
+    */
+    esp_err_t (*transmit_ctrl_bufs)(esp_eth_mac_t *mac, void *ctrl, const esp_eth_buf_desc_t *bufs, size_t buf_count);
+
+    /**
+    * @brief Transmit packet with extended control from Ethernet MAC and constructed with special parameters at Layer2.
+    *
+    * @warning Deprecated, use `transmit_ctrl_bufs()` instead.
+    *
+    * @param[in] mac: Ethernet MAC instance
+    * @param[in] ctrl: optional transmit control structure (chip specific), set to NULL when not required
+    * @param[in] argc: number variable arguments
+    * @param[in] args: variable arguments
+    *
+    * @note Typical intended use case is to make possible to construct a frame from multiple higher layer
+    *       buffers without a need of buffer reallocations. However, other use cases are not limited.
+    *
+    * @return
+    *      - ESP_OK: transmit packet successfully
+    *      - ESP_ERR_INVALID_ARG: invalid argument (e.g. total frame length is zero)
+    *      - ESP_ERR_NO_MEM: insufficient memory to handle complete frame
+    *      - ESP_FAIL: transmit packet failed because some other error occurred
+    *
+    * @note Returned error codes may differ for each specific MAC chip.
+    *
+    */
+    esp_err_t (*transmit_ctrl_vargs)(esp_eth_mac_t *mac, void *ctrl, uint32_t argc, va_list args) __attribute__((deprecated("Use transmit_ctrl_bufs instead")));
+
+    /**
+    * @brief Transmit packet from Ethernet MAC constructed with special parameters at Layer2.
+    *
+    * @warning Deprecated, use `transmit_ctrl_vargs()` function instead.
+    *
+    * @param[in] mac: Ethernet MAC instance
+    * @param[in] argc: number variable arguments
+    * @param[in] args: variable arguments
+    *
+    * @note Typical intended use case is to make possible to construct a frame from multiple higher layer
+    *       buffers without a need of buffer reallocations. However, other use cases are not limited.
+    *
+    * @return
+    *      - ESP_OK: transmit packet successfully
+    *      - ESP_ERR_INVALID_ARG: invalid argument (e.g. total frame length is zero)
+    *      - ESP_ERR_NO_MEM: insufficient memory to handle complete frame
+    *      - ESP_FAIL: transmit packet failed because some other error occurred
+    *
+    * @note Returned error codes may differ for each specific MAC chip.
+    *
+    */
+    esp_err_t (*transmit_vargs)(esp_eth_mac_t *mac, uint32_t argc, va_list args) __attribute__((deprecated("Use transmit_ctrl_bufs instead")));
 
     /**
     * @brief Receive packet from Ethernet MAC
@@ -198,6 +258,30 @@ struct esp_eth_mac_s {
     esp_err_t (*get_addr)(esp_eth_mac_t *mac, uint8_t *addr);
 
     /**
+     * @brief Add Destination address MAC filter
+     *
+     * @param[in] mac: Ethernet MAC instance
+     * @param[in] addr: MAC address
+     *
+     * @return
+     *      - ESP_OK: add MAC filter successfully
+     *      - ESP_FAIL: add MAC filter failed because some error occurred
+     */
+    esp_err_t (*add_mac_filter)(esp_eth_mac_t *mac, uint8_t *addr);
+
+    /**
+     * @brief Remove Destination address MAC filter
+     *
+     * @param[in] mac: Ethernet MAC instance
+     * @param[in] addr: MAC address
+     *
+     * @return
+     *      - ESP_OK: remove MAC filter successfully
+     *      - ESP_FAIL: remove MAC filter failed because some error occurred
+     */
+    esp_err_t (*rm_mac_filter)(esp_eth_mac_t *mac, uint8_t *addr);
+
+    /**
     * @brief Set speed of MAC
     *
     * @param[in] ma:c Ethernet MAC instance
@@ -253,6 +337,18 @@ struct esp_eth_mac_s {
     esp_err_t (*set_promiscuous)(esp_eth_mac_t *mac, bool enable);
 
     /**
+     * @brief Set receive all multicast
+     *
+     * @param[in] mac: Ethernet MAC instance
+     * @param[in] enable: set true to enable receive all multicast; set false to disable receive all multicast
+     *
+     * @return
+     *      - ESP_OK: set receive all multicast successfully
+     *      - ESP_FAIL: set receive all multicast failed because some error occurred
+     */
+    esp_err_t (*set_all_multicast)(esp_eth_mac_t *mac, bool enable);
+
+    /**
     * @brief Enable flow control on MAC layer or not
     *
     * @param[in] mac: Ethernet MAC instance
@@ -278,6 +374,23 @@ struct esp_eth_mac_s {
     esp_err_t (*set_peer_pause_ability)(esp_eth_mac_t *mac, uint32_t ability);
 
     /**
+    * @brief Custom IO function of MAC driver. This function is intended to extend common options of esp_eth_ioctl to cover specifics of MAC chip.
+    *
+    * @note This function may not be assigned when the MAC chip supports only most common set of configuration options.
+    *
+    * @param[in] mac: Ethernet MAC instance
+    * @param[in] cmd: IO control command
+    * @param[in, out] data: address of data for `set` command or address where to store the data when used with `get` command
+    *
+    * @return
+    *       - ESP_OK: process io command successfully
+    *       - ESP_ERR_INVALID_ARG: process io command failed because of some invalid argument
+    *       - ESP_FAIL: process io command failed because some other error occurred
+    *       - ESP_ERR_NOT_SUPPORTED: requested feature is not supported
+    */
+    esp_err_t (*custom_ioctl)(esp_eth_mac_t *mac, int cmd, void *data);
+
+    /**
     * @brief Free memory of Ethernet MAC
     *
     * @param[in] mac: Ethernet MAC instance
@@ -291,16 +404,23 @@ struct esp_eth_mac_s {
 };
 
 /**
+ * @brief Ethernet MAC Time Stamp
+ *
+ */
+typedef struct {
+    uint32_t seconds;       /*!< Seconds */
+    uint32_t nanoseconds;   /*!< Nanoseconds */
+} eth_mac_time_t;
+
+/**
 * @brief Configuration of Ethernet MAC object
 *
 */
 typedef struct {
-    uint32_t sw_reset_timeout_ms; /*!< Software reset timeout value (Unit: ms) */
-    uint32_t rx_task_stack_size;  /*!< Stack size of the receive task */
-    uint32_t rx_task_prio;        /*!< Priority of the receive task */
-    int smi_mdc_gpio_num;         /*!< SMI MDC GPIO number, set to -1 could bypass the SMI GPIO configuration */
-    int smi_mdio_gpio_num;        /*!< SMI MDIO GPIO number, set to -1 could bypass the SMI GPIO configuration */
-    uint32_t flags;               /*!< Flags that specify extra capability for mac driver */
+    uint32_t sw_reset_timeout_ms;        /*!< Software reset timeout value (Unit: ms) */
+    uint32_t rx_task_stack_size;         /*!< Stack size of the receive task */
+    uint32_t rx_task_prio;               /*!< Priority of the receive task */
+    uint32_t flags;                      /*!< Flags that specify extra capability for mac driver */
 } eth_mac_config_t;
 
 #define ETH_MAC_FLAG_WORK_WITH_CACHE_DISABLE (1 << 0) /*!< MAC driver can work when cache is disabled */
@@ -310,74 +430,13 @@ typedef struct {
  * @brief Default configuration for Ethernet MAC object
  *
  */
-#define ETH_MAC_DEFAULT_CONFIG()    \
-    {                               \
-        .sw_reset_timeout_ms = 100, \
-        .rx_task_stack_size = 4096, \
-        .rx_task_prio = 15,         \
-        .smi_mdc_gpio_num = 23,     \
-        .smi_mdio_gpio_num = 18,    \
-        .flags = 0,                 \
+#define ETH_MAC_DEFAULT_CONFIG()                          \
+    {                                                     \
+        .sw_reset_timeout_ms = 100,                       \
+        .rx_task_stack_size = 4096,                       \
+        .rx_task_prio = 15,                               \
+        .flags = 0,                                       \
     }
-
-#if CONFIG_ETH_USE_ESP32_EMAC
-/**
-* @brief Create ESP32 Ethernet MAC instance
-*
-* @param config: Ethernet MAC configuration
-*
-* @return
-*      - instance: create MAC instance successfully
-*      - NULL: create MAC instance failed because some error occurred
-*/
-esp_eth_mac_t *esp_eth_mac_new_esp32(const eth_mac_config_t *config);
-#endif // CONFIG_ETH_USE_ESP32_EMAC
-
-#if CONFIG_ETH_SPI_ETHERNET_DM9051
-/**
- * @brief DM9051 specific configuration
- *
- */
-typedef struct {
-    spi_device_handle_t spi_hdl; /*!< Handle of SPI device driver */
-    int int_gpio_num;            /*!< Interrupt GPIO number */
-} eth_dm9051_config_t;
-
-/**
- * @brief Default DM9051 specific configuration
- *
- */
-#define ETH_DM9051_DEFAULT_CONFIG(spi_device) \
-    {                                         \
-        .spi_hdl = spi_device,                \
-        .int_gpio_num = 4,                    \
-    }
-
-/**
-* @brief Create DM9051 Ethernet MAC instance
-*
-* @param dm9051_config: DM9051 specific configuration
-* @param mac_config: Ethernet MAC configuration
-*
-* @return
-*      - instance: create MAC instance successfully
-*      - NULL: create MAC instance failed because some error occurred
-*/
-esp_eth_mac_t *esp_eth_mac_new_dm9051(const eth_dm9051_config_t *dm9051_config, const eth_mac_config_t *mac_config);
-#endif // CONFIG_ETH_SPI_ETHERNET_DM9051
-
-#if CONFIG_ETH_USE_OPENETH
-/**
-* @brief Create OpenCores Ethernet MAC instance
-*
-* @param config: Ethernet MAC configuration
-*
-* @return
-*      - instance: create MAC instance successfully
-*      - NULL: create MAC instance failed because some error occurred
-*/
-esp_eth_mac_t *esp_eth_mac_new_openeth(const eth_mac_config_t *config);
-#endif // CONFIG_ETH_USE_OPENETH
 
 #ifdef __cplusplus
 }

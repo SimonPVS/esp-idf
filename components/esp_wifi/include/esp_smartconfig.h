@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef __ESP_SMARTCONFIG_H__
 #define __ESP_SMARTCONFIG_H__
@@ -28,14 +20,15 @@ typedef enum {
     SC_TYPE_ESPTOUCH = 0,       /**< protocol: ESPTouch */
     SC_TYPE_AIRKISS,            /**< protocol: AirKiss */
     SC_TYPE_ESPTOUCH_AIRKISS,   /**< protocol: ESPTouch and AirKiss */
+    SC_TYPE_ESPTOUCH_V2,        /**< protocol: ESPTouch v2*/
 } smartconfig_type_t;
 
 /** Smartconfig event declarations */
 typedef enum {
-    SC_EVENT_SCAN_DONE,                /*!< ESP32 station smartconfig has finished to scan for APs */
-    SC_EVENT_FOUND_CHANNEL,            /*!< ESP32 station smartconfig has found the channel of the target AP */
-    SC_EVENT_GOT_SSID_PSWD,            /*!< ESP32 station smartconfig got the SSID and password */
-    SC_EVENT_SEND_ACK_DONE,            /*!< ESP32 station smartconfig has sent ACK to cellphone */
+    SC_EVENT_SCAN_DONE,                /*!< Station smartconfig has finished to scan for APs */
+    SC_EVENT_FOUND_CHANNEL,            /*!< Station smartconfig has found the channel of the target AP */
+    SC_EVENT_GOT_SSID_PSWD,            /*!< Station smartconfig got the SSID and password */
+    SC_EVENT_SEND_ACK_DONE,            /*!< Station smartconfig has sent ACK to cellphone */
 } smartconfig_event_t;
 
 /** @brief smartconfig event base declaration */
@@ -54,12 +47,16 @@ typedef struct {
 
 /** Configure structure for esp_smartconfig_start */
 typedef struct {
-    bool enable_log;            /**< Enable smartconfig logs. */
+    bool enable_log;                /**< Enable smartconfig logs. */
+    bool esp_touch_v2_enable_crypt; /**< Enable ESPTouch v2 crypt. */
+    char *esp_touch_v2_key;         /**< ESPTouch v2 crypt key, len should be 16. */
 } smartconfig_start_config_t;
 
 #define SMARTCONFIG_START_CONFIG_DEFAULT() { \
-    .enable_log = false \
-};
+    .enable_log = false, \
+    .esp_touch_v2_enable_crypt = false,\
+    .esp_touch_v2_key = NULL \
+}
 
 /**
   * @brief  Get the version of SmartConfig.
@@ -138,6 +135,18 @@ esp_err_t esp_smartconfig_set_type(smartconfig_type_t type);
   *     - others: fail
   */
 esp_err_t esp_smartconfig_fast_mode(bool enable);
+
+/**
+  * @brief     Get reserved data of ESPTouch v2.
+  *
+  * @param     rvd_data  reserved  data
+  * @param     len length  of  reserved data
+  *
+  * @return
+  *     - ESP_OK: succeed
+  *     - others: fail
+  */
+esp_err_t esp_smartconfig_get_rvd_data(uint8_t *rvd_data, uint8_t len);
 
 #ifdef __cplusplus
 }

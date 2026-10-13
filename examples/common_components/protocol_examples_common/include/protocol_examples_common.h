@@ -9,24 +9,78 @@
 
 #pragma once
 
+#include "sdkconfig.h"
+#include "esp_err.h"
+#if !CONFIG_IDF_TARGET_LINUX
+#include "esp_netif.h"
+#endif // !CONFIG_IDF_TARGET_LINUX
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include "esp_err.h"
-#include "esp_netif.h"
-
-#ifdef CONFIG_EXAMPLE_CONNECT_ETHERNET
-#define EXAMPLE_INTERFACE get_example_netif()
+#if !CONFIG_IDF_TARGET_LINUX
+#if CONFIG_EXAMPLE_CONNECT_WIFI
+#define EXAMPLE_NETIF_DESC_STA "example_netif_sta"
 #endif
 
-#ifdef CONFIG_EXAMPLE_CONNECT_WIFI
-#define EXAMPLE_INTERFACE get_example_netif()
+#if CONFIG_EXAMPLE_CONNECT_ETHERNET
+#define EXAMPLE_NETIF_DESC_ETH "example_netif_eth"
 #endif
 
-#if !defined (CONFIG_EXAMPLE_CONNECT_ETHERNET) && !defined (CONFIG_EXAMPLE_CONNECT_WIFI)
-// This is useful for some tests which do not need a network connection
-#define EXAMPLE_INTERFACE NULL
+#if CONFIG_EXAMPLE_CONNECT_THREAD
+#define EXAMPLE_NETIF_DESC_THREAD "example_netif_thread"
+#endif
+
+#if CONFIG_EXAMPLE_CONNECT_PPP
+#define EXAMPLE_NETIF_DESC_PPP "example_netif_ppp"
+#endif
+
+#if CONFIG_EXAMPLE_WIFI_SCAN_METHOD_FAST
+#define EXAMPLE_WIFI_SCAN_METHOD WIFI_FAST_SCAN
+#elif CONFIG_EXAMPLE_WIFI_SCAN_METHOD_ALL_CHANNEL
+#define EXAMPLE_WIFI_SCAN_METHOD WIFI_ALL_CHANNEL_SCAN
+#endif
+
+#if CONFIG_EXAMPLE_WIFI_CONNECT_AP_BY_SIGNAL
+#define EXAMPLE_WIFI_CONNECT_AP_SORT_METHOD WIFI_CONNECT_AP_BY_SIGNAL
+#elif CONFIG_EXAMPLE_WIFI_CONNECT_AP_BY_SECURITY
+#define EXAMPLE_WIFI_CONNECT_AP_SORT_METHOD WIFI_CONNECT_AP_BY_SECURITY
+#endif
+
+#if CONFIG_EXAMPLE_WIFI_AUTH_OPEN
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_OPEN
+#elif CONFIG_EXAMPLE_WIFI_AUTH_WEP
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WEP
+#elif CONFIG_EXAMPLE_WIFI_AUTH_WPA_PSK
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA_PSK
+#elif CONFIG_EXAMPLE_WIFI_AUTH_WPA2_PSK
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA2_PSK
+#elif CONFIG_EXAMPLE_WIFI_AUTH_WPA_WPA2_PSK
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA_WPA2_PSK
+#elif CONFIG_EXAMPLE_WIFI_AUTH_WPA2_ENTERPRISE
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA2_ENTERPRISE
+#elif CONFIG_EXAMPLE_WIFI_AUTH_WPA3_PSK
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA3_PSK
+#elif CONFIG_EXAMPLE_WIFI_AUTH_WPA2_WPA3_PSK
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA2_WPA3_PSK
+#elif CONFIG_EXAMPLE_WIFI_AUTH_WAPI_PSK
+#define EXAMPLE_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WAPI_PSK
+#endif
+
+/* Example default interface, prefer the ethernet one if running in example-test (CI) configuration */
+#if CONFIG_EXAMPLE_CONNECT_ETHERNET
+#define EXAMPLE_INTERFACE get_example_netif_from_desc(EXAMPLE_NETIF_DESC_ETH)
+#define get_example_netif() get_example_netif_from_desc(EXAMPLE_NETIF_DESC_ETH)
+#elif CONFIG_EXAMPLE_CONNECT_WIFI
+#define EXAMPLE_INTERFACE get_example_netif_from_desc(EXAMPLE_NETIF_DESC_STA)
+#define get_example_netif() get_example_netif_from_desc(EXAMPLE_NETIF_DESC_STA)
+#elif CONFIG_EXAMPLE_CONNECT_THREAD
+#define EXAMPLE_INTERFACE get_example_netif_from_desc(EXAMPLE_NETIF_DESC_THREAD)
+#define get_example_netif() get_example_netif_from_desc(EXAMPLE_NETIF_DESC_THREAD)
+#elif CONFIG_EXAMPLE_CONNECT_PPP
+#define EXAMPLE_INTERFACE get_example_netif_from_desc(EXAMPLE_NETIF_DESC_PPP)
+#define get_example_netif() get_example_netif_from_desc(EXAMPLE_NETIF_DESC_PPP)
 #endif
 
 /**
@@ -54,19 +108,10 @@ esp_err_t example_disconnect(void);
 /**
  * @brief Configure stdin and stdout to use blocking I/O
  *
- * This helper function is used in ASIO examples. It wraps installing the
+ * This helper function is used in some examples. It wraps installing the
  * UART driver and configuring VFS layer to use UART driver for console I/O.
  */
 esp_err_t example_configure_stdin_stdout(void);
-
-/**
- * @brief Returns esp-netif pointer created by example_connect()
- *
- * @note If multiple interfaces active at once, this API return NULL
- * In that case the get_example_netif_from_desc() should be used
- * to get esp-netif pointer based on interface description
- */
-esp_netif_t *get_example_netif(void);
 
 /**
  * @brief Returns esp-netif pointer created by example_connect() described by
@@ -77,6 +122,20 @@ esp_netif_t *get_example_netif(void);
  *
  */
 esp_netif_t *get_example_netif_from_desc(const char *desc);
+
+#if CONFIG_EXAMPLE_PROVIDE_WIFI_CONSOLE_CMD
+/**
+ * @brief Register wifi connect commands
+ *
+ * Provide a simple wifi_connect command in esp_console.
+ * This function can be used after esp_console is initialized.
+ */
+void example_register_wifi_connect_commands(void);
+#endif
+
+#else
+static inline esp_err_t example_connect(void) {return ESP_OK;}
+#endif // !CONFIG_IDF_TARGET_LINUX
 
 #ifdef __cplusplus
 }

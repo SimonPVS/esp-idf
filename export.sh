@@ -1,142 +1,62 @@
 # This script should be sourced, not executed.
 
-realpath_int() {
-    wdir="$PWD"; [ "$PWD" = "/" ] && wdir=""
-    arg=$1
-    case "$arg" in
-        /*) scriptdir="${arg}";;
-        *) scriptdir="$wdir/${arg#./}";;
-    esac
-    scriptdir="${scriptdir%/*}"
-    echo "$scriptdir"
-}
+# shellcheck disable=SC2128,SC2169,SC2039,SC3054 # ignore array expansion warning
+if [ -n "${BASH_SOURCE-}" ] && [ "${BASH_SOURCE[0]}" = "${0}" ]
+then
+    echo "This script should be sourced, not executed:"
+    # shellcheck disable=SC2039,SC3054  # reachable only with bash
+    echo ". ${BASH_SOURCE[0]}"
+    exit 1
+fi
 
+# Attempt to identify the ESP-IDF directory
+idf_path="."
 
-idf_export_main() {
-    # The file doesn't have executable permissions, so this shouldn't really happen.
-    # Doing this in case someone tries to chmod +x it and execute...
+shell_type="detect"
 
-    # shellcheck disable=SC2128,SC2169,SC2039 # ignore array expansion warning
-    if [ -n "${BASH_SOURCE}" ] && [ "${BASH_SOURCE[0]}" = "${0}" ]
+# shellcheck disable=SC2128,SC2169,SC2039,SC3054,SC3028 # ignore array expansion warning
+if [ -n "${BASH_SOURCE-}" ]
+then
+    # shellcheck disable=SC3028,SC3054 # unreachable with 'dash'
+    idf_path=$(dirname "${BASH_SOURCE[0]}")
+    shell_type="bash"
+elif [ -n "${ZSH_VERSION-}" ]
+then
+    # shellcheck disable=SC2296  # ignore parameter starts with '{' because it's zsh
+    idf_path=$(dirname "${(%):-%x}")
+    shell_type="zsh"
+elif [ -n "${IDF_PATH-}" ]
+then
+    if [ -f "/.dockerenv" ]
     then
-        echo "This script should be sourced, not executed:"
-        # shellcheck disable=SC2039  # reachable only with bash
-        echo ". ${BASH_SOURCE[0]}"
-        return 1
-    fi
-
-    if [ -z "${IDF_PATH}" ]
+        echo "Using the IDF_PATH found in the environment as docker environment detected."
+        idf_path=$IDF_PATH
+    elif [ -n "${IDF_PATH_FORCE-}" ]
     then
-        # IDF_PATH not set in the environment.
-        # If using bash or zsh, try to guess IDF_PATH from script location.
-        self_path=""
-
-        # shellcheck disable=SC2128  # ignore array expansion warning
-        if [ -n "${BASH_SOURCE}" ]
-        then
-            self_path="${BASH_SOURCE}"
-        elif [ -n "${ZSH_VERSION}" ]
-        then
-            self_path="${(%):-%x}"
-        else
-            echo "Could not detect IDF_PATH. Please set it before sourcing this script:"
-            echo "  export IDF_PATH=(add path here)"
-            return 1
-        fi
-
-        # shellcheck disable=SC2169,SC2169,SC2039  # unreachable with 'dash'
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            # convert possibly relative path to absolute
-            script_dir="$(realpath_int "${self_path}")"
-            # resolve any ../ references to make the path shorter
-            script_dir="$(cd "${script_dir}" || exit 1; pwd)"
-        else
-            # convert to full path and get the directory name of that
-            script_name="$(readlink -f "${self_path}")"
-            script_dir="$(dirname "${script_name}")"
-        fi
-        export IDF_PATH="${script_dir}"
-        echo "Setting IDF_PATH to '${IDF_PATH}'"
-    else
-        # IDF_PATH came from the environment, check if the path is valid
-        if [ ! -d "${IDF_PATH}" ]
-        then
-            echo "IDF_PATH is set to '${IDF_PATH}', but it is not a valid directory."
-            echo "If you have set IDF_PATH manually, check if the path is correct."
-            return 1
-        fi
-        # Check if this path looks like an IDF directory
-        if [ ! -f "${IDF_PATH}/tools/idf.py" ] || [ ! -f "${IDF_PATH}/tools/idf_tools.py" ]
-        then
-            echo "IDF_PATH is set to '${IDF_PATH}', but it doesn't look like an ESP-IDF directory."
-            echo "If you have set IDF_PATH manually, check if the path is correct."
-            return 1
-        fi
-
-        # The varible might have been set (rather than exported), re-export it to be sure
-        export IDF_PATH="${IDF_PATH}"
+        echo "Using the forced IDF_PATH found in the environment."
+        idf_path=$IDF_PATH
     fi
+fi
 
-    old_path="$PATH"
-
-    echo "Adding ESP-IDF tools to PATH..."
-    # Call idf_tools.py to export tool paths
-    export IDF_TOOLS_EXPORT_CMD=${IDF_PATH}/export.sh
-    export IDF_TOOLS_INSTALL_CMD=${IDF_PATH}/install.sh
-    idf_exports=$("${IDF_PATH}/tools/idf_tools.py" export) || return 1
-    eval "${idf_exports}"
-
-    echo "Using Python interpreter in $(which python)"
-    echo "Checking if Python packages are up to date..."
-    python "${IDF_PATH}/tools/check_python_dependencies.py" || return 1
-
-
-    # Allow calling some IDF python tools without specifying the full path
-    # ${IDF_PATH}/tools is already added by 'idf_tools.py export'
-    IDF_ADD_PATHS_EXTRAS="${IDF_PATH}/components/esptool_py/esptool"
-    IDF_ADD_PATHS_EXTRAS="${IDF_ADD_PATHS_EXTRAS}:${IDF_PATH}/components/espcoredump"
-    IDF_ADD_PATHS_EXTRAS="${IDF_ADD_PATHS_EXTRAS}:${IDF_PATH}/components/partition_table"
-    IDF_ADD_PATHS_EXTRAS="${IDF_ADD_PATHS_EXTRAS}:${IDF_PATH}/components/app_update"
-    export PATH="${IDF_ADD_PATHS_EXTRAS}:${PATH}"
-
-    if [ -n "$BASH" ]
+if [ ! -f "${idf_path}/tools/idf.py" ] ||
+   [ ! -f "${idf_path}/tools/idf_tools.py" ] ||
+   [ ! -f "${idf_path}/tools/activate.py" ]
+then
+    echo "Could not automatically detect IDF_PATH from script location. Please navigate to your ESP-IDF directory and run:"
+    echo ". ./export.sh"
+    if [ -n "${IDF_PATH-}" ]
     then
-        path_prefix=${PATH%%${old_path}}
-        # shellcheck disable=SC2169,SC2039  # unreachable with 'dash'
-        paths="${path_prefix//:/ }"
-        if [ -n "${paths}" ]; then
-            echo "Added the following directories to PATH:"
-        else
-            echo "All paths are already set."
-        fi
-        for path_entry in ${paths}
-        do
-            echo "  ${path_entry}"
-        done
-    else
-        echo "Updated PATH variable:"
-        echo "  ${PATH}"
+        echo
+        echo "To use the IDF_PATH set in the environment, you can enforce it by setting 'export IDF_PATH_FORCE=1'"
     fi
+    unset idf_path
+    return 1
+fi
 
-    # Clean up
-    unset old_path
-    unset paths
-    unset path_prefix
-    unset path_entry
-    unset IDF_ADD_PATHS_EXTRAS
-    unset idf_exports
+. "${idf_path}/tools/detect_python.sh"
 
-    # Not unsetting IDF_PYTHON_ENV_PATH, it can be used by IDF build system
-    # to check whether we are using a private Python environment
-
-    echo "Done! You can now compile ESP-IDF projects."
-    echo "Go to the project directory and run:"
-    echo ""
-    echo "  idf.py build"
-    echo ""
-}
-
-idf_export_main
-
-unset realpath_int
-unset idf_export_main
+# Evaluate the ESP-IDF environment set up by the activate.py script.
+idf_exports=$("$ESP_PYTHON" "${idf_path}/tools/activate.py" --export --shell $shell_type)
+eval "${idf_exports}"
+unset idf_path
+return 0

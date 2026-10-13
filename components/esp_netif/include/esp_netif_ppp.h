@@ -1,16 +1,8 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2019-2023 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 //
 
 #ifndef _ESP_NETIF_PPP_H_
@@ -29,6 +21,20 @@ ESP_EVENT_DECLARE_BASE(NETIF_PPP_STATUS);
 typedef struct esp_netif_ppp_config {
     bool ppp_phase_event_enabled;  /**< Enables events coming from PPP PHASE change */
     bool ppp_error_event_enabled;  /**< Enables events from main PPP state machine producing errors */
+#ifdef CONFIG_LWIP_ENABLE_LCP_ECHO
+    bool ppp_lcp_echo_disabled;     /**< Allows to temporarily disable LCP keepalive (runtime, if enabled compile time)
+                                     *   When LCP echo is enabled in menuconfig, this option can be used to override the setting,
+                                     *   if we have to relax LCP keepalive criteria during runtime operation, for example before OTA update.
+                                     *   The current session must be closed, settings will be applied upon connecting.
+                                     *   */
+#endif // CONFIG_LWIP_ENABLE_LCP_ECHO
+#ifdef CONFIG_LWIP_PPP_SERVER_SUPPORT
+    esp_ip4_addr_t ppp_our_ip4_addr;   /**< Set our preferred address, typically used when we're the PPP server */
+    esp_ip4_addr_t ppp_their_ip4_addr; /**< Set our preferred address, typically used when we're the PPP server */
+    esp_ip4_addr_t ppp_dns1_addr;      /**< DNS to provide if peer asks for it, typically used when we're the PPP server */
+    esp_ip4_addr_t ppp_dns2_addr;      /**< DNS to provide if peer asks for it, typically used when we're the PPP server */
+    bool ppp_passive;                  /**< Try once to initiate connection, stay silent if it fails, typically used when we're the PPP server */
+#endif // CONFIG_LWIP_PPP_SERVER_SUPPORT
 } esp_netif_ppp_config_t;
 
 /** @brief event id offset for PHASE related events
@@ -37,6 +43,11 @@ typedef struct esp_netif_ppp_config {
  * helps distinguish between error and phase events
  */
 #define NETIF_PP_PHASE_OFFSET (0x100)
+
+/** @brief event id offset for internal errors
+ *
+ */
+#define NETIF_PPP_INTERNAL_ERR_OFFSET (0x200)
 
 /** @brief event ids for different PPP related events
  *
@@ -68,6 +79,7 @@ typedef enum {
     NETIF_PPP_PHASE_RUNNING      = NETIF_PP_PHASE_OFFSET +  10,
     NETIF_PPP_PHASE_TERMINATE    = NETIF_PP_PHASE_OFFSET +  11,
     NETIF_PPP_PHASE_DISCONNECT   = NETIF_PP_PHASE_OFFSET +  12,
+    NETIF_PPP_CONNECT_FAILED     = NETIF_PPP_INTERNAL_ERR_OFFSET + 0,
 } esp_netif_ppp_status_event_t;
 
 /** @brief definitions of different authorisation types
@@ -89,7 +101,8 @@ typedef enum {
  * @param[in]  user User name
  * @param[in]  passwd Password
  *
- * @return     ESP_OK on success, ESP_ERR_ESP_NETIF_INVALID_PARAMS if netif null or not PPP
+ * @return     ESP_OK on success,
+ *             ESP_ERR_ESP_NETIF_INVALID_PARAMS if the supplied netif is not of PPP type, or netif is null
  */
 esp_err_t esp_netif_ppp_set_auth(esp_netif_t *netif, esp_netif_auth_type_t authtype, const char *user, const char *passwd);
 
@@ -98,10 +111,20 @@ esp_err_t esp_netif_ppp_set_auth(esp_netif_t *netif, esp_netif_auth_type_t autht
  * @param[in]  esp_netif Handle to esp-netif instance
  * @param[in]  config Pointer to PPP netif configuration structure
  *
- * @return     ESP_OK on success, ESP_ERR_ESP_NETIF_INVALID_PARAMS if netif null or not PPP
+ * @return     ESP_OK on success,
+ *             ESP_ERR_ESP_NETIF_INVALID_PARAMS if the supplied netif is not of PPP type, or netif is null
  */
 esp_err_t esp_netif_ppp_set_params(esp_netif_t *netif, const esp_netif_ppp_config_t *config);
 
+/** @brief Gets parameters configured in the supplied esp-netif.
+ *
+ * @param[in]  esp_netif Handle to esp-netif instance
+ * @param[out]  config Pointer to PPP netif configuration structure
+ *
+ * @return     ESP_OK on success,
+ *             ESP_ERR_ESP_NETIF_INVALID_PARAMS if the supplied netif is not of PPP type, or netif is null
+ */
+esp_err_t esp_netif_ppp_get_params(esp_netif_t *netif, esp_netif_ppp_config_t *config);
 
 #ifdef __cplusplus
 }

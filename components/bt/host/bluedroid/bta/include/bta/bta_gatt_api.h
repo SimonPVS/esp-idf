@@ -39,8 +39,10 @@
 #endif
 
 
+#if (APPL_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_DEBUG)
 #ifndef     BTA_GATT_DEBUG
 #define     BTA_GATT_DEBUG       FALSE
+#endif
 #endif
 
 typedef enum {
@@ -180,11 +182,12 @@ typedef UINT8 tBTA_GATT_STATUS;
 #define BTA_GATTC_ADV_VSC_EVT           34 /* ADV VSC event */
 #define BTA_GATTC_CONNECT_EVT           35 /* GATTC CONNECT  event */
 #define BTA_GATTC_DISCONNECT_EVT        36 /* GATTC DISCONNECT  event */
-#define BTA_GATTC_READ_MULTIPLE_EVT     37 /* GATTC Read mutiple event */
+#define BTA_GATTC_READ_MULTIPLE_EVT     37 /* GATTC Read multiple event */
 #define BTA_GATTC_QUEUE_FULL_EVT        38 /* GATTC queue full event */
 #define BTA_GATTC_ASSOC_EVT             39 /* GATTC association address event */
 #define BTA_GATTC_GET_ADDR_LIST_EVT     40 /* GATTC get address list in the cache event */
 #define BTA_GATTC_DIS_SRVC_CMPL_EVT     41 /* GATTC discover service complete */
+#define BTA_GATTC_READ_MULTI_VAR_EVT    42 /* GATTC read multiple variable event */
 
 typedef UINT8 tBTA_GATTC_EVT;
 
@@ -410,6 +413,10 @@ typedef struct {
     tBTA_GATTC_IF       client_if;
     BD_ADDR             remote_bda;
     tBTA_GATT_CONN_PARAMS conn_params;
+    UINT8               ble_addr_type;
+    UINT16              conn_handle;
+    UINT8               adv_handle;
+    UINT16              sync_handle;
 } tBTA_GATTC_CONNECT;
 
 typedef struct {
@@ -423,6 +430,12 @@ typedef struct {
     UINT16              conn_id;
     BD_ADDR             remote_bda;
 } tBTA_GATTC_SERVICE_CHANGE;
+
+typedef struct {
+    tBTA_GATT_STATUS    status;
+    tBTA_GATTC_IF       client_if;
+    BD_ADDR             remote_bda;
+} tBTA_GATTC_CANCEL_OPEN;
 
 typedef union {
     tBTA_GATT_STATUS        status;
@@ -445,6 +458,7 @@ typedef union {
     tBTA_GATTC_SERVICE_CHANGE srvc_chg;     /* service change event */
     tBTA_GATTC_SET_ASSOC    set_assoc;
     tBTA_GATTC_GET_ADDR_LIST get_addr_list;
+    tBTA_GATTC_CANCEL_OPEN  cancel_open;
 } tBTA_GATTC;
 
 /* GATTC enable callback function */
@@ -492,6 +506,8 @@ typedef tGATT_IF tBTA_GATTS_IF;
 #define BTA_GATT_PERM_WRITE_ENC_MITM    GATT_PERM_WRITE_ENC_MITM    /* bit 6 -  0x0040 */
 #define BTA_GATT_PERM_WRITE_SIGNED      GATT_PERM_WRITE_SIGNED      /* bit 7 -  0x0080 */
 #define BTA_GATT_PERM_WRITE_SIGNED_MITM GATT_PERM_WRITE_SIGNED_MITM /* bit 8 -  0x0100 */
+#define BTA_GATT_PERM_READ_AUTHORIZATION GATT_PERM_READ_AUTHORIZATION /* bit 9 - 0x0200 */
+#define BTA_GATT_PERM_WRITE_AUTHORIZATION GATT_PERM_WRITE_AUTHORIZATION /* bit 10 - 0x0400 */
 typedef UINT16 tBTA_GATT_PERM;
 typedef tGATT_ATTR_VAL tBTA_GATT_ATTR_VAL;
 typedef tGATTS_ATTR_CONTROL tBTA_GATTS_ATTR_CONTROL;
@@ -568,7 +584,7 @@ typedef struct {
     BD_ADDR             remote_bda;
     UINT32              trans_id;
     UINT16              conn_id;
-    UINT16              handle;                
+    UINT16              handle;
     tBTA_GATTS_REQ_DATA *p_data;
     UINT16  data_len;
     UINT8   *value;
@@ -619,6 +635,10 @@ typedef struct {
     tBTA_GATT_REASON    reason; /* report disconnect reason */
     tBTA_GATT_TRANSPORT transport;
     tBTA_GATT_CONN_PARAMS conn_params;
+    UINT8               ble_addr_type;
+    UINT16              conn_handle;
+    UINT8               adv_handle;
+    UINT16              sync_handle;
 } tBTA_GATTS_CONN;
 
 typedef struct {
@@ -660,10 +680,17 @@ typedef union {
                                                 add char : BTA_GATTS_ADD_CHAR_EVT
                                                 add char descriptor: BTA_GATTS_ADD_CHAR_DESCR_EVT */
     tBAT_GATTS_ATTR_VAL_RESULT  attr_val;
-    tBTA_GATTS_REQ              req_data;
+    tBTA_GATTS_REQ              req_data;       /* BTA_GATTS_READ_EVT, BTA_GATTS_WRITE_EVT,
+                                                   BTA_GATTS_EXEC_WRITE_EVT, BTA_GATTS_MTU_EVT,
+                                                   BTA_GATTS_CONF_EVT (handle/value/data_len
+                                                   are carried here, not in `confirm`) */
     tBTA_GATTS_CONN             conn;           /* BTA_GATTS_CONN_EVT */
     tBTA_GATTS_CONGEST          congest;        /* BTA_GATTS_CONGEST_EVT callback data */
-    tBTA_GATTS_CONF             confirm;        /* BTA_GATTS_CONF_EVT callback data */
+    tBTA_GATTS_CONF             confirm;        /* Deprecated: retained for source/ABI compatibility
+                                                   only. BTA_GATTS_CONF_EVT actually uses `req_data`
+                                                   because handle/value/data_len are required by the
+                                                   public API. Do NOT add new producers/consumers
+                                                   that read or write this member. */
     tBTA_GATTS_CLOSE            close;          /* BTA_GATTS_CLOSE_EVT callback data */
     tBTA_GATTS_OPEN             open;           /* BTA_GATTS_OPEN_EVT callback data */
     tBTA_GATTS_CANCEL_OPEN      cancel_open;    /* tBTA_GATTS_CANCEL_OPEN callback data */
@@ -721,6 +748,21 @@ typedef struct
     tBTA_GATTC_SERVICE     *included_service;
 } __attribute__((packed)) tBTA_GATTC_INCLUDED_SVC;
 
+typedef struct {
+    UINT16 scan_interval;
+    UINT16 scan_window;
+    UINT16 interval_min;
+    UINT16 interval_max;
+    UINT16 latency;
+    UINT16 supervision_timeout;
+    UINT16 min_ce_len;
+    UINT16 max_ce_len;
+} tBTA_BLE_CONN_PARAMS;
+
+#define BTA_BLE_PHY_1M_MASK     (1 << 0)
+#define BTA_BLE_PHY_2M_MASK     (1 << 1)
+#define BTA_BLE_PHY_CODED_MASK  (1 << 2)
+
 /*****************************************************************************
 **  External Function Declarations
 *****************************************************************************/
@@ -776,9 +818,10 @@ extern void BTA_GATTC_AppRegister(tBT_UUID *p_app_uuid, tBTA_GATTC_CBACK *p_clie
 *******************************************************************************/
 extern void BTA_GATTC_AppDeregister (tBTA_GATTC_IF client_if);
 
+
 /*******************************************************************************
 **
-** Function         BTA_GATTC_Open
+** Function         BTA_GATTC_Enh_Open
 **
 ** Description      Open a direct connection or add a background auto connection
 **                  bd address
@@ -786,13 +829,17 @@ extern void BTA_GATTC_AppDeregister (tBTA_GATTC_IF client_if);
 ** Parameters       client_if: server interface.
 **                  remote_bda: remote device BD address.
 **                  remote_addr_type: remote device BD address type.
-**                  is_direct: direct connection or background auto connection
+**                  is_direct: direct connection or background auto connection.
+**                  own_addr_type: own address type.
 **
 ** Returns          void
 **
 *******************************************************************************/
-extern void BTA_GATTC_Open(tBTA_GATTC_IF client_if, BD_ADDR remote_bda, tBTA_ADDR_TYPE remote_addr_type,
-                    BOOLEAN is_direct, tBTA_GATT_TRANSPORT transport);
+extern void BTA_GATTC_Enh_Open(tBTA_GATTC_IF client_if, BD_ADDR remote_bda, tBTA_ADDR_TYPE remote_addr_type,
+                    BOOLEAN is_direct, tBTA_GATT_TRANSPORT transport, BOOLEAN is_aux, tBTA_ADDR_TYPE own_addr_type,
+                    BOOLEAN is_pawr_synced, UINT8 adv_handle, UINT8 subevent,
+                    UINT8 phy_mask, tBTA_BLE_CONN_PARAMS *phy_1m_conn_params, tBTA_BLE_CONN_PARAMS *phy_2m_conn_params,
+                    tBTA_BLE_CONN_PARAMS *phy_coded_conn_params);
 
 /*******************************************************************************
 **
@@ -930,13 +977,29 @@ extern void BTA_GATTC_GetGattDb(UINT16 conn_id, UINT16 start_handle, UINT16 end_
 **
 ** Description      This function is called to read a characteristics value
 **
-** Parameters       conn_id - connectino ID.
-**                  handle - characteritic handle to read.
+** Parameters       conn_id - connection ID.
+**                  handle - characteristic handle to read.
 **
 ** Returns          None
 **
 *******************************************************************************/
 void BTA_GATTC_ReadCharacteristic(UINT16 conn_id, UINT16 handle, tBTA_GATT_AUTH_REQ auth_req);
+
+/*******************************************************************************
+**
+** Function         BTA_GATTC_Read_by_type
+**
+** Description      This function is called to read a attribute value by uuid
+**
+** Parameters       conn_id - connection ID.
+**                  s_handle - start handle.
+**                  e_handle - end handle
+**                  uuid - The attribute UUID.
+**
+** Returns          None
+**
+*******************************************************************************/
+void BTA_GATTC_Read_by_type(UINT16 conn_id, UINT16 s_handle,UINT16 e_handle, tBT_UUID *uuid, tBTA_GATT_AUTH_REQ auth_req);
 
 /*******************************************************************************
 **
@@ -1049,7 +1112,7 @@ extern tBTA_GATT_STATUS BTA_GATTC_DeregisterForNotifications (tBTA_GATTC_IF     
 ** Description      This function is called to prepare write a characteristic value.
 **
 ** Parameters       conn_id - connection ID.
-**                  handle - GATT characteritic handle.
+**                  handle - GATT characteristic handle.
 **                  offset - offset of the write value.
 **                  len - length of the data to be written.
 **                  p_value - the value to be written.
@@ -1071,7 +1134,7 @@ extern void BTA_GATTC_PrepareWrite  (UINT16 conn_id,
 ** Description      This function is called to prepare write a characteristic descriptor value.
 **
 ** Parameters       conn_id - connection ID.
-**                  p_char_descr_id - GATT characteritic descriptor ID of the service.
+**                  p_char_descr_id - GATT characteristic descriptor ID of the service.
 **                  offset - offset of the write value.
 **                  len: length of the data to be written.
 **                  p_value - the value to be written.
@@ -1114,6 +1177,21 @@ extern void BTA_GATTC_ExecuteWrite  (UINT16 conn_id, BOOLEAN is_execute);
 extern void BTA_GATTC_ReadMultiple(UINT16 conn_id, tBTA_GATTC_MULTI *p_read_multi,
                                    tBTA_GATT_AUTH_REQ auth_req);
 
+/*******************************************************************************
+**
+** Function         BTA_GATTC_ReadMultiple
+**
+** Description      This function is called to read multiple variable length characteristic or
+**                  characteristic descriptors.
+**
+** Parameters       conn_id - connection ID.
+**                    p_read_multi - read multiple parameters.
+**
+** Returns          None
+**
+*******************************************************************************/
+extern void BTA_GATTC_ReadMultipleVariable(UINT16 conn_id, tBTA_GATTC_MULTI *p_read_multi,
+                            tBTA_GATT_AUTH_REQ auth_req);
 
 /*******************************************************************************
 **
@@ -1148,37 +1226,6 @@ extern void BTA_GATTC_Clean(BD_ADDR remote_bda);
 
 /*******************************************************************************
 **
-** Function         BTA_GATTC_Listen
-**
-** Description      Start advertisement to listen for connection request.
-**
-** Parameters       client_if: server interface.
-**                  start: to start or stop listening for connection
-**                  remote_bda: remote device BD address, if listen to all device
-**                              use NULL.
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_GATTC_Listen(tBTA_GATTC_IF client_if, BOOLEAN start, BD_ADDR_PTR target_bda);
-
-/*******************************************************************************
-**
-** Function         BTA_GATTC_Broadcast
-**
-** Description      Start broadcasting (non-connectable advertisements)
-**
-** Parameters       client_if: client interface.
-**                  start: to start or stop listening for connection
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_GATTC_Broadcast(tBTA_GATTC_IF client_if, BOOLEAN start);
-
-
-/*******************************************************************************
-**
 ** Function         BTA_GATTC_ConfigureMTU
 **
 ** Description      Configure the MTU size in the GATT channel. This can be done
@@ -1200,7 +1247,7 @@ extern void BTA_GATTC_ConfigureMTU (UINT16 conn_id);
 **
 ** Function         BTA_GATTS_Init
 **
-** Description      This function is called to initalize GATTS module
+** Description      This function is called to initialize GATTS module
 **
 ** Parameters       None
 **
@@ -1504,22 +1551,16 @@ void BTA_GATTS_SendServiceChangeIndication(tBTA_GATTS_IF server_if, BD_ADDR remo
 
 /*******************************************************************************
 **
-** Function         BTA_GATTS_Listen
+** Function         BTA_GATTS_ShowLocalDatabase
 **
-** Description      Start advertisement to listen for connection request for a
-**                  GATT server
-**
-** Parameters       server_if: server interface.
-**                  start: to start or stop listening for connection
-**                  remote_bda: remote device BD address, if listen to all device
-**                              use NULL.
+** Description      print local service database.
 **
 ** Returns          void
 **
 *******************************************************************************/
-extern void BTA_GATTS_Listen(tBTA_GATTS_IF server_if, BOOLEAN start,
-                             BD_ADDR_PTR target_bda);
+extern void BTA_GATTS_ShowLocalDatabase(void);
 
+extern void bta_gattc_clcb_dealloc_by_conn_id(UINT16 conn_id);
 
 #ifdef __cplusplus
 

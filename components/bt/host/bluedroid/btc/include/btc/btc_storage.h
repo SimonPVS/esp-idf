@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef __BTC_STORAGE_H__
 #define __BTC_STORAGE_H__
@@ -26,6 +18,10 @@
 #define BTC_STORAGE_LINK_KEY_TYPE_STR   "LinkKeyType"
 #define BTC_STORAGE_PIN_LENGTH_STR      "PinLength"
 #define BTC_STORAGE_SC_SUPPORT          "SCSupport"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /*******************************************************************************
 **
@@ -58,12 +54,14 @@ bt_status_t btc_storage_remove_bonded_device(bt_bdaddr_t *remote_bd_addr);
 
 /*******************************************************************************
 **
-** Function         btc_storage_remove_bonded_device
+** Function         btc_storage_load_bonded_devices
 **
-** Description      BTC storage API - Deletes the bonded device from NVRAM
+** Description      BTC storage API - Loads all the bonded devices from NVRAM
+**                  and adds to the BTA.
+**                  Additionally, this API also invokes the adaper_properties_cb
+**                  and remote_device_properties_cb for each of the bonded devices.
 **
-** Returns          BT_STATUS_SUCCESS if the deletion was successful,
-**                  BT_STATUS_FAIL otherwise
+** Returns          BT_STATUS_SUCCESS if successful, BT_STATUS_FAIL otherwise
 **
 *******************************************************************************/
 bt_status_t btc_storage_load_bonded_devices(void);
@@ -91,4 +89,109 @@ int btc_storage_get_num_bt_bond_devices(void);
 *******************************************************************************/
 bt_status_t btc_storage_get_bonded_bt_devices_list(bt_bdaddr_t *bond_dev, int *dev_num);
 
+/*******************************************************************************
+**
+** Function         btc_storage_get_num_all_bond_devices
+**
+** Description      BTC storage API - get all the num of the bonded device from NVRAM
+**
+** Returns          the num of the bonded device
+**
+*******************************************************************************/
+int btc_storage_get_num_all_bond_devices(void);
+
+/*******************************************************************************
+**
+** Function         btc_storage_update_active_device
+**
+** Description      BTC storage API - Once an ACL link is established and remote
+**                  bd_addr is already stored in NVRAM, update the config and update
+**                  the remote device to be the newest active device. The updates will
+**                  not be stored into NVRAM immediately.
+**
+** Returns          BT_STATUS_SUCCESS if successful, BT_STATUS_FAIL otherwise
+**
+*******************************************************************************/
+bool btc_storage_update_active_device(bt_bdaddr_t *remote_bd_addr);
+
+#if (defined BTC_HH_INCLUDED && BTC_HH_INCLUDED == TRUE)
+/*******************************************************************************
+ *
+ * Function         btc_storage_add_hid_device_info
+ *
+ * Description      BTC storage API - Adds the hid information of bonded hid
+ *                  devices-to NVRAM
+ *
+ * Returns          BT_STATUS_SUCCESS if the store was successful,
+ *                  BT_STATUS_FAIL otherwise
+ *
+ ******************************************************************************/
+
+bt_status_t btc_storage_add_hid_device_info(bt_bdaddr_t *remote_bd_addr, uint16_t attr_mask, uint8_t sub_class,
+                                             uint8_t app_id, uint16_t vendor_id, uint16_t product_id, uint16_t version,
+                                             uint8_t ctry_code, uint16_t ssr_max_latency, uint16_t ssr_min_tout,
+                                             uint16_t dl_len, uint8_t *dsc_list);
+
+/*******************************************************************************
+ *
+ * Function         btc_storage_load_bonded_hid_info
+ *
+ * Description      BTIF storage API - Loads hid info for all the bonded devices
+ *                  from NVRAM and adds those devices  to the BTA_HH.
+ *
+ * Returns          BT_STATUS_SUCCESS if successful, BT_STATUS_FAIL otherwise
+ *
+ ******************************************************************************/
+bt_status_t btc_storage_load_bonded_hid_info(void);
+
+/*******************************************************************************
+ *
+ * Function         btc_storage_remove_hid_info
+ *
+ * Description      BTC storage API - Deletes the bonded hid device info from
+ *                  NVRAM
+ *
+ * Returns          BT_STATUS_SUCCESS if the deletion was successful,
+ *                  BT_STATUS_FAIL otherwise
+ *
+ ******************************************************************************/
+bt_status_t btc_storage_remove_hid_info(bt_bdaddr_t *remote_bd_addr);
+#endif // (defined BTC_HH_INCLUDED && BTC_HH_INCLUDED == TRUE)
+
+#if (defined BTC_HD_INCLUDED && BTC_HD_INCLUDED == TRUE)
+/*******************************************************************************
+ * Function         btc_storage_load_hidd
+ *
+ * Description      Loads hidd bonded device and "plugs" it into hidd
+ *
+ * Returns          BT_STATUS_SUCCESS if successful, BT_STATUS_FAIL otherwise
+ *
+ ******************************************************************************/
+bt_status_t btc_storage_load_hidd(void);
+
+/*******************************************************************************
+ *
+ * Function         btc_storage_set_hidd
+ *
+ * Description      Stores hidd bonded device info in nvram.
+ *
+ * Returns          BT_STATUS_SUCCESS
+ *
+ ******************************************************************************/
+bt_status_t btc_storage_set_hidd(bt_bdaddr_t *remote_bd_addr);
+
+/*******************************************************************************
+ *
+ * Function         btc_storage_remove_hidd
+ *
+ * Description      Removes hidd bonded device info from nvram
+ *
+ * Returns          BT_STATUS_SUCCESS
+ *
+ ******************************************************************************/
+bt_status_t btc_storage_remove_hidd(bt_bdaddr_t *remote_bd_addr);
+#endif //(defined BTC_HD_INCLUDED && BTC_HD_INCLUDED == TRUE)
 #endif /* BTC_STORAGE_H */
+#ifdef __cplusplus
+}
+#endif

@@ -9,15 +9,22 @@
 
 #include <esp_event.h>
 #include <esp_log.h>
-#include <esp_system.h>
 #include <nvs_flash.h>
 #include <sys/param.h>
 #include "esp_netif.h"
-#include "esp_eth.h"
 #include "protocol_examples_common.h"
-
+#if !CONFIG_IDF_TARGET_LINUX
+#include <esp_system.h>
+#include "esp_eth.h"
+#include "esp_wifi.h"
+#include "lwip/sockets.h"
+#else
+#include <unistd.h>
+#endif  // !CONFIG_IDF_TARGET_LINUX
 #include <esp_https_server.h>
+#include "esp_key_config.h"
 #include "keep_alive.h"
+#include "sdkconfig.h"
 
 #if !CONFIG_HTTPD_WS_SUPPORT
 #error This example cannot be used unless HTTPD_WS_SUPPORT is enabled in esp-http-server component configuration
@@ -33,35 +40,68 @@ static const size_t max_clients = 4;
 
 static esp_err_t ws_handler(httpd_req_t *req)
 {
-    uint8_t buf[128] = { 0 };
+    if (req->method == HTTP_GET) {
+        ESP_LOGI(TAG, "Handshake done, the new connection was opened");
+        return ESP_OK;
+    }
     httpd_ws_frame_t ws_pkt;
+    uint8_t *buf = NULL;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-    ws_pkt.payload = buf;
 
     // First receive the full ws message
-    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 128);
+    /* Set max_len = 0 to get the frame len */
+    esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "httpd_ws_recv_frame failed with %d", ret);
+        ESP_LOGE(TAG, "httpd_ws_recv_frame failed to get frame len with %d", ret);
         return ret;
     }
-
+    ESP_LOGI(TAG, "frame len is %d", ws_pkt.len);
+    if (ws_pkt.len) {
+        /* ws_pkt.len + 1 is for NULL termination as we are expecting a string */
+        buf = calloc(1, ws_pkt.len + 1);
+        if (buf == NULL) {
+            ESP_LOGE(TAG, "Failed to calloc memory for buf");
+            return ESP_ERR_NO_MEM;
+        }
+        ws_pkt.payload = buf;
+        /* Set max_len = ws_pkt.len to get the frame payload */
+        ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "httpd_ws_recv_frame failed with %d", ret);
+            free(buf);
+            return ret;
+        }
+    }
     // If it was a PONG, update the keep-alive
     if (ws_pkt.type == HTTPD_WS_TYPE_PONG) {
         ESP_LOGD(TAG, "Received PONG message");
+        free(buf);
         return wss_keep_alive_client_is_active(httpd_get_global_user_ctx(req->handle),
                 httpd_req_to_sockfd(req));
 
     // If it was a TEXT message, just echo it back
-    } else if (ws_pkt.type == HTTPD_WS_TYPE_TEXT) {
-        ESP_LOGI(TAG, "Received packet with message: %s", ws_pkt.payload);
+    } else if (ws_pkt.type == HTTPD_WS_TYPE_TEXT || ws_pkt.type == HTTPD_WS_TYPE_PING || ws_pkt.type == HTTPD_WS_TYPE_CLOSE) {
+        if (ws_pkt.type == HTTPD_WS_TYPE_TEXT) {
+            ESP_LOGI(TAG, "Received packet with message: %s", ws_pkt.payload);
+        } else if (ws_pkt.type == HTTPD_WS_TYPE_PING) {
+            // Response PONG packet to peer
+            ESP_LOGI(TAG, "Got a WS PING frame, Replying PONG");
+            ws_pkt.type = HTTPD_WS_TYPE_PONG;
+        } else if (ws_pkt.type == HTTPD_WS_TYPE_CLOSE) {
+            // Response CLOSE packet with no payload to peer
+            ws_pkt.len = 0;
+            ws_pkt.payload = NULL;
+        }
         ret = httpd_ws_send_frame(req, &ws_pkt);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "httpd_ws_send_frame failed with %d", ret);
         }
         ESP_LOGI(TAG, "ws_handler: httpd_handle_t=%p, sockfd=%d, client_info:%d", req->handle,
                  httpd_req_to_sockfd(req), httpd_ws_get_fd_info(req->handle, httpd_req_to_sockfd(req)));
+        free(buf);
         return ret;
     }
+    free(buf);
     return ESP_OK;
 }
 
@@ -77,6 +117,7 @@ void wss_close_fd(httpd_handle_t hd, int sockfd)
     ESP_LOGI(TAG, "Client disconnected %d", sockfd);
     wss_keep_alive_t h = httpd_get_global_user_ctx(hd);
     wss_keep_alive_remove_client(h, sockfd);
+    close(sockfd);
 }
 
 static const httpd_uri_t ws = {
@@ -131,6 +172,7 @@ bool check_client_alive_cb(wss_keep_alive_t h, int fd)
 {
     ESP_LOGD(TAG, "Checking if client (fd=%d) is alive", fd);
     struct async_resp_arg *resp_arg = malloc(sizeof(struct async_resp_arg));
+    assert(resp_arg != NULL);
     resp_arg->hd = wss_keep_alive_get_user_ctx(h);
     resp_arg->fd = fd;
 
@@ -154,20 +196,30 @@ static httpd_handle_t start_wss_echo_server(void)
     ESP_LOGI(TAG, "Starting server");
 
     httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
+#if CONFIG_IDF_TARGET_LINUX
+    /* Use non-privileged port on Linux since port 443 requires root */
+    conf.port_secure = 8443;
+#endif
     conf.httpd.max_open_sockets = max_clients;
     conf.httpd.global_user_ctx = keep_alive;
     conf.httpd.open_fn = wss_open_fd;
     conf.httpd.close_fn = wss_close_fd;
 
-    extern const unsigned char cacert_pem_start[] asm("_binary_cacert_pem_start");
-    extern const unsigned char cacert_pem_end[]   asm("_binary_cacert_pem_end");
-    conf.cacert_pem = cacert_pem_start;
-    conf.cacert_len = cacert_pem_end - cacert_pem_start;
+    extern const unsigned char servercert_start[] asm("_binary_servercert_pem_start");
+    extern const unsigned char servercert_end[]   asm("_binary_servercert_pem_end");
+    conf.servercert = servercert_start;
+    conf.servercert_len = servercert_end - servercert_start;
 
     extern const unsigned char prvtkey_pem_start[] asm("_binary_prvtkey_pem_start");
     extern const unsigned char prvtkey_pem_end[]   asm("_binary_prvtkey_pem_end");
-    conf.prvtkey_pem = prvtkey_pem_start;
-    conf.prvtkey_len = prvtkey_pem_end - prvtkey_pem_start;
+    static esp_key_config_t server_key = {
+        .source = ESP_KEY_SOURCE_BUFFER,
+        .buffer = {
+            .data = prvtkey_pem_start,
+        }
+    };
+    server_key.buffer.len = prvtkey_pem_end - prvtkey_pem_start;
+    conf.server_key = &server_key;
 
     esp_err_t ret = httpd_ssl_start(&server, &conf);
     if (ESP_OK != ret) {
@@ -183,12 +235,13 @@ static httpd_handle_t start_wss_echo_server(void)
     return server;
 }
 
-static void stop_wss_echo_server(httpd_handle_t server)
+#if !CONFIG_IDF_TARGET_LINUX
+static esp_err_t stop_wss_echo_server(httpd_handle_t server)
 {
     // Stop keep alive thread
     wss_keep_alive_stop(httpd_get_global_user_ctx(server));
     // Stop the httpd server
-    httpd_ssl_stop(server);
+    return httpd_ssl_stop(server);
 }
 
 static void disconnect_handler(void* arg, esp_event_base_t event_base,
@@ -196,8 +249,11 @@ static void disconnect_handler(void* arg, esp_event_base_t event_base,
 {
     httpd_handle_t* server = (httpd_handle_t*) arg;
     if (*server) {
-        stop_wss_echo_server(*server);
-        *server = NULL;
+        if (stop_wss_echo_server(*server) == ESP_OK) {
+            *server = NULL;
+        } else {
+            ESP_LOGE(TAG, "Failed to stop https server");
+        }
     }
 }
 
@@ -209,6 +265,7 @@ static void connect_handler(void* arg, esp_event_base_t event_base,
         *server = start_wss_echo_server();
     }
 }
+#endif // !CONFIG_IDF_TARGET_LINUX
 
 // Get all clients and send async message
 static void wss_server_send_messages(httpd_handle_t* server)
@@ -230,6 +287,7 @@ static void wss_server_send_messages(httpd_handle_t* server)
                 if (httpd_ws_get_fd_info(*server, sock) == HTTPD_WS_CLIENT_WEBSOCKET) {
                     ESP_LOGI(TAG, "Active client (fd=%d) -> sending async message", sock);
                     struct async_resp_arg *resp_arg = malloc(sizeof(struct async_resp_arg));
+                    assert(resp_arg != NULL);
                     resp_arg->hd = *server;
                     resp_arg->fd = sock;
                     if (httpd_queue_work(resp_arg->hd, send_hello, resp_arg) != ESP_OK) {
@@ -258,6 +316,7 @@ void app_main(void)
      * and stop server when disconnection happens.
      */
 
+#if !CONFIG_IDF_TARGET_LINUX
 #ifdef CONFIG_EXAMPLE_CONNECT_WIFI
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connect_handler, &server));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, &server));
@@ -266,6 +325,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_ETH_GOT_IP, &connect_handler, &server));
     ESP_ERROR_CHECK(esp_event_handler_register(ETH_EVENT, ETHERNET_EVENT_DISCONNECTED, &disconnect_handler, &server));
 #endif // CONFIG_EXAMPLE_CONNECT_ETHERNET
+#endif // !CONFIG_IDF_TARGET_LINUX
 
     /* This helper function configures Wi-Fi or Ethernet, as selected in menuconfig.
      * Read "Establishing Wi-Fi or Ethernet Connection" section in
@@ -273,10 +333,13 @@ void app_main(void)
      */
     ESP_ERROR_CHECK(example_connect());
 
+#if CONFIG_IDF_TARGET_LINUX
+    /* On Linux, start the server directly since there are no WiFi/Ethernet events */
+    server = start_wss_echo_server();
+#endif // CONFIG_IDF_TARGET_LINUX
+
     /* This function demonstrates periodic sending Websocket messages
      * to all connected clients to this server
      */
     wss_server_send_messages(&server);
 }
-
-

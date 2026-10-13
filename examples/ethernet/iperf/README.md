@@ -1,3 +1,6 @@
+| Supported Targets | ESP32 | ESP32-P4 | ESP32-S31 |
+| ----------------- | ----- | -------- | --------- |
+
 # Ethernet iperf Example
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
@@ -6,24 +9,23 @@
 
 This example demonstrates basic usage of [iperf](https://iperf.fr/) protocol to measure the throughout/bandwidth of Ethernet.
 
-The cli environment in the example is based on the [console component](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/console.html).
+The cli environment in the example is based on the [console component](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/console.html).
 
 ## How to use example
 
 ### Hardware Required
 
-To run this example, it's recommended that you have an official ESP32 Ethernet development board - [ESP32-Ethernet-Kit](https://docs.espressif.com/projects/esp-idf/en/latest/hw-reference/get-started-ethernet-kit.html). This example should also work for 3rd party ESP32 board as long as it's integrated with a supported Ethernet PHY chip. Up until now, ESP-IDF supports up to four Ethernet PHY: `LAN8720`, `IP101`, `DP83848` and `RTL8201`, additional PHY drivers should be implemented by users themselves.
+To run this example, it's recommended that you have an official ESP32 Ethernet development board - [ESP32-Ethernet-Kit](https://docs.espressif.com/projects/esp-idf/en/latest/hw-reference/get-started-ethernet-kit.html). This example should also work for 3rd party ESP32 board as long as it's integrated with a supported Ethernet PHY chip. Espressif supports multiple Ethernet PHYs. The full list of supported PHYs is available at [esp-eth-drivers](https://github.com/espressif/esp-eth-drivers) repository. If your PHY is IEEE 802.3 compliant, you can use `Generic PHY` driver for most use cases.
 
-Besides that, `esp_eth` component can drive third-party Ethernet module which integrates MAC and PHY and provides common communication interface (e.g. SPI, USB, etc). This example will take the **DM9051** as an example, illustrating how to install the Ethernet driver in the same manner.
+Besides that, `esp_eth` component can drive third-party Ethernet module which integrates MAC and PHY and provides common communication interface (e.g. SPI, USB, etc). The full list of supported SPI Ethernet modules is also available at [esp-eth-drivers](https://github.com/espressif/esp-eth-drivers) repository.
 
-#### Pin Assignment
-
-See common pin assignments for Ethernet examples from [upper level](../README.md#common-pin-assignments).
+> [!NOTE]
+> `Generic 802.3 PHY` basic functionality should always work for PHY compliant with IEEE 802.3. However, some specific features might be limited. A typical example is loopback functionality, where certain PHYs may require setting a specific speed mode to operate correctly. If this is a case, use driver tailored to that specific chip.
 
 ### Software Tools Preparation
 
 1. Install iperf tool on PC
-   * Debian/Ubuntu: `sudo apt-get install iperf` 
+   * Debian/Ubuntu: `sudo apt-get install iperf`
    * macOS: `brew install iperf`(if using Homebrew) or `sudo port install iperf`(if using MacPorts)
    * Windows(MSYS2): Downloads binaries from [here]( https://iperf.fr/iperf-download.php#windows)
 
@@ -146,7 +148,7 @@ I (2534456) iperf: want recv=16384
 ## Suggestions of getting higher bandwidth
 
 1. Higher MCU working frequency will get higher bandwidth.
-2. Put frequency invoked function into IRAM via macro `IRAM_ATTR` in code.
+2. Put frequently invoked functions into IRAM via macro `IRAM_ATTR` in code. Note that the lwIP IRAM optimization is already enabled by default.
 3. Priority of iperf task may also have effect.
 
 ## Troubleshooting

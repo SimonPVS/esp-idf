@@ -1,16 +1,8 @@
-// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 
 #include <stdlib.h>
@@ -18,7 +10,9 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include "esp_log.h"
+#include "esp_check.h"
 #include "http_header.h"
 #include "http_utils.h"
 
@@ -40,7 +34,7 @@ STAILQ_HEAD(http_header, http_header_item);
 http_header_handle_t http_header_init(void)
 {
     http_header_handle_t header = calloc(1, sizeof(struct http_header));
-    HTTP_MEM_CHECK(TAG, header, return NULL);
+    ESP_RETURN_ON_FALSE(header, NULL, TAG, "Memory exhausted");
     STAILQ_INIT(header);
     return header;
 }
@@ -75,6 +69,7 @@ esp_err_t http_header_get(http_header_handle_t header, const char *key, char **v
         *value = item->value;
     } else {
         *value = NULL;
+        return ESP_ERR_NOT_FOUND;
     }
 
     return ESP_OK;
@@ -82,22 +77,26 @@ esp_err_t http_header_get(http_header_handle_t header, const char *key, char **v
 
 static esp_err_t http_header_new_item(http_header_handle_t header, const char *key, const char *value)
 {
+    esp_err_t ret = ESP_OK;
     http_header_item_handle_t item;
 
     item = calloc(1, sizeof(http_header_item_t));
-    HTTP_MEM_CHECK(TAG, item, return ESP_ERR_NO_MEM);
-    http_utils_assign_string(&item->key, key, -1);
-    HTTP_MEM_CHECK(TAG, item->key, goto _header_new_item_exit);
+    ESP_RETURN_ON_FALSE(item, ESP_ERR_NO_MEM, TAG, "Memory exhausted");
+    HTTP_GOTO_ON_FALSE_DBG(http_utils_assign_string(&item->key, key, -1), ESP_ERR_NO_MEM, _header_new_item_exit, TAG, "Failed to assign string");
     http_utils_trim_whitespace(&item->key);
-    http_utils_assign_string(&item->value, value, -1);
-    HTTP_MEM_CHECK(TAG, item->value, goto _header_new_item_exit);
+    HTTP_GOTO_ON_FALSE_DBG(http_utils_assign_string(&item->value, value, -1), ESP_ERR_NO_MEM, _header_new_item_exit, TAG, "Failed to assign string");
     http_utils_trim_whitespace(&item->value);
     STAILQ_INSERT_TAIL(header, item, next);
-    return ESP_OK;
+    return ret;
 _header_new_item_exit:
-    free(item->key);
-    free(item->value);
-    return ESP_ERR_NO_MEM;
+    if (item->key) {
+        free(item->key);
+    }
+    if (item->value) {
+        free(item->value);
+    }
+    free(item);
+    return ret;
 }
 
 esp_err_t http_header_set(http_header_handle_t header, const char *key, const char *value)
@@ -125,7 +124,7 @@ esp_err_t http_header_set_from_string(http_header_handle_t header, const char *k
     char *p_str;
 
     p_str = strdup(key_value_data);
-    HTTP_MEM_CHECK(TAG, p_str, return ESP_ERR_NO_MEM);
+    ESP_RETURN_ON_FALSE(p_str, ESP_ERR_NO_MEM, TAG, "Memory exhausted");
     eq_ch = strchr(p_str, ':');
     if (eq_ch == NULL) {
         free(p_str);
@@ -156,16 +155,13 @@ esp_err_t http_header_delete(http_header_handle_t header, const char *key)
 
 int http_header_set_format(http_header_handle_t header, const char *key, const char *format, ...)
 {
-    va_list argptr;
+    va_list argptr = {0};
     int len = 0;
     char *buf = NULL;
     va_start(argptr, format);
     len = vasprintf(&buf, format, argptr);
-    HTTP_MEM_CHECK(TAG, buf, return 0);
     va_end(argptr);
-    if (buf == NULL) {
-        return 0;
-    }
+    ESP_RETURN_ON_FALSE(buf, 0, TAG, "Memory exhausted");
     http_header_set(header, key, buf);
     free(buf);
     return len;
@@ -174,7 +170,7 @@ int http_header_set_format(http_header_handle_t header, const char *key, const c
 int http_header_generate_string(http_header_handle_t header, int index, char *buffer, int *buffer_len)
 {
     http_header_item_handle_t item;
-    int siz = 0;
+    int size = 0;
     int idx = 0;
     int ret_idx = -1;
     bool is_end = false;
@@ -182,21 +178,21 @@ int http_header_generate_string(http_header_handle_t header, int index, char *bu
     // iterate over the header entries to calculate buffer size and determine last item
     STAILQ_FOREACH(item, header, next) {
         if (item->value && idx >= index) {
-            siz += strlen(item->key);
-            siz += strlen(item->value);
-            siz += 4; //': ' and '\r\n'
+            size += strlen(item->key);
+            size += strlen(item->value);
+            size += 4; //': ' and '\r\n'
         }
         idx ++;
 
-        if (siz + 1 > *buffer_len - 2) {
+        if (size + 1 > *buffer_len - 2) {
             // if this item would not fit to the buffer, return the index of the last fitting one
             ret_idx = idx - 1;
-            ESP_LOGE(TAG, "Buffer length is small to fit all the headers");
+            ESP_LOGE(TAG, "Buffer length is small to fit all the headers, required %d bytes, buffer size %d", size + 1, *buffer_len - 2);
             break;
         }
     }
 
-    if (siz == 0) {
+    if (size == 0) {
         return 0;
     }
     if (ret_idx < 0) {
@@ -205,7 +201,7 @@ int http_header_generate_string(http_header_handle_t header, int index, char *bu
         is_end = true;
     }
 
-    // iterate again over the header entries to write only the fitting indeces
+    // iterate again over the header entries to write only the fitting indices
     int str_len = 0;
     idx = 0;
     STAILQ_FOREACH(item, header, next) {

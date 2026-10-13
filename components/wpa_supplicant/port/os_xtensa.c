@@ -24,10 +24,11 @@
 
 #include "os.h"
 #include <stdlib.h>
-#include <time.h>
+#include <unistd.h>
 #include <sys/time.h>
-#include "esp_system.h"
+#include "esp_random.h"
 #include "utils/common.h"
+#include "mbedtls/platform_util.h"
 
 int os_get_time(struct os_time *t)
 {
@@ -49,3 +50,19 @@ int os_get_random(unsigned char *buf, size_t len)
     return 0;
 }
 
+void os_sleep(os_time_t sec, os_time_t usec)
+{
+    if (sec) {
+        sleep(sec);
+    }
+    if (usec) {
+        usleep(usec);
+    }
+}
+
+#ifdef CONFIG_CRYPTO_MBEDTLS
+void forced_memzero(void *ptr, size_t len)
+{
+    mbedtls_platform_zeroize(ptr, len);
+}
+#endif

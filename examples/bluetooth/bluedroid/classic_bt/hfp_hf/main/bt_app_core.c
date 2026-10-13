@@ -1,15 +1,12 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
-#include "freertos/xtensa_api.h"
 #include "freertos/FreeRTOSConfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -21,10 +18,11 @@ static void bt_app_task_handler(void *arg);
 static bool bt_app_send_msg(bt_app_msg_t *msg);
 static void bt_app_work_dispatched(bt_app_msg_t *msg);
 
-static xQueueHandle bt_app_task_queue = NULL;
-static xTaskHandle bt_app_task_handle = NULL;
+static QueueHandle_t bt_app_task_queue = NULL;
+static TaskHandle_t bt_app_task_handle = NULL;
 
-bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, int param_len, bt_app_copy_cb_t p_copy_cback)
+bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, int param_len,
+                          bt_app_copy_cb_t p_copy_cback, bt_app_free_cb_t p_free_cback)
 {
     ESP_LOGD(BT_APP_CORE_TAG, "%s event 0x%x, param len %d", __func__, event, param_len);
 
@@ -34,6 +32,7 @@ bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, i
     msg.sig = BT_APP_SIG_WORK_DISPATCH;
     msg.event = event;
     msg.cb = p_cback;
+    msg.free_cb = p_free_cback;
 
     if (param_len == 0) {
         return bt_app_send_msg(&msg);
@@ -44,7 +43,14 @@ bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, i
             if (p_copy_cback) {
                 p_copy_cback(&msg, msg.param, p_params);
             }
-            return bt_app_send_msg(&msg);
+            if (!bt_app_send_msg(&msg)) {
+                if (p_free_cback) {
+                    p_free_cback(msg.param);
+                }
+                free(msg.param);
+                return false;
+            }
+            return true;
         }
     }
 
@@ -53,11 +59,11 @@ bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, i
 
 static bool bt_app_send_msg(bt_app_msg_t *msg)
 {
-    if (msg == NULL) {
+    if (msg == NULL || bt_app_task_queue == NULL) {
         return false;
     }
 
-    if (xQueueSend(bt_app_task_queue, msg, 10 / portTICK_RATE_MS) != pdTRUE) {
+    if (xQueueSend(bt_app_task_queue, msg, 10 / portTICK_PERIOD_MS) != pdTRUE) {
         ESP_LOGE(BT_APP_CORE_TAG, "%s xQueue send failed", __func__);
         return false;
     }
@@ -75,7 +81,7 @@ static void bt_app_task_handler(void *arg)
 {
     bt_app_msg_t msg;
     for (;;) {
-        if (pdTRUE == xQueueReceive(bt_app_task_queue, &msg, (portTickType)portMAX_DELAY)) {
+        if (pdTRUE == xQueueReceive(bt_app_task_queue, &msg, (TickType_t)portMAX_DELAY)) {
             ESP_LOGD(BT_APP_CORE_TAG, "%s, sig 0x%x, 0x%x", __func__, msg.sig, msg.event);
             switch (msg.sig) {
                 case BT_APP_SIG_WORK_DISPATCH:
@@ -83,13 +89,16 @@ static void bt_app_task_handler(void *arg)
                     bt_app_work_dispatched(&msg);
                     break;
                 }
-                
+
                 default:
                     ESP_LOGW(BT_APP_CORE_TAG, "%s, unhandled sig: %d", __func__, msg.sig);
                     break;
             } // switch (msg.sig)
 
             if (msg.param) {
+                if (msg.free_cb) {
+                    msg.free_cb(msg.param);
+                }
                 free(msg.param);
             }
         }
@@ -99,7 +108,7 @@ static void bt_app_task_handler(void *arg)
 void bt_app_task_start_up(void)
 {
     bt_app_task_queue = xQueueCreate(10, sizeof(bt_app_msg_t));
-    xTaskCreate(bt_app_task_handler, "BtAppT", 2048, NULL, configMAX_PRIORITIES - 3, &bt_app_task_handle);
+    xTaskCreate(bt_app_task_handler, "BtAppT", 4 * 1024, NULL, configMAX_PRIORITIES - 3, &bt_app_task_handle);
     return;
 }
 
@@ -110,6 +119,15 @@ void bt_app_task_shut_down(void)
         bt_app_task_handle = NULL;
     }
     if (bt_app_task_queue) {
+        bt_app_msg_t msg;
+        while (xQueueReceive(bt_app_task_queue, &msg, 0) == pdTRUE) {
+            if (msg.param) {
+                if (msg.free_cb) {
+                    msg.free_cb(msg.param);
+                }
+                free(msg.param);
+            }
+        }
         vQueueDelete(bt_app_task_queue);
         bt_app_task_queue = NULL;
     }

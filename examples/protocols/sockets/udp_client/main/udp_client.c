@@ -12,7 +12,6 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 #include "esp_system.h"
-#include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -23,7 +22,10 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
+
+#ifdef CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN
 #include "addr_from_stdin.h"
+#endif
 
 #if defined(CONFIG_EXAMPLE_IPV4)
 #define HOST_IP_ADDR CONFIG_EXAMPLE_IPV4_ADDR
@@ -64,7 +66,7 @@ static void udp_client_task(void *pvParameters)
         addr_family = AF_INET6;
         ip_protocol = IPPROTO_IPV6;
 #elif defined(CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN)
-        struct sockaddr_in6 dest_addr = { 0 };
+        struct sockaddr_storage dest_addr = { 0 };
         ESP_ERROR_CHECK(get_addr_from_stdin(PORT, SOCK_DGRAM, &ip_protocol, &addr_family, &dest_addr));
 #endif
 
@@ -73,6 +75,13 @@ static void udp_client_task(void *pvParameters)
             ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
             break;
         }
+
+        // Set timeout
+        struct timeval timeout;
+        timeout.tv_sec = 10;
+        timeout.tv_usec = 0;
+        setsockopt (sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
+
         ESP_LOGI(TAG, "Socket created, sending to %s:%d", HOST_IP_ADDR, PORT);
 
         while (1) {
@@ -84,7 +93,7 @@ static void udp_client_task(void *pvParameters)
             }
             ESP_LOGI(TAG, "Message sent");
 
-            struct sockaddr_in source_addr; // Large enough for both IPv4 or IPv6
+            struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
             socklen_t socklen = sizeof(source_addr);
             int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &socklen);
 

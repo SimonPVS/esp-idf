@@ -23,7 +23,7 @@
  ******************************************************************************/
 #define LOG_TAG "bt_bta_sys_main"
 
-// #include <assert.h>
+#include <assert.h>
 #include <string.h>
 
 #include "osi/alarm.h"
@@ -103,6 +103,7 @@ enum {
 #define BTA_SYS_ACTIONS              2       /* number of actions */
 #define BTA_SYS_NEXT_STATE           2       /* position of next state */
 #define BTA_SYS_NUM_COLS             3       /* number of columns in state tables */
+#define BTA_SYS_NUM_STATES           4       /* OFF, STARTING, ON, STOPPING */
 
 
 /* state table for OFF state */
@@ -213,21 +214,38 @@ BOOLEAN bta_sys_sm_execute(BT_HDR *p_msg)
     BOOLEAN freebuf = TRUE;
     tBTA_SYS_ST_TBL      state_table;
     UINT8               action;
+    UINT8               evt_idx;
     int                 i;
+
+    if (p_msg == NULL) {
+        return freebuf;
+    }
+
+    evt_idx = p_msg->event & 0x00ff;
+    if (evt_idx >= BTA_SYS_NUM_ACTIONS) {
+        APPL_TRACE_ERROR("bta_sys_sm_execute: event 0x%x out of range (evt_idx=%u)", p_msg->event, evt_idx);
+        return freebuf;
+    }
+    if (bta_sys_cb.state >= BTA_SYS_NUM_STATES) {
+        APPL_TRACE_ERROR("bta_sys_sm_execute: invalid state %u", bta_sys_cb.state);
+        return freebuf;
+    }
 
     APPL_TRACE_EVENT("bta_sys_sm_execute state:%d, event:0x%x\n",  bta_sys_cb.state, p_msg->event);
 
     /* look up the state table for the current state */
     state_table = bta_sys_st_tbl[bta_sys_cb.state];
     /* update state */
-    bta_sys_cb.state = state_table[p_msg->event & 0x00ff][BTA_SYS_NEXT_STATE];
+    bta_sys_cb.state = state_table[evt_idx][BTA_SYS_NEXT_STATE];
 
     /* execute action functions */
     for (i = 0; i < BTA_SYS_ACTIONS; i++) {
-        if ((action = state_table[p_msg->event & 0x00ff][i]) != BTA_SYS_IGNORE) {
-            (*bta_sys_action[action])( (tBTA_SYS_HW_MSG *) p_msg);
-        } else {
+        action = state_table[evt_idx][i];
+        if (action == BTA_SYS_IGNORE) {
             break;
+        }
+        if (action < BTA_SYS_NUM_ACTIONS) {
+            (*bta_sys_action[action])( (tBTA_SYS_HW_MSG *) p_msg);
         }
     }
     return freebuf;
@@ -495,7 +513,7 @@ void bta_sys_event(void * param)
     id = (UINT8) (p_msg->event >> 8);
 
     /* verify id and call subsystem event handler */
-    if ((id < BTA_ID_MAX) && (bta_sys_cb.reg[id] != NULL)) {
+    if ((id < BTA_ID_MAX) && bta_sys_cb.is_reg[id] && (bta_sys_cb.reg[id] != NULL)) {
         freebuf = (*bta_sys_cb.reg[id]->evt_hdlr)(p_msg);
     } else {
         APPL_TRACE_WARNING("BTA got unregistered event id %d\n", id);
@@ -537,13 +555,14 @@ void bta_sys_register(UINT8 id, const tBTA_SYS_REG *p_reg)
 void bta_sys_deregister(UINT8 id)
 {
     bta_sys_cb.is_reg[id] = FALSE;
+    bta_sys_cb.reg[id] = NULL;
 }
 
 /*******************************************************************************
 **
 ** Function         bta_sys_is_register
 **
-** Description      Called by other BTA subsystems to get registeration
+** Description      Called by other BTA subsystems to get registration
 **                  status.
 **
 **
@@ -598,18 +617,31 @@ void bta_alarm_cb(void *data)
 
 void bta_sys_start_timer(TIMER_LIST_ENT *p_tle, UINT16 type, INT32 timeout_ms)
 {
+    osi_alarm_t *alarm = NULL;
+
     assert(p_tle != NULL);
 
     // Get the alarm for this p_tle.
     osi_mutex_lock(&bta_alarm_lock, OSI_MUTEX_MAX_TIMEOUT);
     if (!hash_map_has_key(bta_alarm_hash_map, p_tle)) {
-        hash_map_set(bta_alarm_hash_map, p_tle, osi_alarm_new("bta_sys", bta_alarm_cb, p_tle, 0));
+        alarm = osi_alarm_new("bta_sys", bta_alarm_cb, p_tle, 0);
+        if (alarm == NULL) {
+            APPL_TRACE_ERROR("%s unable to create new alarm.", __func__);
+            osi_mutex_unlock(&bta_alarm_lock);
+            return;
+        }
+        if (!hash_map_set(bta_alarm_hash_map, p_tle, alarm)) {
+            APPL_TRACE_ERROR("%s unable to set alarm in map.", __func__);
+            osi_alarm_free(alarm);
+            osi_mutex_unlock(&bta_alarm_lock);
+            return;
+        }
     }
-    osi_mutex_unlock(&bta_alarm_lock);
 
-    osi_alarm_t *alarm = hash_map_get(bta_alarm_hash_map, p_tle);
+    alarm = hash_map_get(bta_alarm_hash_map, p_tle);
     if (alarm == NULL) {
         APPL_TRACE_ERROR("%s unable to create alarm.", __func__);
+        osi_mutex_unlock(&bta_alarm_lock);
         return;
     }
 
@@ -617,6 +649,7 @@ void bta_sys_start_timer(TIMER_LIST_ENT *p_tle, UINT16 type, INT32 timeout_ms)
     p_tle->ticks = timeout_ms;
     //osi_alarm_set(alarm, (period_ms_t)timeout_ms, bta_alarm_cb, p_tle);
     osi_alarm_set(alarm, (period_ms_t)timeout_ms);
+    osi_mutex_unlock(&bta_alarm_lock);
 }
 
 bool hash_iter_ro_cb(hash_map_entry_t *hash_map_entry, void *context)
@@ -640,6 +673,27 @@ UINT32 bta_sys_get_remaining_ticks(TIMER_LIST_ENT *p_target_tle)
 
 /*******************************************************************************
 **
+** Function         bta_sys_timer_is_active
+**
+** Description      Get info of timer is active or not.
+**
+** Returns          true if timer is exist and active, false otherwise.
+**
+*******************************************************************************/
+BOOLEAN bta_sys_timer_is_active(TIMER_LIST_ENT *p_tle)
+{
+    assert(p_tle != NULL);
+
+    osi_mutex_lock(&bta_alarm_lock, OSI_MUTEX_MAX_TIMEOUT);
+    osi_alarm_t *alarm = hash_map_get(bta_alarm_hash_map, p_tle);
+    BOOLEAN active = (alarm != NULL && osi_alarm_is_active(alarm));
+    osi_mutex_unlock(&bta_alarm_lock);
+
+    return active;
+}
+
+/*******************************************************************************
+**
 ** Function         bta_sys_stop_timer
 **
 ** Description      Stop a BTA timer.
@@ -651,12 +705,15 @@ void bta_sys_stop_timer(TIMER_LIST_ENT *p_tle)
 {
     assert(p_tle != NULL);
 
+    osi_mutex_lock(&bta_alarm_lock, OSI_MUTEX_MAX_TIMEOUT);
     osi_alarm_t *alarm = hash_map_get(bta_alarm_hash_map, p_tle);
     if (alarm == NULL) {
         APPL_TRACE_DEBUG("%s expected alarm was not in bta alarm hash map.", __func__);
+        osi_mutex_unlock(&bta_alarm_lock);
         return;
     }
     osi_alarm_cancel(alarm);
+    osi_mutex_unlock(&bta_alarm_lock);
 }
 
 /*******************************************************************************
@@ -672,13 +729,16 @@ void bta_sys_free_timer(TIMER_LIST_ENT *p_tle)
 {
     assert(p_tle != NULL);
 
+    osi_mutex_lock(&bta_alarm_lock, OSI_MUTEX_MAX_TIMEOUT);
     osi_alarm_t *alarm = hash_map_get(bta_alarm_hash_map, p_tle);
     if (alarm == NULL) {
         APPL_TRACE_DEBUG("%s expected alarm was not in bta alarm hash map.", __func__);
+        osi_mutex_unlock(&bta_alarm_lock);
         return;
     }
     osi_alarm_cancel(alarm);
     hash_map_erase(bta_alarm_hash_map, p_tle);
+    osi_mutex_unlock(&bta_alarm_lock);
 }
 
 /*******************************************************************************
@@ -703,7 +763,7 @@ void bta_sys_disable(tBTA_SYS_HW_MODULE module)
         bta_id_max = BTA_ID_BLUETOOTH_MAX;
         break;
     default:
-        APPL_TRACE_WARNING("bta_sys_disable: unkown module");
+        APPL_TRACE_WARNING("bta_sys_disable: unknown module");
         return;
     }
 
@@ -729,7 +789,7 @@ void bta_sys_set_trace_level(UINT8 level)
 {
     appl_trace_level = level;
 }
-
+#if (CLASSIC_BT_INCLUDED == TRUE)
 /*******************************************************************************
 **
 ** Function         bta_sys_get_sys_features
@@ -743,3 +803,4 @@ UINT16 bta_sys_get_sys_features (void)
 {
     return bta_sys_cb.sys_features;
 }
+#endif // #if (CLASSIC_BT_INCLUDED == TRUE)

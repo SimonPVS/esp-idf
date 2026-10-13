@@ -1,16 +1,8 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_BLE_MESH_NETWORKING_API_H_
 #define _ESP_BLE_MESH_NETWORKING_API_H_
@@ -68,7 +60,7 @@ esp_err_t esp_ble_mesh_model_msg_opcode_init(uint8_t *data, uint32_t opcode);
 /**
  * @brief         Initialize the user-defined client model. All user-defined client models
  *                shall call this function to initialize the client model internal data.
- *                Node: Before calling this API, the op_pair_size and op_pair variabled within
+ *                Node: Before calling this API, the op_pair_size and op_pair variables within
  *                      the user_data(defined using esp_ble_mesh_client_t_) of the client model
  *                      need to be initialized.
  *
@@ -176,7 +168,7 @@ esp_err_t esp_ble_mesh_server_model_update_state(esp_ble_mesh_model_t *model,
  * @brief         Reset the provisioning procedure of the local BLE Mesh node.
  *
  * @note          All provisioning information in this node will be deleted and the node
- *                needs to be reprovisioned. The API function esp_ble_mesh_node_prov_enable()
+ *                needs to be re-provisioned. The API function esp_ble_mesh_node_prov_enable()
  *                needs to be called to start a new provisioning procedure.
  *
  * @return        ESP_OK on success or error code otherwise.
@@ -414,6 +406,231 @@ esp_err_t esp_ble_mesh_provisioner_update_local_net_key(const uint8_t net_key[16
 const uint8_t *esp_ble_mesh_provisioner_get_local_net_key(uint16_t net_idx);
 
 /**
+ * @brief         This function is called by Provisioner to enable or disable receiving
+ *                heartbeat messages.
+ *
+ * @note          If enabling receiving heartbeat message successfully, the filter will
+ *                be an empty rejectlist by default, which means all heartbeat messages
+ *                received by the Provisioner will be reported to the application layer.
+ *
+ * @param[in]     enable: Enable or disable receiving heartbeat messages.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_recv_heartbeat(bool enable);
+
+/**
+ * @brief         This function is called by Provisioner to set the heartbeat filter type.
+ *
+ * @note          1. If the filter type is not the same with the current value, then all the
+ *                   filter entries will be cleaned.
+ *                2. If the previous type is rejectlist, and changed to acceptlist, then the
+ *                   filter will be an empty acceptlist, which means no heartbeat messages
+ *                   will be reported. Users need to add SRC or DST into the filter entry,
+ *                   then heartbeat messages from the SRC or to the DST will be reported.
+ *
+ * @param[in]     type: Heartbeat filter type (acceptlist or rejectlist).
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_set_heartbeat_filter_type(uint8_t type);
+
+/**
+ * @brief         This function is called by Provisioner to add or remove a heartbeat filter entry.
+ *
+ * @note          1. If the operation is "ADD", the "hb_src" can be set to the SRC (can only be a
+ *                   unicast address) of heartbeat messages, and the "hb_dst" can be set to the
+ *                   DST (unicast address or group address), at least one of them needs to be set.
+ *                   - If only one of them is set, the filter entry will only use the configured
+ *                     SRC or DST to filter heartbeat messages.
+ *                   - If both of them are set, the SRC and DST will both be used to decide if a
+ *                     heartbeat message will be handled.
+ *                   - If SRC or DST already exists in some filter entry, then the corresponding
+ *                     entry will be cleaned firstly, then a new entry will be allocated to store
+ *                     the information.
+ *                2. If the operation is "REMOVE", the "hb_src" can be set to the SRC (can only be
+ *                   a unicast address) of heartbeat messages, and the "hb_dst" can be set to the
+ *                   DST (unicast address or group address), at least one of them needs to be set.
+ *                   - The filter entry with the same SRC or DST will be removed.
+ *
+ * @param[in]     op:   Add or REMOVE
+ * @param[in]     info: Heartbeat filter entry information, including:
+ *                      hb_src - Heartbeat source address;
+ *                      hb_dst - Heartbeat destination address;
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_set_heartbeat_filter_info(uint8_t op, esp_ble_mesh_heartbeat_filter_info_t *info);
+
+/**
+ * @brief         This function is called by Provisioner to directly erase the mesh
+ *                information from nvs namespace.
+ *
+ * @note          This function can be invoked when the mesh stack is not initialized
+ *                or has been de-initialized.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_direct_erase_settings(void);
+
+/**
+ * @brief         This function is called by Provisioner to open a nvs namespace
+ *                for storing mesh information.
+ *
+ * @note          Before open another nvs namespace, the previously opened nvs
+ *                namespace must be closed firstly.
+ *
+ * @param[in]     index: Settings index.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_open_settings_with_index(uint8_t index);
+
+/**
+ * @brief         This function is called by Provisioner to open a nvs namespace
+ *                for storing mesh information.
+ *
+ * @note          Before open another nvs namespace, the previously opened nvs
+ *                namespace must be closed firstly.
+ *
+ * @param[in]     uid: Settings user id.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_open_settings_with_uid(const char *uid);
+
+/**
+ * @brief         This function is called by Provisioner to close a nvs namespace
+ *                which is opened previously for storing mesh information.
+ *
+ * @note          1. Before closing the nvs namespace, it must be open.
+ *                2. When the function is invoked, the Provisioner functionality
+ *                   will be disabled firstly, and:
+ *                   a) If the "erase" flag is set to false, the mesh information
+ *                      will be cleaned (e.g. removing NetKey, AppKey, nodes, etc)
+ *                      from the mesh stack.
+ *                   b) If the "erase" flag is set to true, the mesh information
+ *                      stored in the nvs namespace will also be erased besides
+ *                      been cleaned from the mesh stack.
+ *                3. If Provisioner tries to work properly again, we can invoke the
+ *                   open function to open a new nvs namespace or a previously added
+ *                   one, and restore the mesh information from it if not erased.
+ *                4. The working process shall be as following:
+ *                   a) Open settings A
+ *                   b) Start to provision and control nodes
+ *                   c) Close settings A
+ *                   d) Open settings B
+ *                   e) Start to provision and control other nodes
+ *                   f) Close settings B
+ *                   g) ......
+ *
+ * @param[in]     index: Settings index.
+ * @param[in]     erase: Indicate if erasing mesh information.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_close_settings_with_index(uint8_t index, bool erase);
+
+/**
+ * @brief         This function is called by Provisioner to close a nvs namespace
+ *                which is opened previously for storing mesh information.
+ *
+ * @note          1. Before closing the nvs namespace, it must be open.
+ *                2. When the function is invoked, the Provisioner functionality
+ *                   will be disabled firstly, and:
+ *                   a) If the "erase" flag is set to false, the mesh information
+ *                      will be cleaned (e.g. removing NetKey, AppKey, nodes, etc)
+ *                      from the mesh stack.
+ *                   b) If the "erase" flag is set to true, the mesh information
+ *                      stored in the nvs namespace will also be erased besides
+ *                      been cleaned from the mesh stack.
+ *                3. If Provisioner tries to work properly again, we can invoke the
+ *                   open function to open a new nvs namespace or a previously added
+ *                   one, and restore the mesh information from it if not erased.
+ *                4. The working process shall be as following:
+ *                   a) Open settings A
+ *                   b) Start to provision and control nodes
+ *                   c) Close settings A
+ *                   d) Open settings B
+ *                   e) Start to provision and control other nodes
+ *                   f) Close settings B
+ *                   g) ......
+ *
+ * @param[in]     uid: Settings user id.
+ * @param[in]     erase: Indicate if erasing mesh information.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_close_settings_with_uid(const char *uid, bool erase);
+
+/**
+ * @brief         This function is called by Provisioner to erase the mesh information
+ *                and settings user id from a nvs namespace.
+ *
+ * @note          When this function is called, the nvs namespace must not be open.
+ *                This function is used to erase the mesh information and settings
+ *                user id which are not used currently.
+ *
+ * @param[in]     index: Settings index.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_delete_settings_with_index(uint8_t index);
+
+/**
+ * @brief         This function is called by Provisioner to erase the mesh information
+ *                and settings user id from a nvs namespace.
+ *
+ * @note          When this function is called, the nvs namespace must not be open.
+ *                This function is used to erase the mesh information and settings
+ *                user id which are not used currently.
+ *
+ * @param[in]     uid: Settings user id.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_delete_settings_with_uid(const char *uid);
+
+/**
+ * @brief         This function is called by Provisioner to get settings user id.
+ *
+ * @param[in]     index: Settings index.
+ *
+ * @return        Setting user id on success or NULL on failure.
+ *
+ */
+const char *esp_ble_mesh_provisioner_get_settings_uid(uint8_t index);
+
+/**
+ * @brief         This function is called by Provisioner to get settings index.
+ *
+ * @param[in]     uid: Settings user id.
+ *
+ * @return        Settings index.
+ *
+ */
+uint8_t esp_ble_mesh_provisioner_get_settings_index(const char *uid);
+
+/**
+ * @brief         This function is called by Provisioner to get the number of free
+ *                settings user id.
+ *
+ * @return        Number of free settings user id.
+ *
+ */
+uint8_t esp_ble_mesh_provisioner_get_free_settings_count(void);
+
+/**
  * @brief         This function is called to get fast provisioning application key.
  *
  * @param[in]     net_idx: Network key index.
@@ -423,6 +640,55 @@ const uint8_t *esp_ble_mesh_provisioner_get_local_net_key(uint16_t net_idx);
  *
  */
 const uint8_t *esp_ble_mesh_get_fast_prov_app_key(uint16_t net_idx, uint16_t app_idx);
+
+#if CONFIG_BLE_MESH_CERT_BASED_PROV
+/**
+ * @brief         This function is called by provisioner to send provisioning records
+ *                get message.
+ *
+ * @param[in]     link_idx:    The provisioning link index.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_send_prov_records_get(uint16_t link_idx);
+
+/**
+ * @brief         This function is called by provisioner to send provisioning record
+ *                request message.
+ *
+ * @param[in]     link_idx:    The provisioning link index.
+ * @param[in]     record_id:   The record identity.
+ * @param[in]     frag_offset: The starting offset of the fragment.
+ * @param[in]     max_size:    The max record fragment size.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_send_prov_record_req(uint16_t link_idx, uint16_t record_id,
+                                                        uint16_t frag_offset, uint16_t max_size);
+
+/**
+ * @brief         This function is called by provisioner to send provisioning invite
+ *                message.
+ *
+ * @param[in]     link_idx:  The provisioning link index.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_send_prov_invite(uint16_t link_idx);
+
+/**
+ * @brief         This function is called by provisioner to send link close
+ *
+ * @param[in]     link_idx:  The provisioning link index.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_provisioner_send_link_close(uint16_t link_idx);
+#endif /* #if CONFIG_BLE_MESH_CERT_BASED_PROV */
 
 #ifdef __cplusplus
 }

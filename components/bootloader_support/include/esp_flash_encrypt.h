@@ -1,25 +1,14 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #pragma once
 
 #include <stdbool.h>
 #include "esp_attr.h"
 #include "esp_err.h"
-#ifndef BOOTLOADER_BUILD
-#include "esp_spi_flash.h"
-#endif
-#include "soc/efuse_periph.h"
+#include "soc/soc_caps.h"
 #include "sdkconfig.h"
 
 #ifdef __cplusplus
@@ -45,26 +34,12 @@ typedef enum {
  *
  * Flash encryption is enabled if the FLASH_CRYPT_CNT efuse has an odd number of bits set.
  *
+ * @deprecated This function is deprecated. Use esp_efuse_is_flash_encryption_enabled() instead.
+ *
  * @return true if flash encryption is enabled.
  */
-static inline /** @cond */ IRAM_ATTR /** @endcond */ bool esp_flash_encryption_enabled(void)
-{
-    uint32_t flash_crypt_cnt = 0;
-#if CONFIG_IDF_TARGET_ESP32
-    flash_crypt_cnt = REG_GET_FIELD(EFUSE_BLK0_RDATA0_REG, EFUSE_RD_FLASH_CRYPT_CNT);
-#elif CONFIG_IDF_TARGET_ESP32S2
-    flash_crypt_cnt = REG_GET_FIELD(EFUSE_RD_REPEAT_DATA1_REG, EFUSE_SPI_BOOT_CRYPT_CNT);
-#endif
-    /* __builtin_parity is in flash, so we calculate parity inline */
-    bool enabled = false;
-    while (flash_crypt_cnt) {
-        if (flash_crypt_cnt & 1) {
-            enabled = !enabled;
-        }
-        flash_crypt_cnt >>= 1;
-    }
-    return enabled;
-}
+__attribute__((deprecated("Use esp_efuse_is_flash_encryption_enabled() instead")))
+bool esp_flash_encryption_enabled(void);
 
 /* @brief Update on-device flash encryption
  *
@@ -106,10 +81,53 @@ static inline /** @cond */ IRAM_ATTR /** @endcond */ bool esp_flash_encryption_e
  * @note RTC_WDT will reset while encryption operations will be performed (if RTC_WDT is configured).
  *
  * @return ESP_OK if all operations succeeded, ESP_ERR_INVALID_STATE
- * if a fatal error occured during encryption of all partitions.
+ * if a fatal error occurred during encryption of all partitions.
  */
 esp_err_t esp_flash_encrypt_check_and_update(void);
 
+/** @brief Returns the Flash Encryption state and prints it
+ *
+ * @return True  - Flash Encryption is enabled
+ *         False - Flash Encryption is not enabled
+ */
+bool esp_flash_encrypt_state(void);
+
+/** @brief Checks if the first initialization was done
+ *
+ * If the first initialization was done then FLASH_CRYPT_CNT != 0
+ *
+ * @return true - the first initialization was done
+ *         false - the first initialization was NOT done
+ */
+bool esp_flash_encrypt_initialized_once(void);
+
+/** @brief The first initialization of Flash Encryption key and related eFuses
+ *
+ * @return ESP_OK if all operations succeeded
+ */
+esp_err_t esp_flash_encrypt_init(void);
+
+/** @brief Encrypts flash content
+ *
+ * @return ESP_OK if all operations succeeded
+ */
+esp_err_t esp_flash_encrypt_contents(void);
+
+/** @brief Activates Flash encryption on the chip
+ *
+ * It burns FLASH_CRYPT_CNT eFuse based on the CONFIG_SECURE_FLASH_ENCRYPTION_MODE_RELEASE option.
+ *
+ * @return ESP_OK if all operations succeeded
+ */
+esp_err_t esp_flash_encrypt_enable(void);
+
+/** @brief Returns True if the write protection of FLASH_CRYPT_CNT is set
+ *
+ * @param print_error Print error if it is write protected
+ *
+ * @return true - if FLASH_CRYPT_CNT is write protected
+ */
+bool esp_flash_encrypt_is_write_protected(bool print_error);
 
 /** @brief Encrypt-in-place a block of flash sectors
  *
@@ -158,6 +176,53 @@ esp_flash_enc_mode_t esp_get_flash_encryption_mode(void);
  *  config in any way
  */
 void esp_flash_encryption_init_checks(void);
+
+
+#if BOOTLOADER_BUILD && CONFIG_SECURE_FLASH_ENC_ENABLED
+/** @brief Set all secure eFuse features related to flash encryption
+ *
+ * @return
+ *  - ESP_OK - On success
+ */
+esp_err_t esp_flash_encryption_enable_secure_features(void);
+
+#if SOC_KEY_MANAGER_FE_KEY_DEPLOY
+/** @brief Enable the key manager for flash encryption
+ *
+ * @return
+ *  - ESP_OK - On success
+ */
+esp_err_t esp_flash_encryption_use_efuse_key(void);
+#endif // SOC_KEY_MANAGER_FE_KEY_DEPLOY
+
+#endif /* BOOTLOADER_BUILD && CONFIG_SECURE_FLASH_ENC_ENABLED */
+
+/** @brief Returns the verification status for all physical security features of flash encryption in release mode
+ *
+ * If the device has flash encryption feature configured in the release mode,
+ * then it is highly recommended to call this API in the application startup code.
+ * This API verifies the sanity of the eFuse configuration against
+ * the release (production) mode of the flash encryption feature.
+ *
+ * @return
+ *  - True - all eFuses are configured correctly
+ *  - False - not all eFuses are configured correctly.
+ */
+bool esp_flash_encryption_cfg_verify_release_mode(void);
+
+/** @brief Switches Flash Encryption from "Development" to "Release"
+ *
+ * If already in "Release" mode, the function will do nothing.
+ * If flash encryption efuse is not enabled yet then abort.
+ * It burns:
+ *  - "disable encrypt in dl mode"
+ *  - set FLASH_CRYPT_CNT efuse to max
+ *
+ * In case of the targets that support the XTS-AES peripheral's pseudo rounds function,
+ * this API would configure the pseudo rounds level efuse bit to level low if the efuse bit
+ * is not set already.
+ */
+void esp_flash_encryption_set_release_mode(void);
 
 #ifdef __cplusplus
 }

@@ -36,6 +36,9 @@
 #include "stack/port_api.h"
 #include "bta/utl.h"
 
+#if BT_HF_AG_BQB_INCLUDED
+static BOOLEAN s_bta_hf_ag_bqb_brsf_flag = false;
+#endif /* BT_HF_AG_BQB_INCLUDED */
 
 #if (BTA_AG_INCLUDED == TRUE)
 /*****************************************************************************
@@ -56,7 +59,7 @@
 #define BTA_AG_CLIP_TYPE_VOIP       255
 
 /*******************************************
-*              HSP callback 
+*              HSP callback
 ********************************************/
 /* callback event lookup table for HSP */
 const tBTA_AG_EVT bta_ag_hsp_cb_evt[] =
@@ -82,7 +85,7 @@ const tBTA_AG_AT_CMD bta_ag_hsp_cmd[] =
 };
 
 /*******************************************
-*              HFP callback 
+*              HFP callback
 ********************************************/
 /* callback event lookup table for HFP  (Indexed by command) */
 const tBTA_AG_EVT bta_ag_hfp_cb_evt[] =
@@ -146,6 +149,14 @@ enum
     BTA_AG_HF_CMD_BAC
 };
 
+/* dialing type of BTA_AG_HF_CMD_D */
+enum
+{
+    BTA_AG_HF_DIAL_NUM = 0,
+    BTA_AG_HF_DIAL_VOIP,
+    BTA_AG_HF_DIAL_MEM,
+};
+
 /* HFP AT command interpreter table */
 const tBTA_AG_AT_CMD bta_ag_hfp_cmd[] =
 {
@@ -180,7 +191,7 @@ const tBTA_AG_AT_CMD bta_ag_hfp_cmd[] =
 };
 
 /*******************************************
-*              AT Result 
+*              AT Result
 ********************************************/
 const tBTA_AG_AT_CMD *bta_ag_at_tbl[BTA_AG_NUM_IDX] =
 {
@@ -330,8 +341,24 @@ const UINT8 bta_ag_callsetup_ind_tbl[] =
 #define COLON_IDX_4_VGSVGM    4
 #endif
 
+/*******************************************************************************
+**
+** Function     bta_hf_ag_bqb_brsf_ctrl
+**
+** Description  Control the usage of BTA_AG_BQB_BRSF_FEAT_SPEC for BQB test
+**
+** Returns      void
+**
+*******************************************************************************/
+#if BT_HF_AG_BQB_INCLUDED
+void bta_hf_ag_bqb_brsf_ctrl(BOOLEAN enable)
+{
+    s_bta_hf_ag_bqb_brsf_flag = enable;
+}
+#endif /* BT_HF_AG_BQB_INCLUDED */
+
 /*******************************************
-*              Funcitons Result 
+*              Function Results
 ********************************************/
 /*******************************************************************************
 **
@@ -349,7 +376,7 @@ static void bta_ag_send_result(tBTA_AG_SCB *p_scb, UINT8 code, char *p_arg, INT1
     char    *p = buf;
     UINT16  len;
 #if (BTIF_TRACE_DEBUG == TRUE)
-    memset(buf, NULL, sizeof(buf));
+    memset(buf, 0, sizeof(buf));
 #endif
     /* init with \r\n */
     *p++ = '\r';
@@ -417,7 +444,7 @@ static void bta_ag_send_multi_result(tBTA_AG_SCB *p_scb, tBTA_AG_MULTI_RESULT_CB
     }
 
 #if defined(BTA_AG_RESULT_DEBUG) && (BTA_AG_RESULT_DEBUG == TRUE)
-    memset(buf, NULL, sizeof(buf));
+    memset(buf, 0, sizeof(buf));
 #endif
 
     while(res_idx < m_res_cb->num_result) {
@@ -533,7 +560,7 @@ static void bta_ag_send_ind(tBTA_AG_SCB *p_scb, UINT16 id, UINT16 value, BOOLEAN
     }
     if ((id == BTA_AG_IND_ROAM) && (on_demand == FALSE)) {
         if (value == p_scb->roam_ind) {
-            return;            
+            return;
         }
         p_scb->roam_ind = (UINT8)value;
     }
@@ -577,13 +604,14 @@ static BOOLEAN bta_ag_parse_cmer(char *p_s, BOOLEAN *p_enabled)
     for (i = 0; i < 4; i++) {
         /* skip to comma delimiter */
         for (p = p_s; *p != ',' && *p != 0; p++);
+        if (*p == 0) {
+            n[i] = utl_str2int(p_s);
+            break;
+        }
         /* get integer value */
         *p = 0;
         n[i] = utl_str2int(p_s);
         p_s = p + 1;
-        if (p_s == 0) {
-            break;
-        }
     }
     /* process values */
     if (n[0] < 0 || n[3] < 0) {
@@ -612,7 +640,7 @@ static UINT8 bta_ag_parse_chld(tBTA_AG_SCB *p_scb, char *p_s)
     INT16   idx = -1;
     UNUSED(p_scb);
 
-    if (!isdigit(p_s[0])) {
+    if (!isdigit((unsigned char)p_s[0])) {
         return BTA_AG_INVALID_CHLD;
     }
 
@@ -658,17 +686,21 @@ static tBTA_AG_PEER_CODEC bta_ag_parse_bac(tBTA_AG_SCB *p_scb, char *p_s)
         }
         uuid_codec = utl_str2int(p_s);
         switch(uuid_codec) {
-            case UUID_CODEC_CVSD:   
-                retval |= BTA_AG_CODEC_CVSD;     
+            case UUID_CODEC_CVSD:
+                retval |= BTA_AG_CODEC_CVSD;
                 break;
-            
-            case UUID_CODEC_MSBC:   
-                retval |= BTA_AG_CODEC_MSBC;     
+#if (BTM_WBS_INCLUDED == TRUE)
+            case UUID_CODEC_MSBC:
+                retval |= BTA_AG_CODEC_MSBC;
                 break;
-            
+
+            case UUID_CODEC_LC3:
+                retval |= BTA_AG_CODEC_LC3;
+                break;
+#endif
             default:
                 APPL_TRACE_ERROR("Unknown Codec UUID(%d) received", uuid_codec);
-                return BTA_AG_CODEC_NONE;
+                break;
         }
         if (cont) {
             p_s = p + 1;
@@ -678,6 +710,32 @@ static tBTA_AG_PEER_CODEC bta_ag_parse_bac(tBTA_AG_SCB *p_scb, char *p_s)
         }
     }
     return (retval);
+}
+
+/*******************************************************************************
+**
+** Function         bta_ag_select_sco_codec_from_peer
+**
+** Description      Select preferred SCO codec from peer capabilities (LC3 > mSBC > CVSD).
+**
+** Returns          void
+**
+*******************************************************************************/
+static void bta_ag_select_sco_codec_from_peer(tBTA_AG_SCB *p_scb)
+{
+#if UC_BT_HFP_LC3_ENABLE
+    if (p_scb->peer_codecs & BTA_AG_CODEC_LC3) {
+        p_scb->sco_codec = BTA_AG_CODEC_LC3;
+        APPL_TRACE_DEBUG("Received AT+BAC, updating sco codec to LC3");
+    } else
+#endif
+    if (p_scb->peer_codecs & BTA_AG_CODEC_MSBC) {
+        p_scb->sco_codec = BTA_AG_CODEC_MSBC;
+        APPL_TRACE_DEBUG("Received AT+BAC, updating sco codec to MSBC");
+    } else {
+        p_scb->sco_codec = BTA_AG_CODEC_CVSD;
+        APPL_TRACE_DEBUG("Received AT+BAC, updating sco codec to CVSD");
+    }
 }
 #endif /* #if (BTM_WBS_INCLUDED == TRUE ) */
 
@@ -694,9 +752,9 @@ static tBTA_AG_PEER_CODEC bta_ag_parse_bac(tBTA_AG_SCB *p_scb, char *p_s)
 *******************************************************************************/
 static void bta_ag_process_unat_res(char *unat_result)
 {
-    UINT8   str_leng;
-    UINT8   i = 0;
-    UINT8   j = 0;
+    size_t  str_leng;
+    size_t  i = 0;
+    size_t  j = 0;
     UINT8   pairs_of_nl_cr;
     char    trim_data[BTA_AG_AT_MAX_LEN];
 
@@ -710,16 +768,18 @@ static void bta_ag_process_unat_res(char *unat_result)
     while(unat_result[0] =='\r' && unat_result[1] =='\n'
         && unat_result[str_leng-2] =='\r' && unat_result[str_leng-1] =='\n') {
         pairs_of_nl_cr = 1;
-        for (i=0;i<(str_leng-4*pairs_of_nl_cr);i++) {
-            trim_data[j++] = unat_result[i+pairs_of_nl_cr*2];
+        for (i = 0; i < (str_leng - 4 * pairs_of_nl_cr); i++) {
+            trim_data[j++] = unat_result[i + pairs_of_nl_cr * 2];
         }
         /* Add EOF */
-        trim_data[j] = '\0';
+        if (j < BTA_AG_AT_MAX_LEN) {
+            trim_data[j] = '\0';
+        }
         str_leng = str_leng - 4;
-        BCM_STRNCPY_S(unat_result, trim_data, BTA_AG_AT_MAX_LEN);
-        i=0;
-        j=0;
-        if(str_leng <4) {
+        BCM_STRLCPY_S(unat_result, trim_data, BTA_AG_AT_MAX_LEN + 1);
+        i = 0;
+        j = 0;
+        if (str_leng < 4) {
             return;
         }
     }
@@ -797,10 +857,11 @@ void bta_ag_at_hsp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
     val.hdr.handle = bta_ag_scb_to_idx(p_scb);
     val.hdr.app_id = p_scb->app_id;
     val.num = (UINT16) int_arg;
-    BCM_STRNCPY_S(val.str, p_arg, BTA_AG_AT_MAX_LEN);
-    val.str[BTA_AG_AT_MAX_LEN] = 0;
+    BCM_STRLCPY_S(val.str, p_arg, BTA_AG_AT_MAX_LEN + 1);
     /* call callback with event */
-    (*bta_ag_cb.p_cback)(bta_ag_hsp_cb_evt[cmd], (tBTA_AG *) &val);
+    if (bta_ag_cb.p_cback) {
+        (*bta_ag_cb.p_cback)(bta_ag_hsp_cb_evt[cmd], (tBTA_AG *) &val);
+    }
 }
 
 /*******************************************************************************
@@ -835,8 +896,7 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
     val.hdr.app_id = p_scb->app_id;
     val.num = int_arg;
     bdcpy(val.bd_addr, p_scb->peer_addr);
-    BCM_STRNCPY_S(val.str, p_arg, BTA_AG_AT_MAX_LEN);
-    val.str[BTA_AG_AT_MAX_LEN] = 0;
+    BCM_STRLCPY_S(val.str, p_arg, BTA_AG_AT_MAX_LEN + 1);
     event = bta_ag_hfp_cb_evt[cmd];
 
     switch (cmd)
@@ -856,6 +916,8 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
 
         case BTA_AG_HF_CMD_D:
         {
+            UINT16 src = 0;
+            UINT16 dst = 0;
             /* Do not send OK for Dial cmds Let application decide whether to send OK or ERROR*/
             /* if mem dial cmd, make sure string contains only digits */
             if(p_arg[0] == '>') {
@@ -863,19 +925,36 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
                     event = 0;
                     bta_ag_send_error(p_scb, BTA_AG_ERR_INV_CHAR_IN_DSTR);
                 }
+                val.value = BTA_AG_HF_DIAL_MEM;
+                src = 1;
             } else if (p_arg[0] == 'V') {
-                /* ATDV : Dial VoIP Call */ 
+                /* ATDV : Dial VoIP Call */
                 /* We do not check string. Code will be added later if needed. */
                 if(!((p_scb->peer_features & BTA_AG_PEER_FEAT_VOIP) && (p_scb->features & BTA_AG_FEAT_VOIP))) {
                     event = 0;
                     bta_ag_send_error(p_scb, BTA_AG_ERR_OP_NOT_SUPPORTED);
                 }
+                val.value = BTA_AG_HF_DIAL_VOIP;
             } else {
             /* If dial cmd, make sure string contains only dial digits
             ** Dial digits are 0-9, A-C, *, #, + */
                 if(!utl_isdialstr(p_arg)) {
                     event = 0;
                     bta_ag_send_error(p_scb, BTA_AG_ERR_INV_CHAR_IN_DSTR);
+                }
+                val.value = BTA_AG_HF_DIAL_NUM;
+            }
+            if (event != 0) {
+                while (dst < BTA_AG_AT_MAX_LEN && (val.str[dst] = p_arg[src]) != '\0') {
+                    if (val.str[dst] == ';') {
+                        val.str[dst] = '\0';
+                        break;
+                    }
+                    src++;
+                    dst++;
+                }
+                if (dst >= BTA_AG_AT_MAX_LEN) {
+                    val.str[BTA_AG_AT_MAX_LEN] = '\0';
                 }
             }
             break;
@@ -1001,7 +1080,15 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
             /* store peer features */
             p_scb->peer_features = (UINT16) int_arg;
             /* send BRSF, send OK */
-            bta_ag_send_result(p_scb, BTA_AG_RES_BRSF, NULL, (INT16) (p_scb->features & BTA_AG_BSRF_FEAT_SPEC));
+#if BT_HF_AG_BQB_INCLUDED
+            if (s_bta_hf_ag_bqb_brsf_flag == true) {
+                bta_ag_send_result(p_scb, BTA_AG_RES_BRSF, NULL, (INT16) (p_scb->features & BTA_AG_BQB_BRSF_FEAT_SPEC));
+            } else {
+                bta_ag_send_result(p_scb, BTA_AG_RES_BRSF, NULL, (INT16) (p_scb->features & BTA_AG_BRSF_FEAT_SPEC));
+            }
+#else
+            bta_ag_send_result(p_scb, BTA_AG_RES_BRSF, NULL, (INT16) (p_scb->features & BTA_AG_BRSF_FEAT_SPEC));
+#endif /* BT_HF_AG_BQB_INCLUDED */
             bta_ag_send_ok(p_scb);
             break;
         }
@@ -1093,7 +1180,7 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
                 bta_ag_send_error(p_scb, BTA_AG_ERR_OP_NOT_SUPPORTED);
             }
             break;
-        
+
         case BTA_AG_HF_CMD_CLCC:
             if(!(p_scb->features & BTA_AG_FEAT_ECS)) {
                 event = 0;
@@ -1110,13 +1197,7 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
                 p_scb->peer_codecs = bta_ag_parse_bac(p_scb, p_arg);
                 p_scb->codec_updated = TRUE;
 
-                if (p_scb->peer_codecs & BTA_AG_CODEC_MSBC) {
-                    p_scb->sco_codec = UUID_CODEC_MSBC;
-                    APPL_TRACE_DEBUG("Received AT+BAC, updating sco codec to MSBC");
-                } else {
-                    p_scb->sco_codec = UUID_CODEC_CVSD;
-                    APPL_TRACE_DEBUG("Received AT+BAC, updating sco codec to CVSD");
-                }
+                bta_ag_select_sco_codec_from_peer(p_scb);
                 /* The above logic sets the stack preferred codec based on local and peer codec
                 capabilities. This can be overridden by the application depending on its preference
                 using the bta_ag_setcodec API. We send the peer_codecs to the application. */
@@ -1139,14 +1220,18 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
             bta_sys_stop_timer(&p_scb->cn_timer);
 
             switch(int_arg) {
-                case UUID_CODEC_CVSD:   
-                    codec_type = BTA_AG_CODEC_CVSD;     
+                case UUID_CODEC_CVSD:
+                    codec_type = BTA_AG_CODEC_CVSD;
                     break;
-                
-                case UUID_CODEC_MSBC:   
+#if (BTM_WBS_INCLUDED == TRUE)
+                case UUID_CODEC_MSBC:
                     codec_type = BTA_AG_CODEC_MSBC;
                     break;
-                
+
+                case UUID_CODEC_LC3:
+                    codec_type = BTA_AG_CODEC_LC3;
+                    break;
+#endif
                 default:
                     APPL_TRACE_ERROR("Unknown codec_uuid %d", int_arg);
                     codec_type = 0xFFFF;
@@ -1182,7 +1267,9 @@ void bta_ag_at_hfp_cback(tBTA_AG_SCB *p_scb, UINT16 cmd, UINT8 arg_type,
     }
     /* call callback */
     if (event != 0) {
-        (*bta_ag_cb.p_cback)(event, (tBTA_AG *) &val);
+        if (bta_ag_cb.p_cback) {
+            (*bta_ag_cb.p_cback)(event, (tBTA_AG *) &val);
+        }
     }
 }
 
@@ -1211,9 +1298,10 @@ void bta_ag_at_err_cback(tBTA_AG_SCB *p_scb, BOOLEAN unknown, char *p_arg)
         val.hdr.handle = bta_ag_scb_to_idx(p_scb);
         val.hdr.app_id = p_scb->app_id;
         val.num = 0;
-        BCM_STRNCPY_S(val.str, p_arg, BTA_AG_AT_MAX_LEN);
-        val.str[BTA_AG_AT_MAX_LEN] = 0;
-        (*bta_ag_cb.p_cback)(BTA_AG_AT_UNAT_EVT, (tBTA_AG *) &val);
+        BCM_STRLCPY_S(val.str, p_arg, BTA_AG_AT_MAX_LEN + 1);
+        if (bta_ag_cb.p_cback) {
+            (*bta_ag_cb.p_cback)(BTA_AG_AT_UNAT_EVT, (tBTA_AG *) &val);
+        }
     } else {
         bta_ag_send_error(p_scb, BTA_AG_ERR_OP_NOT_SUPPORTED);
     }
@@ -1357,7 +1445,7 @@ void bta_ag_hfp_result(tBTA_AG_SCB *p_scb, tBTA_AG_API_RESULT *p_result)
                 }
             }
             APPL_TRACE_DEBUG("CLIP type :%d", p_result->data.num);
-            p_scb->clip[0] = 0;
+            p_scb->clip[0] = '\0';
             if (p_result->data.str[0] != 0) {
                 snprintf(p_scb->clip, sizeof(p_scb->clip), "%s,%d", p_result->data.str, p_result->data.num);
             }
@@ -1483,7 +1571,7 @@ void bta_ag_hfp_result(tBTA_AG_SCB *p_scb, tBTA_AG_API_RESULT *p_result)
             p_scb->roam_ind = p_result->data.str[8] - '0';
             p_scb->battchg_ind = p_result->data.str[10] - '0';
             p_scb->callheld_ind = p_result->data.str[12] - '0';
-            
+
             APPL_TRACE_DEBUG("cind call:%d callsetup:%d", p_scb->call_ind, p_scb->callsetup_ind);
             bta_ag_send_result(p_scb, code, p_result->data.str, 0);
             bta_ag_send_ok(p_scb);
@@ -1498,7 +1586,6 @@ void bta_ag_hfp_result(tBTA_AG_SCB *p_scb, tBTA_AG_API_RESULT *p_result)
             if (p_result->data.ok_flag != BTA_AG_OK_ERROR) {
                 if (p_result->data.str[0] != 0) {
                    bta_ag_send_result(p_scb, code, p_result->data.str, 0);
-                   bta_ag_send_ok(p_scb);
                 }
                 if (p_result->data.ok_flag == BTA_AG_OK_DONE) {
                     bta_ag_send_ok(p_scb);
@@ -1607,15 +1694,19 @@ void bta_ag_send_bcs(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data)
             case BTA_AG_CODEC_NONE:
                 codec_uuid = UUID_CODEC_CVSD;
                 break;
-            
+
             case BTA_AG_CODEC_CVSD:
                 codec_uuid = UUID_CODEC_CVSD;
                 break;
-            
+#if (BTM_WBS_INCLUDED == TRUE)
             case BTA_AG_CODEC_MSBC:
                 codec_uuid = UUID_CODEC_MSBC;
                 break;
-            
+
+            case BTA_AG_CODEC_LC3:
+                codec_uuid = UUID_CODEC_LC3;
+                break;
+#endif
             default:
                 APPL_TRACE_ERROR("bta_ag_send_bcs: unknown codec %d, use CVSD", p_scb->sco_codec);
                 codec_uuid = UUID_CODEC_CVSD;

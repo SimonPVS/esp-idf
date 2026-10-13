@@ -48,6 +48,7 @@
 #define SMP_OPCODE_MAX                    SMP_OPCODE_PAIR_KEYPR_NOTIF
 #define SMP_OPCODE_MIN                    SMP_OPCODE_PAIRING_REQ
 #define SMP_OPCODE_PAIR_COMMITM           0x0F
+#define SMP_OPCODE_ARRAY_SIZE             (SMP_OPCODE_PAIR_COMMITM + 1)
 // #endif
 
 /* SMP event type */
@@ -198,8 +199,13 @@ typedef UINT8 tSMP_KEYS;
                                   SMP_SEC_KEY_TYPE_CSRK)
 
 /* default security key distribution value */
+#if (SMP_CTKD_INCLUDED == TRUE)
 #define SMP_SEC_DEFAULT_KEY      (SMP_SEC_KEY_TYPE_ENC | SMP_SEC_KEY_TYPE_ID | \
                                   SMP_SEC_KEY_TYPE_CSRK | SMP_SEC_KEY_TYPE_LK)
+#else
+#define SMP_SEC_DEFAULT_KEY      (SMP_SEC_KEY_TYPE_ENC | SMP_SEC_KEY_TYPE_ID | \
+                                  SMP_SEC_KEY_TYPE_CSRK)
+#endif
 
 #define SMP_SC_KEY_STARTED      0   /* passkey entry started */
 #define SMP_SC_KEY_ENTERED      1   /* passkey digit entered */
@@ -225,6 +231,9 @@ typedef struct {
     BOOLEAN is_pair_cancel;
     BOOLEAN smp_over_br;
     tSMP_AUTH_REQ auth_mode;
+    /* TRUE when the local stack refused the procedure (e.g. hardened re-pairing)
+       and the stored bond must be kept regardless of REMOVE_BOND_ON_PAIR_FAIL_AS_*. */
+    BOOLEAN keep_bond;
 } tSMP_CMPL;
 
 typedef struct {
@@ -465,10 +474,10 @@ extern void SMP_SecureConnectionOobDataReply(UINT8 *p_data);
 ** Description      This function is called to encrypt the data with the specified
 **                  key
 **
-** Parameters:      key                 - Pointer to key key[0] conatins the MSB
+** Parameters:      key                 - Pointer to key key[0] contains the MSB
 **                  key_len             - key length
 **                  plain_text          - Pointer to data to be encrypted
-**                                        plain_text[0] conatins the MSB
+**                                        plain_text[0] contains the MSB
 **                  pt_len              - plain text length
 **                  p_out               - pointer to the encrypted outputs
 **
@@ -498,13 +507,9 @@ extern void SMP_KeypressNotification (BD_ADDR bd_addr, UINT8 value);
 ** Description      This function is called to start creation of local SC OOB
 **                  data set (tSMP_LOC_OOB_DATA).
 **
-** Parameters:      bd_addr      - Address of the device to send OOB data block
-**                                 to.
-**
 **  Returns         Boolean - TRUE: creation of local SC OOB data set started.
 *******************************************************************************/
-extern BOOLEAN SMP_CreateLocalSecureConnectionsOobData (
-    tBLE_BD_ADDR *addr_to_send_to);
+extern BOOLEAN SMP_CreateLocalSecureConnectionsOobData (void);
 
 #ifdef __cplusplus
 }

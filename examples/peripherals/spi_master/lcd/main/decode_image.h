@@ -10,6 +10,13 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#define IMAGE_W 320
+#define IMAGE_H 240
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /**
  * @brief Decode the jpeg ``image.jpg`` embedded into the program file into pixel data.
  *
@@ -19,4 +26,8 @@
  *         - ESP_ERR_NO_MEM if out of memory
  *         - ESP_OK on succesful decode
  */
-esp_err_t decode_image(uint16_t ***pixels);
+esp_err_t decode_image(uint16_t **pixels);
+
+#ifdef __cplusplus
+}
+#endif

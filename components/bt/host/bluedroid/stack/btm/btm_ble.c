@@ -36,19 +36,90 @@
 #include "stack/gap_api.h"
 //#include "bt_utils.h"
 #include "device/controller.h"
+#include "btm_ble_pseudo.h"
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+#include "gatt_int.h"
+#endif
 
 //#define LOG_TAG "bt_btm_ble"
 //#include "osi/include/log.h"
 #if BLE_INCLUDED == TRUE
+extern void BTM_UpdateAddrInfor(uint8_t addr_type, BD_ADDR bda);
+
+#define BTM_BLE_CONN_COMP_EVT_LEN_LEGACY    18
+#define BTM_BLE_CONN_COMP_EVT_LEN_ENHANCED  30
+#if (BT_BLE_FEAT_PAWR_EN == TRUE)
+#define BTM_BLE_CONN_COMP_EVT_LEN_ENH_V2    33
+#endif // #if (BT_BLE_FEAT_PAWR_EN == TRUE)
+
+static void btm_ble_parse_pawr_conn_handles(UINT8 **pp, BOOLEAN enhanced, BOOLEAN enhanced_v2,
+                                            UINT8 *adv_handle, UINT16 *sync_handle)
+{
+    *adv_handle = L2C_BLE_PAWR_ADV_HANDLE_NONE;
+    *sync_handle = L2C_BLE_PAWR_SYNC_HANDLE_NONE;
+    /* Legacy and enhanced connection complete events both include CCA. */
+    (*pp)++; /* Central_Clock_Accuracy */
+#if (BT_BLE_FEAT_PAWR_EN == TRUE)
+    if (enhanced && enhanced_v2) {
+        STREAM_TO_UINT8(*adv_handle, *pp);
+        STREAM_TO_UINT16(*sync_handle, *pp);
+    }
+#else
+    UNUSED(enhanced);
+    UNUSED(enhanced_v2);
+#endif // #if (BT_BLE_FEAT_PAWR_EN == TRUE)
+}
+
+static BOOLEAN btm_ble_conn_comp_evt_len_valid(UINT16 evt_len, BOOLEAN enhanced, BOOLEAN enhanced_v2)
+{
+    UINT16 min_len = BTM_BLE_CONN_COMP_EVT_LEN_LEGACY;
+
+    if (enhanced) {
+        min_len = BTM_BLE_CONN_COMP_EVT_LEN_ENHANCED;
+#if (BT_BLE_FEAT_PAWR_EN == TRUE)
+        if (enhanced_v2) {
+            min_len = BTM_BLE_CONN_COMP_EVT_LEN_ENH_V2;
+        }
+#endif // #if (BT_BLE_FEAT_PAWR_EN == TRUE)
+    }
+
+    if (evt_len < min_len) {
+        BTM_TRACE_ERROR("%s: invalid evt_len %u (need >= %u), enhanced=%d enhanced_v2=%d",
+                        __func__, evt_len, min_len, enhanced, enhanced_v2);
+        return FALSE;
+    }
+    return TRUE;
+}
+
 #if SMP_INCLUDED == TRUE
-// The temp variable to pass parameter between functions when in the connected event callback.
-static BOOLEAN temp_enhanced = FALSE;
+#include "smp_int.h"
+/* Parsed before async RPA resolve; used by btm_ble_resolve_random_addr_on_conn_cmpl(). */
+static BOOLEAN s_conn_enhanced = FALSE;
+static UINT8  s_conn_pawr_adv_handle  = L2C_BLE_PAWR_ADV_HANDLE_NONE;
+static UINT16 s_conn_pawr_sync_handle = L2C_BLE_PAWR_SYNC_HANDLE_NONE;
+
 extern BOOLEAN aes_cipher_msg_auth_code(BT_OCTET16 key, UINT8 *input, UINT16 length,
                                         UINT16 tlen, UINT8 *p_signature);
 extern void smp_link_encrypted(BD_ADDR bda, UINT8 encr_enable);
 extern BOOLEAN smp_proc_ltk_request(BD_ADDR bda);
 #endif
 extern void gatt_notify_enc_cmpl(BD_ADDR bd_addr);
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+static BOOLEAN btm_ble_make_conn_pseudo(UINT16 handle, BD_ADDR real_peer,
+                                        tBLE_ADDR_TYPE peer_type, BD_ADDR pseudo_out);
+static void btm_ble_pseudo_bringup_conn(UINT16 handle, UINT8 role,
+                                        const BD_ADDR hash_peer, UINT8 hash_peer_type,
+                                        const BD_ADDR fallback_bda, UINT8 bda_type,
+                                        UINT16 conn_interval, UINT16 conn_latency,
+                                        UINT16 conn_timeout, BOOLEAN match,
+                                        const UINT8 *air_peer, UINT8 air_peer_type,
+                                        UINT8 pawr_adv_handle, UINT16 pawr_sync_handle,
+                                        const char *tag, BD_ADDR conn_index_bda_out);
+static void btm_ble_pseudo_pick_peer_identity(tBTM_SEC_DEV_REC *p_rec, const BD_ADDR on_air,
+                                              UINT8 on_air_type,
+                                              BD_ADDR peer_out, UINT8 *p_peer_type);
+extern tBTM_SEC_DEV_REC *btm_find_dev_by_identity_addr(BD_ADDR bd_addr, UINT8 addr_type);
+#endif
 /*******************************************************************************/
 /* External Function to be called by other modules                             */
 /*******************************************************************************/
@@ -76,18 +147,16 @@ BOOLEAN BTM_SecAddBleDevice (BD_ADDR bd_addr, BD_NAME bd_name, tBT_DEVICE_TYPE d
     tBTM_SEC_DEV_REC  *p_dev_rec;
     tBTM_INQ_INFO      *p_info = NULL;
 
-    BTM_TRACE_DEBUG ("BTM_SecAddBleDevice dev_type=0x%x", dev_type);
+    BTM_TRACE_DEBUG ("%s dev_type=0x%x bd_addr="MACSTR"", __func__, dev_type, MAC2STR(bd_addr));
     p_dev_rec = btm_find_dev (bd_addr);
 
     if (!p_dev_rec) {
-        BTM_TRACE_DEBUG("Add a new device");
-
         /* There is no device record, allocate one.
          * If we can not find an empty spot for this one, let it fail. */
         if (list_length(btm_cb.p_sec_dev_rec_list) < BTM_SEC_MAX_DEVICE_RECORDS) {
-	    p_dev_rec = (tBTM_SEC_DEV_REC *)osi_malloc(sizeof(tBTM_SEC_DEV_REC));
-	    if(p_dev_rec) {
-		list_append(btm_cb.p_sec_dev_rec_list, p_dev_rec);
+            p_dev_rec = (tBTM_SEC_DEV_REC *)osi_malloc(sizeof(tBTM_SEC_DEV_REC));
+            if (p_dev_rec) {
+                list_append(btm_cb.p_sec_dev_rec_list, p_dev_rec);
                 BTM_TRACE_DEBUG ("allocate a new dev rec idx=0x%x\n", list_length(btm_cb.p_sec_dev_rec_list));
 
                 /* Mark this record as in use and initialize */
@@ -118,7 +187,7 @@ BOOLEAN BTM_SecAddBleDevice (BD_ADDR bd_addr, BD_NAME bd_name, tBT_DEVICE_TYPE d
 
     if (bd_name && bd_name[0]) {
         p_dev_rec->sec_flags |= BTM_SEC_NAME_KNOWN;
-        BCM_STRNCPY_S ((char *)p_dev_rec->sec_bd_name, (char *)bd_name, BTM_MAX_REM_BD_NAME_LEN);
+        BCM_STRLCPY_S ((char *)p_dev_rec->sec_bd_name, (char *)bd_name, BTM_MAX_REM_BD_NAME_LEN + 1);
     }
     p_dev_rec->device_type |= dev_type;
     p_dev_rec->ble.ble_addr_type = addr_type;
@@ -157,22 +226,20 @@ BOOLEAN BTM_SecAddBleDevice (BD_ADDR bd_addr, BD_NAME bd_name, tBT_DEVICE_TYPE d
 BOOLEAN BTM_SecAddBleKey (BD_ADDR bd_addr, tBTM_LE_KEY_VALUE *p_le_key, tBTM_LE_KEY_TYPE key_type)
 {
     tBTM_SEC_DEV_REC  *p_dev_rec;
-    BTM_TRACE_DEBUG ("BTM_SecAddBleKey");
     p_dev_rec = btm_find_dev (bd_addr);
+
     if (!p_dev_rec || !p_le_key ||
             (key_type != BTM_LE_KEY_PENC && key_type != BTM_LE_KEY_PID &&
              key_type != BTM_LE_KEY_PCSRK && key_type != BTM_LE_KEY_LENC &&
              key_type != BTM_LE_KEY_LCSRK && key_type != BTM_LE_KEY_LID)) {
-        BTM_TRACE_WARNING ("BTM_SecAddBleKey()  Wrong Type, or No Device record \
-                        for bdaddr: %08x%04x, Type: %d",
-                           (bd_addr[0] << 24) + (bd_addr[1] << 16) + (bd_addr[2] << 8) + bd_addr[3],
-                           (bd_addr[4] << 8) + bd_addr[5], key_type);
+        BTM_TRACE_WARNING ("BTM_SecAddBleKey() Wrong Type, or No Device record \
+                           for bdaddr: "MACSTR", key_type: %02x",
+                           MAC2STR(bd_addr), key_type);
         return (FALSE);
     }
 
-    BTM_TRACE_DEBUG ("BTM_SecAddLeKey()  BDA: %08x%04x, Type: 0x%02x",
-                     (bd_addr[0] << 24) + (bd_addr[1] << 16) + (bd_addr[2] << 8) + bd_addr[3],
-                     (bd_addr[4] << 8) + bd_addr[5], key_type);
+    BTM_TRACE_DEBUG ("BTM_SecAddLeKey()  BDA: "MACSTR", key_type: 0x%02x",
+                     MAC2STR(bd_addr), key_type);
 
     btm_sec_save_le_key (bd_addr, key_type, p_le_key, FALSE);
 
@@ -216,7 +283,7 @@ void BTM_BleLoadLocalKeys(UINT8 key_type, tBTM_BLE_LOCAL_KEYS *p_key)
             break;
 
         default:
-            BTM_TRACE_ERROR("unknow local key type: %d", key_type);
+            BTM_TRACE_ERROR("unknown local key type: %d", key_type);
             break;
         }
     }
@@ -283,6 +350,90 @@ void BTM_GetDeviceDHK (BT_OCTET16 dhk)
 ** Returns          void
 **
 *******************************************************************************/
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+/*******************************************************************************
+** Function         BTM_BleGetRealPeerByPseudo
+**
+** Description      Reverse map a Host pseudo address (as seen by the app in
+**                  remote_bda for a dual-identity link) to the real peer
+**                  identity. Returns TRUE if the pseudo is currently known.
+*******************************************************************************/
+BOOLEAN BTM_BleGetRealPeerByPseudo(BD_ADDR pseudo, BD_ADDR real_peer)
+{
+    return btm_ble_pseudo_to_real_peer(pseudo, real_peer);
+}
+
+/*******************************************************************************
+** Function         BTM_BleGetConnIdentityByPseudo
+**
+** Description      Return the full identity (real peer + local identity and
+**                  their address types) for a connected dual-identity link,
+**                  keyed by the pseudo address the application sees.
+**
+** Returns          TRUE if the pseudo belongs to a finalized link.
+*******************************************************************************/
+BOOLEAN BTM_BleGetConnIdentityByPseudo(BD_ADDR pseudo, BD_ADDR peer, BD_ADDR local,
+                                       UINT8 *peer_type, UINT8 *local_type)
+{
+    tBTM_BLE_CONN_IDENTITY ent;
+
+    if (!btm_ble_conn_identity_get_by_pseudo(pseudo, &ent) || !ent.local_ready) {
+        return FALSE;
+    }
+    if (peer) {
+        memcpy(peer, ent.id.peer, BD_ADDR_LEN);
+    }
+    if (local) {
+        memcpy(local, ent.id.local, BD_ADDR_LEN);
+    }
+    if (peer_type) {
+        *peer_type = ent.id.peer_type;
+    }
+    if (local_type) {
+        *local_type = ent.id.local_type;
+    }
+    return TRUE;
+}
+
+/*******************************************************************************
+** Function         BTM_BleComputePseudoForIdentity
+**
+** Description      Recompute the deterministic Host pseudo for a (local, peer)
+**                  identity pair. Lets the app target a bond section by its
+**                  identity even when the link is no longer connected.
+*******************************************************************************/
+void BTM_BleComputePseudoForIdentity(BD_ADDR local, UINT8 local_type,
+                                     BD_ADDR peer, UINT8 peer_type, BD_ADDR pseudo)
+{
+    tBLE_CONN_IDENTITY id;
+    memset(&id, 0, sizeof(id));
+    memcpy(id.local, local, BD_ADDR_LEN);
+    memcpy(id.peer, peer, BD_ADDR_LEN);
+    id.local_type = local_type;
+    id.peer_type = peer_type;
+    btm_ble_identity_to_pseudo(&id, pseudo);
+}
+
+/*******************************************************************************
+** Function         BTM_BleMarkPseudoBond
+**
+** Description      Tag the device record for bd_addr as a pseudo-address bond
+**                  so the BTM_LE_KEY_PID handler keeps its pseudo bd_addr and
+**                  skips consolidation while loading bonds from NVS.
+*******************************************************************************/
+BOOLEAN BTM_BleMarkPseudoBond(BD_ADDR bd_addr)
+{
+    tBTM_SEC_DEV_REC *p_rec = btm_find_dev(bd_addr);
+    if (p_rec == NULL) {
+        BLE_PSEUDO_DBG("mark pseudo bond: no rec for " BLE_PSEUDO_BDA_FMT, BLE_PSEUDO_BDA(bd_addr));
+        return FALSE;
+    }
+    p_rec->ble.is_pseudo_bond = TRUE;
+    BLE_PSEUDO_DBG("mark pseudo bond: " BLE_PSEUDO_BDA_FMT, BLE_PSEUDO_BDA(bd_addr));
+    return TRUE;
+}
+#endif
+
 void BTM_ReadConnectionAddr (BD_ADDR remote_bda, BD_ADDR local_conn_addr, tBLE_ADDR_TYPE *p_addr_type)
 {
     tACL_CONN       *p_acl = btm_bda_to_acl(remote_bda, BT_TRANSPORT_LE);
@@ -410,8 +561,9 @@ void BTM_BlePasskeyReply (BD_ADDR bd_addr, UINT8 res, UINT32 passkey)
         BTM_TRACE_ERROR("Passkey reply to Unknown device");
         return;
     }
-
-    p_dev_rec->sec_flags   |= BTM_SEC_LE_AUTHENTICATED;
+    if (res_smp == SMP_SUCCESS) {
+        p_dev_rec->sec_flags   |= BTM_SEC_LE_AUTHENTICATED;
+    }
     BTM_TRACE_DEBUG ("BTM_BlePasskeyReply");
     SMP_PasskeyReply(bd_addr, res_smp, passkey);
 #endif
@@ -460,7 +612,11 @@ void BTM_BleConfirmReply (BD_ADDR bd_addr, UINT8 res)
         return;
     }
 
-    p_dev_rec->sec_flags   |= BTM_SEC_LE_AUTHENTICATED;
+    /* Only mark the link as authenticated when the user accepts the comparison;
+     * a rejected/failed confirm must not raise the security level. */
+    if (res_smp == SMP_SUCCESS) {
+        p_dev_rec->sec_flags   |= BTM_SEC_LE_AUTHENTICATED;
+    }
     BTM_TRACE_DEBUG ("%s\n", __func__);
     SMP_ConfirmReply(bd_addr, res_smp);
 }
@@ -491,47 +647,72 @@ void BTM_BleOobDataReply(BD_ADDR bd_addr, UINT8 res, UINT8 len, UINT8 *p_data)
         return;
     }
 
-    p_dev_rec->sec_flags |= BTM_SEC_LE_AUTHENTICATED;
+    /* Ignore OOB data supplied for a device other than the one currently pairing. */
+    if (memcmp(bd_addr, smp_cb.pairing_bda, BD_ADDR_LEN) != 0) {
+        BTM_TRACE_ERROR("BTM_BleOobDataReply() - Wrong BD Addr");
+        return;
+    }
+
+    if (res_smp == SMP_SUCCESS) {
+        p_dev_rec->sec_flags |= BTM_SEC_LE_AUTHENTICATED;
+    }
     SMP_OobDataReply(bd_addr, res_smp, len, p_data);
 #endif
 }
 
-/******************************************************************************
+/*******************************************************************************
 **
-** Function         BTM_BleSetConnScanParams
+** Function         BTM_BleSecureConnectionOobDataReply
 **
-** Description      Set scan parameter used in BLE connection request
+** Description      This function is called to provide the OOB data for
+**                  SMP in response to BTM_LE_SC_OOB_REQ_EVT when secure connection
 **
-** Parameters:      scan_interval: scan interval
-**                  scan_window: scan window
-**
-** Returns          void
+** Parameters:      bd_addr     - Address of the peer device
+**                  p_c         - pointer to Confirmation
+**                  p_r         - pointer to Randomizer
 **
 *******************************************************************************/
-void BTM_BleSetConnScanParams (UINT32 scan_interval, UINT32 scan_window)
+void BTM_BleSecureConnectionOobDataReply(BD_ADDR bd_addr, UINT8 *p_c, UINT8 *p_r)
 {
 #if SMP_INCLUDED == TRUE
-    tBTM_BLE_CB *p_ble_cb = &btm_cb.ble_ctr_cb;
-    BOOLEAN     new_param = FALSE;
+    tBTM_SEC_DEV_REC *p_dev_rec = btm_find_dev (bd_addr);
 
-    if (BTM_BLE_ISVALID_PARAM(scan_interval, BTM_BLE_SCAN_INT_MIN, BTM_BLE_SCAN_INT_MAX) &&
-            BTM_BLE_ISVALID_PARAM(scan_window, BTM_BLE_SCAN_WIN_MIN, BTM_BLE_SCAN_WIN_MAX)) {
-        if (p_ble_cb->scan_int != scan_interval) {
-            p_ble_cb->scan_int = scan_interval;
-            new_param = TRUE;
-        }
+    BTM_TRACE_DEBUG ("%s", __func__);
 
-        if (p_ble_cb->scan_win != scan_window) {
-            p_ble_cb->scan_win = scan_window;
-            new_param = TRUE;
-        }
-
-        if (new_param && p_ble_cb->conn_state == BLE_BG_CONN) {
-            btm_ble_suspend_bg_conn();
-        }
-    } else {
-        BTM_TRACE_ERROR("Illegal Connection Scan Parameters");
+    if (p_dev_rec == NULL) {
+        BTM_TRACE_ERROR("%s Unknown device", __func__);
+        return;
     }
+
+    p_dev_rec->sec_flags |= BTM_SEC_LE_AUTHENTICATED;
+
+    tSMP_SC_OOB_DATA oob;
+    memset(&oob, 0, sizeof(tSMP_SC_OOB_DATA));
+
+    oob.peer_oob_data.present = true;
+    memcpy(&oob.peer_oob_data.commitment, p_c, BT_OCTET16_LEN);
+    memcpy(&oob.peer_oob_data.randomizer, p_r, BT_OCTET16_LEN);
+    oob.peer_oob_data.addr_rcvd_from.type = p_dev_rec->ble.ble_addr_type;
+    memcpy(oob.peer_oob_data.addr_rcvd_from.bda, bd_addr, BD_ADDR_LEN);
+
+    SMP_SecureConnectionOobDataReply((UINT8 *)&oob);
+#endif
+}
+
+/*******************************************************************************
+**
+** Function         BTM_BleSecureConnectionCreateOobData
+**
+** Description      This function is called to create the OOB data for
+**                  SMP when secure connection
+**
+*******************************************************************************/
+void BTM_BleSecureConnectionCreateOobData(void)
+{
+#if SMP_INCLUDED == TRUE
+    BTM_TRACE_DEBUG ("%s", __func__);
+
+    SMP_CreateLocalSecureConnectionsOobData();
 #endif
 }
 
@@ -562,8 +743,8 @@ void BTM_BleSetPrefConnParams (BD_ADDR bd_addr,
                     tout: %u",
                    min_conn_int, max_conn_int, slave_latency, supervision_tout);
 
-    if (BTM_BLE_ISVALID_PARAM(min_conn_int, BTM_BLE_CONN_INT_MIN, BTM_BLE_CONN_INT_MAX) &&
-            BTM_BLE_ISVALID_PARAM(max_conn_int, BTM_BLE_CONN_INT_MIN, BTM_BLE_CONN_INT_MAX) &&
+    if (BTM_BLE_ISVALID_PARAM(min_conn_int, BLE_CONN_INT_MIN_HOST_CHECK, BTM_BLE_CONN_INT_MAX) &&
+            BTM_BLE_ISVALID_PARAM(max_conn_int, BLE_CONN_INT_MIN_HOST_CHECK, BTM_BLE_CONN_INT_MAX) &&
             BTM_BLE_ISVALID_PARAM(supervision_tout, BTM_BLE_CONN_SUP_TOUT_MIN, BTM_BLE_CONN_SUP_TOUT_MAX) &&
             (slave_latency <= BTM_BLE_CONN_LATENCY_MAX || slave_latency == BTM_BLE_CONN_PARAM_UNDEF)) {
         if (p_dev_rec) {
@@ -637,7 +818,7 @@ void BTM_ReadDevInfo (BD_ADDR remote_bda, tBT_DEVICE_TYPE *p_dev_type, tBLE_ADDR
                 BTM_TRACE_DEBUG ("btm_find_dev_type - unknown device, BR/EDR assumed");
             }
         }
-    } else { /* there is a security device record exisitng */
+    } else { /* there is a security device record existing */
         /* new inquiry result, overwrite device type in security device record */
         if (p_inq_info) {
             p_dev_rec->device_type          = p_inq_info->results.device_type;
@@ -647,10 +828,11 @@ void BTM_ReadDevInfo (BD_ADDR remote_bda, tBT_DEVICE_TYPE *p_dev_type, tBLE_ADDR
                 memcmp(p_dev_rec->ble.pseudo_addr, remote_bda, BD_ADDR_LEN) == 0) {
             *p_dev_type = p_dev_rec->device_type;
             *p_addr_type = p_dev_rec->ble.ble_addr_type;
-        } else if (memcmp(p_dev_rec->ble.pseudo_addr, remote_bda, BD_ADDR_LEN) == 0) {
+        } else if (memcmp(p_dev_rec->ble.pseudo_addr, bd_addr_null, BD_ADDR_LEN) != 0 &&
+                memcmp(p_dev_rec->ble.pseudo_addr, remote_bda, BD_ADDR_LEN) == 0) {
             *p_dev_type = BT_DEVICE_TYPE_BLE;
             *p_addr_type = p_dev_rec->ble.ble_addr_type;
-        } else { /* matching static adddress only */
+        } else { /* matching static address only */
             *p_dev_type = BT_DEVICE_TYPE_BREDR;
             *p_addr_type = BLE_ADDR_PUBLIC;
         }
@@ -709,6 +891,7 @@ BOOLEAN BTM_ReadConnectedTransportAddress(BD_ADDR remote_bda, tBT_TRANSPORT tran
 }
 
 #if (BLE_INCLUDED == TRUE)
+#if (BLE_42_DTM_TEST_EN == TRUE)
 /*******************************************************************************
 **
 ** Function         BTM_BleReceiverTest
@@ -719,7 +902,7 @@ BOOLEAN BTM_ReadConnectedTransportAddress(BD_ADDR remote_bda, tBT_TRANSPORT tran
 **               p_cmd_cmpl_cback - Command Complete callback
 **
 *******************************************************************************/
-void BTM_BleReceiverTest(UINT8 rx_freq, tBTM_CMPL_CB *p_cmd_cmpl_cback)
+void BTM_BleReceiverTest(UINT8 rx_freq, tBTM_DTM_CMD_CMPL_CBACK *p_cmd_cmpl_cback)
 {
     btm_cb.devcb.p_le_test_cmd_cmpl_cb = p_cmd_cmpl_cback;
 
@@ -741,14 +924,15 @@ void BTM_BleReceiverTest(UINT8 rx_freq, tBTM_CMPL_CB *p_cmd_cmpl_cback)
 **
 *******************************************************************************/
 void BTM_BleTransmitterTest(UINT8 tx_freq, UINT8 test_data_len,
-                            UINT8 packet_payload, tBTM_CMPL_CB *p_cmd_cmpl_cback)
+                            UINT8 packet_payload, tBTM_DTM_CMD_CMPL_CBACK *p_cmd_cmpl_cback)
 {
     btm_cb.devcb.p_le_test_cmd_cmpl_cb = p_cmd_cmpl_cback;
     if (btsnd_hcic_ble_transmitter_test(tx_freq, test_data_len, packet_payload) == FALSE) {
         BTM_TRACE_ERROR("%s: Unable to Trigger LE transmitter test", __FUNCTION__);
     }
 }
-
+#endif // #if (BLE_42_DTM_TEST_EN == TRUE)
+#if ((BLE_42_DTM_TEST_EN == TRUE) || (BLE_50_DTM_TEST_EN == TRUE))
 /*******************************************************************************
 **
 ** Function         BTM_BleTestEnd
@@ -758,7 +942,7 @@ void BTM_BleTransmitterTest(UINT8 tx_freq, UINT8 test_data_len,
 ** Parameter       p_cmd_cmpl_cback - Command complete callback
 **
 *******************************************************************************/
-void BTM_BleTestEnd(tBTM_CMPL_CB *p_cmd_cmpl_cback)
+void BTM_BleTestEnd(tBTM_DTM_CMD_CMPL_CBACK *p_cmd_cmpl_cback)
 {
     btm_cb.devcb.p_le_test_cmd_cmpl_cb = p_cmd_cmpl_cback;
 
@@ -770,16 +954,62 @@ void BTM_BleTestEnd(tBTM_CMPL_CB *p_cmd_cmpl_cback)
 /*******************************************************************************
 ** Internal Functions
 *******************************************************************************/
-void btm_ble_test_command_complete(UINT8 *p)
+void btm_ble_test_command_complete(UINT8 *p, UINT16 len)
 {
-    tBTM_CMPL_CB   *p_cb = btm_cb.devcb.p_le_test_cmd_cmpl_cb;
+    tBTM_DTM_CMD_CMPL_CBACK *p_cb = btm_cb.devcb.p_le_test_cmd_cmpl_cb;
 
     btm_cb.devcb.p_le_test_cmd_cmpl_cb = NULL;
 
     if (p_cb) {
-        (*p_cb)(p);
+        (*p_cb)(p, len);
     }
 }
+#endif // #if ((BLE_42_DTM_TEST_EN == TRUE) || (BLE_50_DTM_TEST_EN == TRUE))
+
+#if (BLE_50_DTM_TEST_EN == TRUE)
+/*******************************************************************************
+**
+** Function         BTM_BleEnhancedReceiverTest
+**
+** Description      This function is called to start the LE Enhanced Receiver test
+**
+** Parameter       rx_freq - Frequency Range
+**                 phy - The type of phy that receives data
+**                 modulation_index - modulation index
+**                 p_cmd_cmpl_cback - Command Complete callback
+**
+*******************************************************************************/
+void BTM_BleEnhancedReceiverTest(UINT8 rx_freq, UINT8 phy, UINT8 modulation_index, tBTM_DTM_CMD_CMPL_CBACK *p_cmd_cmpl_cback)
+{
+    btm_cb.devcb.p_le_test_cmd_cmpl_cb = p_cmd_cmpl_cback;
+
+    if (btsnd_hcic_ble_enhand_rx_test(rx_freq, phy, modulation_index) == FALSE) {
+        BTM_TRACE_ERROR("%s: Unable to Trigger LE enhanced receiver test", __FUNCTION__);
+    }
+}
+
+/*******************************************************************************
+**
+** Function         BTM_BleEnhancedTransmitterTest
+**
+** Description      This function is called to start the LE Enhanced Transmitter test
+**
+** Parameter       tx_freq - Frequency Range
+**                 test_data_len - Length in bytes of payload data in each packet
+**                 packet_payload - Pattern to use in the payload
+**                 phy - The type of phy that sends data
+**                 p_cmd_cmpl_cback - Command Complete callback
+**
+*******************************************************************************/
+void BTM_BleEnhancedTransmitterTest(UINT8 tx_freq, UINT8 test_data_len,
+                            UINT8 packet_payload, UINT8 phy, tBTM_DTM_CMD_CMPL_CBACK *p_cmd_cmpl_cback)
+{
+    btm_cb.devcb.p_le_test_cmd_cmpl_cb = p_cmd_cmpl_cback;
+    if (btsnd_hcic_ble_enhand_tx_test(tx_freq, test_data_len, packet_payload, phy) == FALSE) {
+        BTM_TRACE_ERROR("%s: Unable to Trigger LE enhanced transmitter test", __FUNCTION__);
+    }
+}
+#endif // #if (BLE_50_DTM_TEST_EN == TRUE)
 
 /*******************************************************************************
 **
@@ -794,7 +1024,7 @@ BOOLEAN BTM_UseLeLink (BD_ADDR bd_addr)
 {
     tACL_CONN         *p;
     tBT_DEVICE_TYPE     dev_type;
-    tBLE_ADDR_TYPE      addr_type;
+    tBLE_ADDR_TYPE      addr_type = 0;
     BOOLEAN             use_le = FALSE;
 
     if ((p = btm_bda_to_acl(bd_addr, BT_TRANSPORT_BR_EDR)) != NULL) {
@@ -821,6 +1051,7 @@ BOOLEAN BTM_UseLeLink (BD_ADDR bd_addr)
 tBTM_STATUS BTM_SetBleDataLength(BD_ADDR bd_addr, UINT16 tx_pdu_length)
 {
     tACL_CONN *p_acl = btm_bda_to_acl(bd_addr, BT_TRANSPORT_LE);
+
     BTM_TRACE_DEBUG("%s: tx_pdu_length =%d", __FUNCTION__, tx_pdu_length);
 
     if (!controller_get_interface()->supports_ble_packet_extension()) {
@@ -828,18 +1059,18 @@ tBTM_STATUS BTM_SetBleDataLength(BD_ADDR bd_addr, UINT16 tx_pdu_length)
         return BTM_CONTROL_LE_DATA_LEN_UNSUPPORTED;
     }
 
-    if (!HCI_LE_DATA_LEN_EXT_SUPPORTED(p_acl->peer_le_features)) {
-        BTM_TRACE_ERROR("%s failed, peer does not support request", __FUNCTION__);
-        return BTM_PEER_LE_DATA_LEN_UNSUPPORTED;
-    }
-
     if (p_acl != NULL) {
+        if (!HCI_LE_DATA_LEN_EXT_SUPPORTED(p_acl->peer_le_features)) {
+            BTM_TRACE_ERROR("%s failed, peer does not support request", __FUNCTION__);
+            return BTM_PEER_LE_DATA_LEN_UNSUPPORTED;
+        }
+
         if (tx_pdu_length > BTM_BLE_DATA_SIZE_MAX) {
             tx_pdu_length =  BTM_BLE_DATA_SIZE_MAX;
         } else if (tx_pdu_length < BTM_BLE_DATA_SIZE_MIN) {
             tx_pdu_length =  BTM_BLE_DATA_SIZE_MIN;
         }
-
+        p_acl->data_len_updating = true;
         /* always set the TxTime to be max, as controller does not care for now */
         btsnd_hcic_ble_set_data_length(p_acl->hci_handle, tx_pdu_length,
                                        BTM_BLE_DATA_TX_TIME_MAX);
@@ -906,10 +1137,6 @@ tBTM_SEC_ACTION btm_ble_determine_security_act(BOOLEAN is_originator, BD_ADDR bd
         return BTM_SEC_ENC_PENDING;
     }
 
-    if (ble_sec_act == BTM_BLE_SEC_REQ_ACT_NONE) {
-        return BTM_SEC_OK;
-    }
-
     UINT8 sec_flag = 0;
     BTM_GetSecurityFlagsByTransport(bdaddr, &sec_flag, BT_TRANSPORT_LE);
 
@@ -957,7 +1184,7 @@ tBTM_SEC_ACTION btm_ble_determine_security_act(BOOLEAN is_originator, BD_ADDR bd
 **                  LE link for LE COC.
 **
 ** Parameter        bdaddr: remote device address.
-**                  psm : PSM of the LE COC sevice.
+**                  psm : PSM of the LE COC service.
 **                  is_originator: TRUE if outgoing connection.
 **                  p_callback : Pointer to the callback function.
 **                  p_ref_data : Pointer to be returned along with the callback.
@@ -974,8 +1201,14 @@ BOOLEAN btm_ble_start_sec_check(BD_ADDR bd_addr, UINT16 psm, BOOLEAN is_originat
     /* If there is no application registered with this PSM do not allow connection */
     if (!p_serv_rec)
     {
-        BTM_TRACE_WARNING ("%s PSM: %d no application registerd", __func__, psm);
+        BTM_TRACE_WARNING ("%s PSM: %d no application registered", __func__, psm);
         (*p_callback) (bd_addr, BT_TRANSPORT_LE, p_ref_data, BTM_MODE_UNSUPPORTED);
+        return FALSE;
+    }
+
+    if (btm_find_dev(bd_addr) == NULL) {
+        BTM_TRACE_ERROR ("%s no device record for bd_addr=" MACSTR, __func__, MAC2STR(bd_addr));
+        (*p_callback) (bd_addr, BT_TRANSPORT_LE, p_ref_data, BTM_UNKNOWN_ADDR);
         return FALSE;
     }
 
@@ -1047,7 +1280,7 @@ void btm_ble_rand_enc_complete (UINT8 *p, UINT16 op_code, tBTM_RAND_ENC_CB *p_en
 
     /* If there was a callback address for vcs complete, call it */
     if (p_enc_cplt_cback && p) {
-        /* Pass paramters to the callback function */
+        /* Pass parameters to the callback function */
         STREAM_TO_UINT8(params.status, p); /* command status */
 
         if (params.status == HCI_SUCCESS) {
@@ -1104,7 +1337,7 @@ void btm_ble_increment_sign_ctr(BD_ADDR bd_addr, BOOLEAN is_local )
 ** Function         btm_ble_get_enc_key_type
 **
 ** Description      This function is to get the BLE key type that has been exchanged
-**                  in betweem local device and peer device.
+**                  in between local device and peer device.
 **
 ** Returns          p_key_type: output parameter to carry the key type value.
 **
@@ -1131,7 +1364,7 @@ BOOLEAN btm_ble_get_enc_key_type(BD_ADDR bd_addr, UINT8 *p_key_types)
 **
 ** Description      This function is called to read the local DIV
 **
-** Returns          TRUE - if a valid DIV is availavle
+** Returns          TRUE - if a valid DIV is available
 *******************************************************************************/
 BOOLEAN btm_get_local_div (BD_ADDR bd_addr, UINT16 *p_div)
 {
@@ -1216,10 +1449,36 @@ void btm_sec_save_le_key(BD_ADDR bd_addr, tBTM_LE_KEY_TYPE key_type, tBTM_LE_KEY
             p_rec->ble.static_addr_type = p_keys->pid_key.addr_type;
             p_rec->ble.key_type |= BTM_LE_KEY_PID;
             BTM_TRACE_DEBUG("BTM_LE_KEY_PID key_type=0x%x save peer IRK",  p_rec->ble.key_type);
-            /* update device record address as static address */
-            memcpy(p_rec->bd_addr, p_keys->pid_key.static_addr, BD_ADDR_LEN);
-            /* combine DUMO device security record if needed */
-            btm_consolidate_dev(p_rec);
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+            /* A pseudo bond record must NEVER be consolidated onto the peer
+             * Identity, otherwise two local identities of the same phone (which
+             * share the peer IRK / static_addr) collapse into a single device
+             * record and overwrite each other's LTK. Detect it two ways:
+             *   1) an active dual-identity link: the side table has this handle;
+             *   2) an NVS-loaded bond marked as pseudo: BTA_DmAddBleDevice queued
+             *      is_pseudo_bond=TRUE and bta_dm_add_ble_device called
+             *      BTM_BleMarkPseudoBond() before this PID was added. This is the
+             *      authoritative signal (no live connection exists at boot). */
+            if (!btm_ble_conn_identity_exists_by_handle(p_rec->ble_hci_handle) &&
+                !p_rec->ble.is_pseudo_bond)
+#endif
+            {
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+                BLE_PSEUDO_DBG("PID: handle=0x%x NOT a pseudo bond -> overwrite bd_addr + consolidate (default)",
+                               p_rec->ble_hci_handle);
+#endif
+                /* update device record address as static address */
+                memcpy(p_rec->bd_addr, p_keys->pid_key.static_addr, BD_ADDR_LEN);
+                /* combine DUMO device security record if needed */
+                btm_consolidate_dev(p_rec);
+            }
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+            else {
+                BLE_PSEUDO_DBG("PID: handle=0x%x IS a pseudo bond -> keep bd_addr=" BLE_PSEUDO_BDA_FMT
+                               ", skip consolidate (LTK isolated)",
+                               p_rec->ble_hci_handle, BLE_PSEUDO_BDA(p_rec->bd_addr));
+            }
+#endif
             break;
 
         case BTM_LE_KEY_PCSRK:
@@ -1368,6 +1627,7 @@ void btm_ble_link_sec_check(BD_ADDR bd_addr, tBTM_LE_AUTH_REQ auth_req, tBTM_BLE
 
     if (p_dev_rec == NULL) {
         BTM_TRACE_ERROR ("btm_ble_link_sec_check received for unknown device");
+        *p_sec_req_act = BTM_BLE_SEC_REQ_ACT_NONE;
         return;
     }
 
@@ -1383,7 +1643,7 @@ void btm_ble_link_sec_check(BD_ADDR bd_addr, tBTM_LE_AUTH_REQ auth_req, tBTM_BLE
 
         BTM_TRACE_DEBUG ("dev_rec sec_flags=0x%x", p_dev_rec->sec_flags);
 
-        /* currently encrpted  */
+        /* currently encrypted  */
         if (p_dev_rec->sec_flags & BTM_SEC_LE_ENCRYPTED) {
             if (p_dev_rec->sec_flags & BTM_SEC_LE_AUTHENTICATED) {
                 cur_sec_level = BTM_LE_SEC_AUTHENTICATED;
@@ -1510,7 +1770,7 @@ void btm_ble_ltk_request(UINT16 handle, UINT8 rand[8], UINT16 ediv)
 {
     tBTM_CB *p_cb = &btm_cb;
     tBTM_SEC_DEV_REC *p_dev_rec = btm_find_dev_by_handle (handle);
-    BT_OCTET8 dummy_stk = {0};
+    BT_OCTET16 dummy_stk = {0};
 
     BTM_TRACE_DEBUG ("btm_ble_ltk_request");
 
@@ -1587,7 +1847,7 @@ tBTM_STATUS btm_ble_start_encrypt(BD_ADDR bda, BOOLEAN use_stk, BT_OCTET16 stk)
 **
 ** Function         btm_ble_link_encrypted
 **
-** Description      This function is called when LE link encrption status is changed.
+** Description      This function is called when LE link encryption status is changed.
 **
 ** Returns          void
 **
@@ -1595,6 +1855,9 @@ tBTM_STATUS btm_ble_start_encrypt(BD_ADDR bda, BOOLEAN use_stk, BT_OCTET16 stk)
 #if (SMP_INCLUDED == TRUE)
 void btm_ble_link_encrypted(BD_ADDR bd_addr, UINT8 encr_enable)
 {
+#if BLE_INCLUDED == TRUE
+    l2cble_notify_le_connection(bd_addr);
+#endif // BLE_INCLUDED == TRUE
     tBTM_SEC_DEV_REC    *p_dev_rec = btm_find_dev (bd_addr);
     BOOLEAN             enc_cback;
 
@@ -1647,15 +1910,14 @@ void btm_ble_ltk_request_reply(BD_ADDR bda,  BOOLEAN use_stk, BT_OCTET16 stk)
     tBTM_CB *p_cb = &btm_cb;
 
     if (p_rec == NULL) {
-        BTM_TRACE_ERROR("btm_ble_ltk_request_reply received for unknown device");
+        BTM_TRACE_ERROR("%s received for unknown device "MACSTR"", __func__, MAC2STR(bda));
         return;
     }
 
-    BTM_TRACE_DEBUG ("btm_ble_ltk_request_reply");
+    BTM_TRACE_DEBUG ("%s key_type=%x key_size=%d", __func__, p_rec->ble.key_type, p_rec->ble.keys.key_size);
     p_cb->enc_handle = p_rec->ble_hci_handle;
     p_cb->key_size = p_rec->ble.keys.key_size;
 
-    BTM_TRACE_DEBUG("key size = %d", p_rec->ble.keys.key_size);
     if (use_stk) {
         btsnd_hcic_ble_ltk_req_reply(btm_cb.enc_handle, stk);
     } else { /* calculate LTK using peer device  */
@@ -1778,6 +2040,155 @@ UINT8 btm_ble_br_keys_req(tBTM_SEC_DEV_REC *p_dev_rec, tBTM_LE_IO_REQ *p_data)
 #endif  ///SMP_INCLUDED
 
 
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == TRUE)
+/*******************************************************************************
+**
+** Function         btm_ble_adjust_conn_addr_for_ext_adv
+**
+** Description      Rewrite p_acl->conn_addr / conn_addr_type from the
+**                  per-set state in extend_adv_cb.inst[] for the ext-adv
+**                  instance that produced this connection.
+**
+**                  The defaults written by btm_acl_created() and
+**                  btm_ble_refresh_local_resolvable_private_addr() come
+**                  from the global addr_mgnt_cb single slot, which in
+**                  multi-ADV may not reflect the policy actually used on
+**                  air for THIS connection and causes SMP c1 / f5 / f6
+**                  to compute the wrong local address (pair fail 0x04).
+**
+**                  RPA paths (own_addr_type 0x02 or 0x03 with a valid
+**                  local RPA in the LE Enhanced Connection Complete event)
+**                  are left untouched. When the controller falls back to
+**                  identity (zero local_rpa) the global private_addr written
+**                  by btm_ble_refresh_local_resolvable_private_addr() is
+**                  replaced: for 0x03 with the per-set static random, and for
+**                  0x02 with the public identity address.
+**
+**                  No-op when no ext-adv instance matches the handle
+**                  (initiator role or legacy adv).
+**
+** Returns          void
+**
+*******************************************************************************/
+void btm_ble_adjust_conn_addr_for_ext_adv(UINT16 handle)
+{
+    UINT8 inst;
+    tACL_CONN *p_acl;
+    tBLE_ADDR_TYPE on_air_type;
+
+    inst = BTM_BleGetExtAdvInstByConHandle(handle);
+    if (inst >= MAX_BLE_ADV_INSTANCE) {
+        return;
+    }
+
+    p_acl = btm_handle_to_acl(handle);
+    if (p_acl == NULL) {
+        BTM_TRACE_WARNING("%s: no ACL for handle 0x%04x, skip", __func__, handle);
+        return;
+    }
+
+    on_air_type = extend_adv_cb.inst[inst].own_addr_type;
+    if (on_air_type == BLE_ADDR_PUBLIC) {
+        p_acl->conn_addr_type = BLE_ADDR_PUBLIC;
+        memcpy(p_acl->conn_addr,
+               controller_get_interface()->get_address()->address,
+               BD_ADDR_LEN);
+    } else if (on_air_type == BLE_ADDR_RANDOM &&
+               extend_adv_cb.inst[inst].rand_addr_set) {
+        p_acl->conn_addr_type = BLE_ADDR_RANDOM;
+        memcpy(p_acl->conn_addr,
+               extend_adv_cb.inst[inst].rand_addr,
+               BD_ADDR_LEN);
+    } else if (on_air_type == BLE_ADDR_RANDOM_ID &&
+               extend_adv_cb.inst[inst].rand_addr_set &&
+               !BTM_BLE_IS_RESOLVE_BDA(p_acl->conn_addr)) {
+        /* Identity fallback: controller used per-set static random, not RPA. */
+        p_acl->conn_addr_type = BLE_ADDR_RANDOM;
+        memcpy(p_acl->conn_addr,
+               extend_adv_cb.inst[inst].rand_addr,
+               BD_ADDR_LEN);
+    } else if (on_air_type == BLE_ADDR_PUBLIC_ID &&
+               !BTM_BLE_IS_RESOLVE_BDA(p_acl->conn_addr)) {
+        /* Identity fallback: controller used the public identity, not an RPA.
+         * The RPA path (conn_addr already holds a valid local RPA) is left
+         * untouched by the IS_RESOLVE_BDA guard, mirroring the 0x03 case. */
+        p_acl->conn_addr_type = BLE_ADDR_PUBLIC;
+        memcpy(p_acl->conn_addr,
+               controller_get_interface()->get_address()->address,
+               BD_ADDR_LEN);
+    }
+
+    BTM_TRACE_DEBUG("%s: handle=0x%04x inst=%u type=%u addr=%02x:%02x:%02x:%02x:%02x:%02x",
+                    __func__, handle, inst, p_acl->conn_addr_type,
+                    p_acl->conn_addr[0], p_acl->conn_addr[1], p_acl->conn_addr[2],
+                    p_acl->conn_addr[3], p_acl->conn_addr[4], p_acl->conn_addr[5]);
+}
+#endif /* (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == TRUE) */
+
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+/*******************************************************************************
+** Function         btm_ble_pseudo_bringup_conn
+**
+** Description      Shared peripheral connection-completion path for the
+**                  pseudo-address bond feature, used by both the synchronous
+**                  btm_ble_conn_complete() branch and the asynchronous RPA
+**                  resolution callback. It derives the Host pseudo from the
+**                  (local, peer-identity) pair and brings the link up on that
+**                  pseudo, or keeps the real peer (fallback_bda) when the local
+**                  identity is not yet resolvable (deferred to adv-terminate).
+**
+**                  When air_peer is non-NULL the ACL active_remote_addr is
+**                  restored to the real on-air RPA so SC pairing f5/f6 stays
+**                  valid after host RPA resolution rewrote bda to the pseudo.
+**
+**                  The address actually used to index the ACL / device record
+**                  is written to conn_index_bda_out. tag only labels the trace.
+*******************************************************************************/
+static void btm_ble_pseudo_bringup_conn(UINT16 handle, UINT8 role,
+                                        const BD_ADDR hash_peer, UINT8 hash_peer_type,
+                                        const BD_ADDR fallback_bda, UINT8 bda_type,
+                                        UINT16 conn_interval, UINT16 conn_latency,
+                                        UINT16 conn_timeout, BOOLEAN match,
+                                        const UINT8 *air_peer, UINT8 air_peer_type,
+                                        UINT8 pawr_adv_handle, UINT16 pawr_sync_handle,
+                                        const char *tag, BD_ADDR conn_index_bda_out)
+{
+    BD_ADDR pseudo;
+
+    if (role == HCI_ROLE_SLAVE &&
+        btm_ble_make_conn_pseudo(handle, (UINT8 *)hash_peer, hash_peer_type, pseudo)) {
+        memcpy(conn_index_bda_out, pseudo, BD_ADDR_LEN);
+        BLE_PSEUDO_DBG("conn_complete[%s]: keyed handle=0x%x peer=" BLE_PSEUDO_BDA_FMT
+                       " -> pseudo=" BLE_PSEUDO_BDA_FMT,
+                       tag, handle, BLE_PSEUDO_BDA(hash_peer), BLE_PSEUDO_BDA(pseudo));
+    } else {
+        memcpy(conn_index_bda_out, fallback_bda, BD_ADDR_LEN);
+        if (role == HCI_ROLE_SLAVE) {
+            BLE_PSEUDO_DBG("conn_complete[%s]: local NOT ready, defer to adv-terminate; handle=0x%x peer="
+                           BLE_PSEUDO_BDA_FMT, tag, handle, BLE_PSEUDO_BDA(fallback_bda));
+        }
+    }
+
+    btm_ble_connected(conn_index_bda_out, handle, HCI_ENCRYPT_MODE_DISABLED, role, bda_type, match);
+    l2cble_conn_comp(handle, role, conn_index_bda_out, bda_type, conn_interval,
+                     conn_latency, conn_timeout, pawr_adv_handle, pawr_sync_handle);
+
+    /* Host RPA resolution replaced the on-air RPA with a stored pseudo on the
+     * ACL. Restore the real on-air peer address so SC pairing f5/f6 uses what
+     * the peer actually put on air (otherwise the DHKey check fails on a
+     * resolved reconnect). The pseudo stays the dev_rec index. */
+    if (air_peer != NULL && role == HCI_ROLE_SLAVE) {
+        tACL_CONN *p_air = btm_handle_to_acl(handle);
+        if (p_air != NULL && BTM_BLE_IS_RESOLVE_BDA(air_peer)) {
+            memcpy(p_air->active_remote_addr, air_peer, BD_ADDR_LEN);
+            p_air->active_remote_addr_type = air_peer_type;
+            BLE_PSEUDO_DBG("force air addr: handle=0x%x active_remote=" BLE_PSEUDO_BDA_FMT " type %u",
+                           handle, BLE_PSEUDO_BDA(air_peer), air_peer_type);
+        }
+    }
+}
+#endif /* BLE_PERIPH_PSEUDO_ADDR_BOND */
+
 #if (BLE_PRIVACY_SPT == TRUE )
 /*******************************************************************************
 **
@@ -1796,7 +2207,13 @@ static void btm_ble_resolve_random_addr_on_conn_cmpl(void *p_rec, void *p_data)
     UINT16      handle;
     BD_ADDR     bda, local_rpa, peer_rpa;
     UINT16      conn_interval, conn_latency, conn_timeout;
+    UINT8       pawr_adv_handle;
+    UINT16      pawr_sync_handle;
     BOOLEAN     match = FALSE;
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+    BD_ADDR     air_peer;       /* on-air peer address (RPA) before resolution rewrite */
+    UINT8       air_peer_type;
+#endif
 
     ++p;
     STREAM_TO_UINT16   (handle, p);
@@ -1805,16 +2222,26 @@ static void btm_ble_resolve_random_addr_on_conn_cmpl(void *p_rec, void *p_data)
     STREAM_TO_BDADDR   (bda, p);
     // if the enhanced is true, means the connection is enhanced connect,
     // so the packet should include the local Resolvable Private Address and Peer Resolvable Private Address
-    if(temp_enhanced) {
+    if (s_conn_enhanced) {
         STREAM_TO_BDADDR(local_rpa, p);
         STREAM_TO_BDADDR(peer_rpa, p);
     }
     STREAM_TO_UINT16   (conn_interval, p);
     STREAM_TO_UINT16   (conn_latency, p);
     STREAM_TO_UINT16   (conn_timeout, p);
+    pawr_adv_handle = s_conn_pawr_adv_handle;
+    pawr_sync_handle = s_conn_pawr_sync_handle;
 
     handle = HCID_GET_HANDLE (handle);
     BTM_TRACE_EVENT ("%s\n", __func__);
+
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+    /* Snapshot the real on-air peer address (the RPA the controller reported)
+     * BEFORE host RPA resolution rewrites bda to a stored pseudo_addr. SC
+     * pairing f5/f6 must use this real on-air address, not the pseudo. */
+    memcpy(air_peer, bda, BD_ADDR_LEN);
+    air_peer_type = bda_type;
+#endif
 
     if (match_rec) {
         BTM_TRACE_DEBUG("%s matched and resolved random address", __func__);
@@ -1831,11 +2258,49 @@ static void btm_ble_resolve_random_addr_on_conn_cmpl(void *p_rec, void *p_data)
         BTM_TRACE_DEBUG("%s unable to match and resolve random address", __func__);
     }
 
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+    {
+        BD_ADDR conn_bda;
+        BD_ADDR hash_peer;
+        UINT8   hash_peer_type = air_peer_type;
+
+        /* Derive the pseudo from the PEER IDENTITY, never from a transient RPA
+         * or the stored pseudo_addr. bda may have been rewritten to the old
+         * pseudo above; use air_peer as the on-air fallback. */
+        btm_ble_pseudo_pick_peer_identity(match_rec, air_peer, air_peer_type, hash_peer, &hash_peer_type);
+
+        /* Bring the link up on the real on-air address (air_peer), NOT the
+         * possibly-rewritten bda. When the peer is already bonded under another
+         * local identity, btm_ble_init_pseudo_addr() above rewrites bda to that
+         * other identity's stored pseudo; using it as the deferred fallback
+         * would make this second link collide with the first link's LCB / GATT
+         * TCB (same remote_bd_addr) instead of getting its own, so the app would
+         * never receive a CONNECT event for the second identity. air_peer is the
+         * unique on-air address; finalize re-keys it to f(local, peer) at
+         * adv-terminate. air_peer is also passed (last two real args) so the ACL
+         * active_remote_addr is restored to the real on-air RPA for SC f5/f6. */
+        btm_ble_pseudo_bringup_conn(handle, role, hash_peer, hash_peer_type,
+                                    air_peer, air_peer_type, conn_interval, conn_latency,
+                                    conn_timeout, match, air_peer, air_peer_type,
+                                    pawr_adv_handle, pawr_sync_handle,
+                                    "rpa", conn_bda);
+    }
+#else
     btm_ble_connected(bda, handle, HCI_ENCRYPT_MODE_DISABLED, role, bda_type, match);
 
-    l2cble_conn_comp (handle, role, bda, bda_type, conn_interval,
-                      conn_latency, conn_timeout);
+    l2cble_conn_comp(handle, role, bda, bda_type, conn_interval,
+                     conn_latency, conn_timeout,
+                     pawr_adv_handle, pawr_sync_handle);
+#endif
 
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == TRUE)
+    /* Multi-ADV: fix up p_acl->conn_addr / conn_addr_type from per-set state. */
+    btm_ble_adjust_conn_addr_for_ext_adv(handle);
+#endif /* (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == TRUE) */
+
+    s_conn_enhanced = FALSE;
+    s_conn_pawr_adv_handle = L2C_BLE_PAWR_ADV_HANDLE_NONE;
+    s_conn_pawr_sync_handle = L2C_BLE_PAWR_SYNC_HANDLE_NONE;
     return;
 }
 #endif
@@ -1845,7 +2310,7 @@ static void btm_ble_resolve_random_addr_on_conn_cmpl(void *p_rec, void *p_data)
 ** Function         btm_ble_connected
 **
 ** Description      This function is when a LE connection to the peer device is
-**                  establsihed
+**                  established
 **
 ** Returns          void
 **
@@ -1876,11 +2341,44 @@ void btm_ble_connected (UINT8 *bda, UINT16 handle, UINT8 enc_mode, UINT8 role,
     }
 #endif
 
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+    /* Dual local-identity: a phone connecting through a SECOND local identity
+     * exposes the SAME peer IRK, so btm_find_dev(bda) resolves the on-air RPA to
+     * the FIRST identity's record, which belongs to a different, still-connected
+     * handle. Reusing it here would steal that live link's record (overwrite its
+     * ble_hci_handle and pseudo_addr) and break its encrypted session. Allocate a
+     * fresh record instead; this deferred link is re-keyed to its own
+     * f(local, peer) pseudo at adv-terminate finalize. */
+    tBTM_SEC_DEV_REC *no_hijack_exclude = NULL;
+    if (role == HCI_ROLE_SLAVE && p_dev_rec &&
+        p_dev_rec->ble_hci_handle != BTM_SEC_INVALID_HANDLE &&
+        p_dev_rec->ble_hci_handle != handle &&
+        btm_handle_to_acl(p_dev_rec->ble_hci_handle) != NULL) {
+        BLE_PSEUDO_DBG("connected: " BLE_PSEUDO_BDA_FMT " resolves to live handle 0x%x (rec %p);"
+                       " alloc fresh rec for handle 0x%x (no hijack)",
+                       BLE_PSEUDO_BDA(bda), p_dev_rec->ble_hci_handle, p_dev_rec, handle);
+        /* Keep the live record we just refused to hijack out of the recycle
+         * pool: when the device table is full btm_sec_alloc_dev() would call
+         * btm_find_oldest_dev_ex(NULL) and could pick this very record (it does
+         * not check for an active ACL), memset it and destroy the first
+         * identity's keys/handle. Exclude it explicitly, mirroring
+         * btm_ble_pseudo_finalize_local(). */
+        no_hijack_exclude = p_dev_rec;
+        p_dev_rec = NULL;
+    }
+#endif
+
     if (!p_dev_rec) {
         /* There is no device record for new connection.  Allocate one */
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+        if ((p_dev_rec = btm_sec_alloc_dev_ex (bda, no_hijack_exclude)) == NULL) {
+            return;
+        }
+#else
         if ((p_dev_rec = btm_sec_alloc_dev (bda)) == NULL) {
             return;
         }
+#endif
     } else { /* Update the timestamp for this device */
         p_dev_rec->timestamp = btm_cb.dev_rec_count++;
     }
@@ -1912,13 +2410,363 @@ void btm_ble_connected (UINT8 *bda, UINT16 handle, UINT8 enc_mode, UINT8 role,
     return;
 }
 
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+/*******************************************************************************
+** Function         btm_ble_resolve_conn_local
+**
+** Description      Resolve the local identity (Public or fixed Static Random)
+**                  that produced this peripheral connection from its ext-adv
+**                  instance. Returns TRUE and fills id->local / local_type
+**                  when the ext-adv instance is resolvable for the handle.
+*******************************************************************************/
+static BOOLEAN btm_ble_resolve_conn_local(UINT16 handle, tBLE_CONN_IDENTITY *id)
+{
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE)
+    UINT8 inst = BTM_BleGetExtAdvInstByConHandle(handle);
+    if (inst < MAX_BLE_ADV_INSTANCE) {
+        tBLE_ADDR_TYPE own = extend_adv_cb.inst[inst].own_addr_type;
+        if (own == BLE_ADDR_PUBLIC || own == BLE_ADDR_PUBLIC_ID) {
+            memcpy(id->local, controller_get_interface()->get_address()->address, BD_ADDR_LEN);
+            id->local_type = BLE_ADDR_PUBLIC;
+            return TRUE;
+        } else if ((own == BLE_ADDR_RANDOM || own == BLE_ADDR_RANDOM_ID) &&
+                   extend_adv_cb.inst[inst].rand_addr_set) {
+            memcpy(id->local, extend_adv_cb.inst[inst].rand_addr, BD_ADDR_LEN);
+            id->local_type = BLE_ADDR_RANDOM;
+            return TRUE;
+        }
+    }
+#else
+    UNUSED(handle);
+    UNUSED(id);
+#endif
+    return FALSE;
+}
+
+/*******************************************************************************
+** Function         btm_ble_make_conn_pseudo
+**
+** Description      Resolve the local identity, derive the Host pseudo and
+**                  register the (handle -> pseudo, identity) side table.
+**                  Returns TRUE and fills pseudo_out when a usable local
+**                  identity is known; FALSE if the ext-adv instance is not
+**                  yet resolvable (the connection then keeps using the real
+**                  peer until btm_ble_pseudo_finalize_local() at adv-terminate).
+*******************************************************************************/
+static BOOLEAN btm_ble_make_conn_pseudo(UINT16 handle, BD_ADDR real_peer,
+                                        tBLE_ADDR_TYPE peer_type, BD_ADDR pseudo_out)
+{
+    tBLE_CONN_IDENTITY id;
+
+    memset(&id, 0, sizeof(id));
+    memcpy(id.peer, real_peer, BD_ADDR_LEN);
+    id.peer_type = peer_type;
+
+    if (!btm_ble_resolve_conn_local(handle, &id)) {
+        return FALSE;
+    }
+
+    btm_ble_identity_to_pseudo(&id, pseudo_out);
+    /* The pseudo is already traced by btm_ble_identity_to_pseudo() and
+     * btm_ble_conn_identity_register() via BLE_PSEUDO_DBG. */
+    return btm_ble_conn_identity_register(handle, &id, pseudo_out, TRUE);
+}
+
+/*******************************************************************************
+** Function         btm_ble_pseudo_rekey_link
+**
+** Description      Re-key the whole per-link chain (GATT TCB, L2CAP LCB, ACL,
+**                  device record) from its current index address to the given
+**                  pseudo, consistently. ACL active_remote_addr (real on-air
+**                  address) is left untouched so SMP cryptography stays valid.
+*******************************************************************************/
+static void btm_ble_pseudo_rekey_link(UINT16 handle, tACL_CONN *p_acl, const BD_ADDR pseudo)
+{
+    if (p_acl == NULL || memcmp(p_acl->remote_addr, pseudo, BD_ADDR_LEN) == 0) {
+        return;
+    }
+
+    BLE_PSEUDO_DBG("re-key: handle=0x%x " BLE_PSEUDO_BDA_FMT " -> " BLE_PSEUDO_BDA_FMT,
+                   handle, BLE_PSEUDO_BDA(p_acl->remote_addr), BLE_PSEUDO_BDA(pseudo));
+
+    tGATT_TCB *p_tcb = gatt_find_tcb_by_addr(p_acl->remote_addr, BT_TRANSPORT_LE);
+    if (p_tcb) {
+        memcpy(p_tcb->peer_bda, pseudo, BD_ADDR_LEN);
+    }
+
+    tL2C_LCB *p_lcb = l2cu_find_lcb_by_handle(handle);
+    if (p_lcb) {
+        memcpy(p_lcb->remote_bd_addr, pseudo, BD_ADDR_LEN);
+    }
+
+    tBTM_SEC_DEV_REC *p_rec = btm_find_dev_by_handle(handle);
+    if (p_rec) {
+        memcpy(p_rec->bd_addr, pseudo, BD_ADDR_LEN);
+        memcpy(p_rec->ble.pseudo_addr, pseudo, BD_ADDR_LEN);
+
+        /* Remove any OTHER device record that still carries this same pseudo
+         * (a stale duplicate left by an earlier pairing of the same
+         * (local,peer)). Keeping it would let btm_find_dev() return the stale
+         * record with an old LTK on a later encrypted reconnect -> MIC failure.
+         * Only exact-pseudo duplicates are removed, so other local identities
+         * (different pseudo) are never touched. */
+        list_node_t *p_node = list_begin(btm_cb.p_sec_dev_rec_list);
+        while (p_node) {
+            tBTM_SEC_DEV_REC *p_dup = list_node(p_node);
+            p_node = list_next(p_node);
+            if (p_dup != p_rec && (p_dup->sec_flags & BTM_SEC_IN_USE) &&
+                memcmp(p_dup->bd_addr, pseudo, BD_ADDR_LEN) == 0) {
+                BLE_PSEUDO_DBG("re-key: drop stale dup rec %p for pseudo " BLE_PSEUDO_BDA_FMT,
+                               p_dup, BLE_PSEUDO_BDA(pseudo));
+                /* Use the canonical free path so the stale LTK / BLE keys are
+                 * zeroed before the record memory is released; it also removes
+                 * the record from the list once BTM_SEC_IN_USE is cleared. */
+                btm_sec_free_dev(p_dup, BT_TRANSPORT_LE);
+            }
+        }
+    }
+
+    memcpy(p_acl->remote_addr, pseudo, BD_ADDR_LEN);
+    BLE_PSEUDO_DBG("re-key: done handle=0x%x tcb=%p lcb=%p rec=%p", handle, p_tcb, p_lcb, p_rec);
+}
+
+/*******************************************************************************
+** Function         btm_ble_pseudo_pick_peer_identity
+**
+** Description      Choose the STABLE peer identity to feed into the pseudo
+**                  hash. A phone that connects with an RPA exposes a different
+**                  address on every connection, so hashing the on-air address
+**                  would make the pseudo (and therefore the bond key) drift on
+**                  every reconnect. Prefer the resolved IRK Identity Address
+**                  (ble.static_addr, learned from SMP Identity / PID) and only
+**                  fall back to the on-air address before pairing.
+*******************************************************************************/
+static void btm_ble_pseudo_pick_peer_identity(tBTM_SEC_DEV_REC *p_rec, const BD_ADDR on_air,
+                                              UINT8 on_air_type,
+                                              BD_ADDR peer_out, UINT8 *p_peer_type)
+{
+    const BD_ADDR zero = {0};
+    if (p_rec && (p_rec->ble.key_type & BTM_LE_KEY_PID) &&
+        memcmp(p_rec->ble.static_addr, zero, BD_ADDR_LEN) != 0) {
+        memcpy(peer_out, p_rec->ble.static_addr, BD_ADDR_LEN);
+        *p_peer_type = p_rec->ble.static_addr_type;
+        BLE_PSEUDO_DBG("pick_peer: use IDENTITY " BLE_PSEUDO_BDA_FMT " (type %u, key_type=0x%x)",
+                       BLE_PSEUDO_BDA(peer_out), *p_peer_type, p_rec->ble.key_type);
+    } else {
+        memcpy(peer_out, on_air, BD_ADDR_LEN);
+        *p_peer_type = on_air_type;
+        BLE_PSEUDO_DBG("pick_peer: use ON-AIR " BLE_PSEUDO_BDA_FMT " (no PID yet; rec=%p key_type=0x%x)",
+                       BLE_PSEUDO_BDA(peer_out), p_rec, p_rec ? p_rec->ble.key_type : 0);
+    }
+}
+
+/*******************************************************************************
+** Function         btm_ble_pseudo_finalize_local
+**
+** Description      Second-phase finalize, called from the LE Advertising Set
+**                  Terminated handler. When the ext-adv instance was not yet
+**                  resolvable at LE Connection Complete, the link was kept on
+**                  the real peer address. Now that ter_con_handle is set the
+**                  instance is known: derive the pseudo and re-key the link.
+*******************************************************************************/
+void btm_ble_pseudo_finalize_local(UINT16 handle)
+{
+    tBTM_BLE_CONN_IDENTITY ent;
+
+    if (btm_ble_conn_identity_get_by_handle(handle, &ent) && ent.local_ready) {
+        BLE_PSEUDO_DBG("finalize: handle=0x%x already keyed, skip", handle);
+        return;     /* already keyed at connection complete */
+    }
+
+    tACL_CONN *p_acl = btm_handle_to_acl(handle);
+    if (p_acl == NULL || p_acl->transport != BT_TRANSPORT_LE ||
+        p_acl->link_role != HCI_ROLE_SLAVE) {
+        BLE_PSEUDO_DBG("finalize: handle=0x%x no LE slave ACL, skip (p_acl=%p)", handle, p_acl);
+        return;
+    }
+
+    tBTM_SEC_DEV_REC *p_cur = btm_find_dev_by_handle(handle);
+
+    /* Pick the record that carries the peer Identity. Normally that is p_cur,
+     * but when btm_ble_connected() took the no-hijack path it allocated a FRESH,
+     * key-less record for this handle (because the on-air RPA IRK-resolved to
+     * ANOTHER live identity's bonded record). That fresh record has no PID, so
+     * feeding it to pick_peer would fall back to the transient on-air RPA and
+     * derive the WRONG pseudo - on an already-bonded reconnect there is no SMP
+     * pairing to re-key it, so the stored LTK is never found and the link fails.
+     * Recover the stable Identity by IRK-resolving the on-air RPA against the
+     * bonded records (all of this phone's local-identity bonds share one IRK /
+     * Identity). The local identity still comes from the adv set below, so any
+     * matching bond yields the correct (local, Identity) pseudo. */
+    tBTM_SEC_DEV_REC *p_id_rec = p_cur;
+    if (p_id_rec == NULL || !(p_id_rec->ble.key_type & BTM_LE_KEY_PID)) {
+        list_node_t *p_node = list_begin(btm_cb.p_sec_dev_rec_list);
+        while (p_node) {
+            tBTM_SEC_DEV_REC *p_r = list_node(p_node);
+            p_node = list_next(p_node);
+            if (p_r != p_cur && (p_r->sec_flags & BTM_SEC_IN_USE) &&
+                (p_r->ble.key_type & BTM_LE_KEY_PID) &&
+                btm_ble_addr_resolvable(p_acl->active_remote_addr, p_r)) {
+                BLE_PSEUDO_DBG("finalize: handle=0x%x recover identity from bonded rec %p (cur %p has no PID)",
+                               handle, p_r, p_cur);
+                p_id_rec = p_r;
+                break;
+            }
+        }
+    }
+
+    tBLE_CONN_IDENTITY id;
+    memset(&id, 0, sizeof(id));
+    /* Hash on the stable peer identity (static_addr) once known; this keeps the
+     * pseudo constant across the peer's RPA rotation. Before pairing (first
+     * ever connection) only the on-air RPA is known; PID will re-key later. */
+    btm_ble_pseudo_pick_peer_identity(p_id_rec, p_acl->active_remote_addr, p_acl->active_remote_addr_type,
+                                      id.peer, &id.peer_type);
+
+    if (!btm_ble_resolve_conn_local(handle, &id)) {
+        BLE_PSEUDO_DBG("finalize: handle=0x%x local STILL unknown, give up", handle);
+        return;     /* instance still unknown; nothing we can do */
+    }
+
+    BD_ADDR pseudo;
+    btm_ble_identity_to_pseudo(&id, pseudo);
+
+    if (!btm_ble_conn_identity_register(handle, &id, pseudo, TRUE)) {
+        BTM_TRACE_ERROR("%s: handle=0x%x side-table full, disconnect to avoid re-key without tracking",
+                        __func__, handle);
+        btm_sec_disconnect(handle, HCI_ERR_HOST_REJECT_RESOURCES);
+        return;
+    }
+
+    /* Bind this link to the device record that belongs to `pseudo` WITHOUT
+     * hijacking another local identity's bonded record (a phone connecting to
+     * a second local identity resolves to the first identity's record via its
+     * shared IRK, so btm_ble_connected() may have reused the wrong record). At
+     * this point pairing has not started, so no BLE keys can be lost. If the
+     * current record only holds a classic link key, allocate a separate entry
+     * so in-place re-key does not overwrite bd_addr and orphan the BR/EDR bond.
+     */
+    tBTM_SEC_DEV_REC *p_tgt = btm_find_dev(pseudo);
+    if (p_tgt && p_tgt != p_cur) {
+        if (p_cur) {
+            p_cur->ble_hci_handle = BTM_SEC_INVALID_HANDLE;
+            p_tgt->ble.ble_addr_type = p_cur->ble.ble_addr_type;
+            /* p_cur was a fresh, key-less placeholder allocated by
+             * btm_ble_connected()'s no-hijack path. Now that the link is bound
+             * to the bonded target record, release the placeholder so it does
+             * not linger as an orphan (BTM_SEC_IN_USE with an invalid handle and
+             * a stale on-air RPA) consuming a device-record slot. Its
+             * ble_addr_type was copied to p_tgt above. Guard on "no bond" so a
+             * record that still holds BLE keys or a BR/EDR link key is never
+             * destroyed (that case is handled by the separate-alloc branch). */
+            if (!p_cur->ble.key_type &&
+                !(p_cur->sec_flags & BTM_SEC_LINK_KEY_KNOWN)) {
+                btm_sec_free_dev(p_cur, BT_TRANSPORT_LE);
+                p_cur = NULL;
+            }
+        } else {
+            p_tgt->ble.ble_addr_type = p_acl->active_remote_addr_type;
+        }
+        p_tgt->ble_hci_handle = handle;
+        p_tgt->device_type |= BT_DEVICE_TYPE_BLE;
+        BLE_PSEUDO_DBG("finalize: handle=0x%x bind to existing rec for pseudo", handle);
+    } else if (p_tgt == NULL && p_cur &&
+               (p_cur->ble.key_type || (p_cur->sec_flags & BTM_SEC_LINK_KEY_KNOWN)) &&
+               memcmp(p_cur->bd_addr, pseudo, BD_ADDR_LEN) != 0) {
+        UINT8 saved_addr_type = p_cur->ble.ble_addr_type;
+        tBTM_SEC_DEV_REC *p_new = btm_sec_alloc_dev_ex(pseudo, p_cur);
+        if (p_new) {
+            p_new->ble_hci_handle = handle;
+            p_new->device_type |= BT_DEVICE_TYPE_BLE;
+            p_new->ble.ble_addr_type = saved_addr_type;
+            memcpy(p_new->ble.pseudo_addr, pseudo, BD_ADDR_LEN);
+            if (p_new != p_cur) {
+                p_cur->ble_hci_handle = BTM_SEC_INVALID_HANDLE;
+            }
+            BLE_PSEUDO_DBG("finalize: handle=0x%x alloc separate rec for pseudo (no hijack)", handle);
+        } else {
+            BTM_TRACE_ERROR("%s: handle=0x%x alloc failed, disconnect to avoid cross-identity key corruption",
+                            __func__, handle);
+            btm_sec_disconnect(handle, HCI_ERR_HOST_REJECT_RESOURCES);
+            return;
+        }
+    } else if (p_tgt == NULL && p_cur == NULL) {
+        /* A concurrent connection IRK-resolved to the same bonded record and
+         * overwrote ble_hci_handle, orphaning this link. Allocate a fresh entry. */
+        tBTM_SEC_DEV_REC *p_new = btm_sec_alloc_dev(pseudo);
+        if (p_new) {
+            p_new->ble_hci_handle = handle;
+            p_new->device_type |= BT_DEVICE_TYPE_BLE;
+            p_new->ble.ble_addr_type = p_acl->active_remote_addr_type;
+            memcpy(p_new->ble.pseudo_addr, pseudo, BD_ADDR_LEN);
+            BLE_PSEUDO_DBG("finalize: handle=0x%x alloc rec for orphan link", handle);
+        } else {
+            BTM_TRACE_ERROR("%s: handle=0x%x alloc failed, disconnect to avoid missing sec record",
+                            __func__, handle);
+            btm_sec_disconnect(handle, HCI_ERR_HOST_REJECT_RESOURCES);
+            return;
+        }
+    } else {
+        BLE_PSEUDO_DBG("finalize: handle=0x%x in-place key cur rec (tgt=%p cur=%p)", handle, p_tgt, p_cur);
+    }
+
+    /* Re-key the address chain (GATT/LCB/ACL + the now-correct dev record). */
+    btm_ble_pseudo_rekey_link(handle, p_acl, pseudo);
+}
+
+/*******************************************************************************
+** Function         btm_ble_pseudo_apply_identity
+**
+** Description      Called from SMP when the peer's Identity Address (PID) is
+**                  received during pairing. If the link was keyed earlier from
+**                  a transient RPA, re-derive the pseudo from the now known
+**                  stable identity and re-key the link in place (the in-flight
+**                  pairing keys stay in the same record). Returns TRUE and
+**                  fills new_pseudo when the pseudo changed, so the SMP caller
+**                  can update smp_cb.pairing_bda to keep pairing consistent.
+*******************************************************************************/
+BOOLEAN btm_ble_pseudo_apply_identity(UINT16 handle, const BD_ADDR identity,
+                                      UINT8 id_type, BD_ADDR new_pseudo)
+{
+    tBTM_BLE_CONN_IDENTITY ent;
+    const BD_ADDR zero = {0};
+
+    if (!btm_ble_conn_identity_get_by_handle(handle, &ent) ||
+        identity == NULL || memcmp(identity, zero, BD_ADDR_LEN) == 0) {
+        return FALSE;
+    }
+
+    tBLE_CONN_IDENTITY id = ent.id;
+    memcpy(id.peer, identity, BD_ADDR_LEN);
+    id.peer_type = id_type;
+
+    btm_ble_identity_to_pseudo(&id, new_pseudo);
+    if (memcmp(new_pseudo, ent.pseudo, BD_ADDR_LEN) == 0) {
+        BLE_PSEUDO_DBG("apply_identity: handle=0x%x pseudo unchanged (already on identity)", handle);
+        return FALSE;
+    }
+
+    BLE_PSEUDO_DBG("apply_identity: handle=0x%x identity=" BLE_PSEUDO_BDA_FMT
+                   " re-key " BLE_PSEUDO_BDA_FMT " -> " BLE_PSEUDO_BDA_FMT,
+                   handle, BLE_PSEUDO_BDA(identity),
+                   BLE_PSEUDO_BDA(ent.pseudo), BLE_PSEUDO_BDA(new_pseudo));
+
+    if (!btm_ble_conn_identity_register(handle, &id, new_pseudo, ent.local_ready)) {
+        BTM_TRACE_ERROR("%s: handle=0x%x side-table update failed, skip re-key", __func__, handle);
+        return FALSE;
+    }
+    btm_ble_pseudo_rekey_link(handle, btm_handle_to_acl(handle), new_pseudo);
+    return TRUE;
+}
+#endif /* BLE_PERIPH_PSEUDO_ADDR_BOND */
+
 /*****************************************************************************
 **  Function        btm_ble_conn_complete
 **
 **  Description     LE connection complete.
 **
 ******************************************************************************/
-void btm_ble_conn_complete(UINT8 *p, UINT16 evt_len, BOOLEAN enhanced)
+void btm_ble_conn_complete(UINT8 *p, UINT16 evt_len, BOOLEAN enhanced, BOOLEAN enhanced_v2)
 {
 #if (BLE_PRIVACY_SPT == TRUE )
     UINT8       *p_data = p, peer_addr_type;
@@ -1929,23 +2777,67 @@ void btm_ble_conn_complete(UINT8 *p, UINT16 evt_len, BOOLEAN enhanced)
     BD_ADDR     local_rpa, peer_rpa;
     UINT16      conn_interval, conn_latency, conn_timeout;
     BOOLEAN     match = FALSE;
-    UNUSED(evt_len);
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+    BD_ADDR     pseudo_real_peer;       /* controller-reported peer, before any pseudo_addr merge */
+    UINT8       pseudo_peer_type;       /* controller-reported peer type, before any rewrite */
+    BOOLEAN     pseudo_peer_valid = FALSE;
+    BD_ADDR     conn_index_bda;         /* address actually used to index ACL/dev_rec (pseudo or real) */
+#endif
+    UINT8       pawr_adv_handle = L2C_BLE_PAWR_ADV_HANDLE_NONE;
+    UINT16      pawr_sync_handle = L2C_BLE_PAWR_SYNC_HANDLE_NONE;
+
+    if (evt_len < 11) {
+        BTM_TRACE_ERROR("%s: invalid evt_len %u (need >= 11)", __func__, evt_len);
+        btm_ble_set_conn_st(BLE_CONN_IDLE);
+        return;
+    }
+
     STREAM_TO_UINT8   (status, p);
     STREAM_TO_UINT16   (handle, p);
     STREAM_TO_UINT8    (role, p);
     STREAM_TO_UINT8    (bda_type, p);
     STREAM_TO_BDADDR   (bda, p);
-    BTM_TRACE_DEBUG("status = %d, handle = %d, role = %d, bda_type = %d",status,handle,role,bda_type);
+    BTM_TRACE_DEBUG("status=%d handle=%d role=%d bda_type=%d bda="MACSTR"",
+        status, handle, role, bda_type, MAC2STR(bda));
     if (status == 0) {
+        if (!btm_ble_conn_comp_evt_len_valid(evt_len, enhanced, enhanced_v2)) {
+            btm_ble_set_conn_st(BLE_CONN_IDLE);
+            return;
+        }
         if (enhanced) {
             STREAM_TO_BDADDR   (local_rpa, p);
             STREAM_TO_BDADDR   (peer_rpa, p);
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+            BLE_PSEUDO_DBG("conn_complete[enh]: handle=0x%x reported_peer=" BLE_PSEUDO_BDA_FMT
+                           " local_rpa=" BLE_PSEUDO_BDA_FMT " peer_rpa(on-air)=" BLE_PSEUDO_BDA_FMT,
+                           HCID_GET_HANDLE(handle), BLE_PSEUDO_BDA(bda),
+                           BLE_PSEUDO_BDA(local_rpa), BLE_PSEUDO_BDA(peer_rpa));
+#endif
+#if (CONTROLLER_RPA_LIST_ENABLE == TRUE)
+            BD_ADDR dummy_bda = {0};
+            /* For controller generates RPA, if resolving list contains no matching entry, it use identity address.
+             * So we should update own addr type in Host */
+            if (memcmp(local_rpa, dummy_bda, BD_ADDR_LEN)) {
+                btm_cb.ble_ctr_cb.addr_mgnt_cb.own_addr_type |= (BLE_ADDR_TYPE_ID_BIT);
+                BTM_UpdateAddrInfor(btm_cb.ble_ctr_cb.addr_mgnt_cb.own_addr_type, local_rpa);
+            } else {
+                btm_cb.ble_ctr_cb.addr_mgnt_cb.own_addr_type &= (~BLE_ADDR_TYPE_ID_BIT);
+            }
+#endif
         }
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+        /* Capture the controller-reported peer now: btm_identity_addr_to_random_pseudo()
+         * may rewrite bda/bda_type for a bonded peer, which would make the
+         * (local, peer) hash drift on reconnect. */
+        pseudo_peer_type = bda_type;
+        memcpy(pseudo_real_peer, bda, BD_ADDR_LEN);
+        pseudo_peer_valid = TRUE;
+#endif
 #if (BLE_PRIVACY_SPT == TRUE )
         peer_addr_type = bda_type;
-        match = btm_identity_addr_to_random_pseudo (bda, &bda_type, TRUE);
+        match = btm_identity_addr_to_random_pseudo (bda, &bda_type, FALSE);
 
-        /* possiblly receive connection complete with resolvable random on
+        /* possibly receive connection complete with resolvable random on
            slave role while the device has been paired */
 
         /* It will cause that scanner doesn't send scan request to advertiser
@@ -1956,34 +2848,96 @@ void btm_ble_conn_complete(UINT8 *p, UINT16 evt_len, BOOLEAN enhanced)
         * Once the connection is successful, resolve device address whether it is
         * slave or master*/
 
-        /* if (!match && role == HCI_ROLE_SLAVE && BTM_BLE_IS_RESOLVE_BDA(bda)) { */
-        if (!match && BTM_BLE_IS_RESOLVE_BDA(bda)) {
+#if CONTROLLER_RPA_LIST_ENABLE
+        if (!match && role == HCI_ROLE_SLAVE && bda_type != BLE_ADDR_PUBLIC && BTM_BLE_IS_RESOLVE_BDA(bda)) {
+#else
+        if (!match && bda_type != BLE_ADDR_PUBLIC && BTM_BLE_IS_RESOLVE_BDA(bda)) {
+#endif
             // save the enhanced value to used in btm_ble_resolve_random_addr_on_conn_cmpl func.
-            temp_enhanced = enhanced;
+            STREAM_TO_UINT16   (conn_interval, p);
+            STREAM_TO_UINT16   (conn_latency, p);
+            STREAM_TO_UINT16   (conn_timeout, p);
+            btm_ble_parse_pawr_conn_handles(&p, enhanced, enhanced_v2,
+                                            &s_conn_pawr_adv_handle, &s_conn_pawr_sync_handle);
+            s_conn_enhanced = enhanced;
             btm_ble_resolve_random_addr(bda, btm_ble_resolve_random_addr_on_conn_cmpl, p_data);
-            // set back the temp enhanced to default after used.
-            temp_enhanced = FALSE;
         } else
 #endif
         {
             STREAM_TO_UINT16   (conn_interval, p);
             STREAM_TO_UINT16   (conn_latency, p);
             STREAM_TO_UINT16   (conn_timeout, p);
+            btm_ble_parse_pawr_conn_handles(&p, enhanced, enhanced_v2,
+                                            &pawr_adv_handle, &pawr_sync_handle);
             handle = HCID_GET_HANDLE (handle);
 
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+            {
+                BD_ADDR hash_peer;
+                UINT8   hash_peer_type;
+                tBTM_SEC_DEV_REC *p_rec = NULL;
+
+#if (BLE_PRIVACY_SPT == TRUE)
+                if (match) {
+                    p_rec = btm_find_dev_by_identity_addr(pseudo_real_peer, pseudo_peer_type);
+                }
+#endif
+                /* Same stable-identity pick as the RPA async path and finalize. */
+                btm_ble_pseudo_pick_peer_identity(p_rec,
+                                                  pseudo_peer_valid ? pseudo_real_peer : bda,
+                                                  pseudo_peer_type,
+                                                  hash_peer, &hash_peer_type);
+                /* Bring the link up on the controller-reported peer captured
+                 * BEFORE btm_identity_addr_to_random_pseudo() rewrote bda. For a
+                 * peer already bonded under another local identity that rewrite
+                 * turns bda into the other identity's stored pseudo; using it as
+                 * the deferred fallback would collide this link's LCB / GATT TCB
+                 * with the already-connected identity (no CONNECT event, no
+                 * encryption). pseudo_real_peer is unique on-air; finalize re-keys
+                 * it to f(local, peer). No air_peer restore here: this branch did
+                 * not run host RPA resolution, so the index address already is the
+                 * real on-air address. */
+                btm_ble_pseudo_bringup_conn(handle, role, hash_peer, hash_peer_type,
+                                            pseudo_peer_valid ? pseudo_real_peer : bda,
+                                            pseudo_peer_valid ? pseudo_peer_type : bda_type,
+                                            conn_interval, conn_latency,
+                                            conn_timeout, match, NULL, 0,
+                                            pawr_adv_handle, pawr_sync_handle,
+                                            "sync", conn_index_bda);
+            }
+#else
             btm_ble_connected(bda, handle, HCI_ENCRYPT_MODE_DISABLED, role, bda_type, match);
-            l2cble_conn_comp (handle, role, bda, bda_type, conn_interval,
-                              conn_latency, conn_timeout);
+            l2cble_conn_comp(handle, role, bda, bda_type, conn_interval,
+                             conn_latency, conn_timeout,
+                             pawr_adv_handle, pawr_sync_handle);
+#endif
 
 #if (BLE_PRIVACY_SPT == TRUE)
             if (enhanced) {
+#if (BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+                /* Use the connection index address (pseudo when keyed) so the
+                 * ACL / device record lookups inside the refresh helpers hit
+                 * the right entry. */
+                btm_ble_refresh_local_resolvable_private_addr(conn_index_bda, local_rpa);
+
+                if (peer_addr_type & BLE_ADDR_TYPE_ID_BIT) {
+                    btm_ble_refresh_peer_resolvable_private_addr(conn_index_bda, peer_rpa, BLE_ADDR_RANDOM);
+                }
+#else
                 btm_ble_refresh_local_resolvable_private_addr(bda, local_rpa);
 
                 if (peer_addr_type & BLE_ADDR_TYPE_ID_BIT) {
                     btm_ble_refresh_peer_resolvable_private_addr(bda, peer_rpa, BLE_ADDR_RANDOM);
                 }
+#endif
             }
 #endif
+
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == TRUE)
+            /* Multi-ADV: must run AFTER the global-addr_mgnt_cb defaults above
+             * so per-set state wins for connections produced by an ext-adv set. */
+            btm_ble_adjust_conn_addr_for_ext_adv(handle);
+#endif /* (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == TRUE) */
         }
     } else {
         role = HCI_ROLE_UNKNOWN;
@@ -2025,8 +2979,37 @@ void btm_ble_create_ll_conn_complete (UINT8 status)
     if (status != HCI_SUCCESS) {
         btm_ble_set_conn_st(BLE_CONN_IDLE);
         btm_ble_update_mode_operation(HCI_ROLE_UNKNOWN, NULL, status);
+        if(l2cb.is_ble_connecting) {
+            /* see L2CA_CancelBleConnectReq() */
+            tL2C_LCB *p_lcb = l2cu_find_lcb_by_bd_addr(l2cb.ble_connecting_bda, BT_TRANSPORT_LE);
+            /* Do not remove lcb if an LE link is already up as a peripheral */
+            if (p_lcb != NULL &&
+                    !(p_lcb->link_role == HCI_ROLE_SLAVE && BTM_LE_ACL_IS_CONNECTED(l2cb.ble_connecting_bda))) {
+                p_lcb->disc_reason = L2CAP_CONN_CANCEL;
+                l2cu_release_lcb (p_lcb);
+            }
+        }
     }
 }
+
+/*****************************************************************************
+** Function btm_ble_create_conn_cancel_complete
+**
+** Description LE connection cancel complete.
+**
+******************************************************************************/
+void btm_ble_create_conn_cancel_complete (UINT8 *p)
+{
+    UINT8       status;
+
+    STREAM_TO_UINT8 (status, p);
+
+    if (btm_ble_get_conn_st() == BLE_CONN_CANCEL) {
+        btm_ble_set_conn_st (BLE_CONN_IDLE);
+    }
+    UNUSED(status);
+}
+
 /*****************************************************************************
 **  Function        btm_proc_smp_cback
 **
@@ -2056,9 +3039,7 @@ UINT8 btm_proc_smp_cback(tSMP_EVT event, BD_ADDR bd_addr, tSMP_EVT_DATA *p_data)
         case SMP_OOB_REQ_EVT:
         case SMP_NC_REQ_EVT:
         case SMP_SC_OOB_REQ_EVT:
-            /* fall through */
-            p_dev_rec->sec_flags |= BTM_SEC_LE_AUTHENTICATED;
-
+        /* fall through */
         case SMP_SEC_REQUEST_EVT:
             if (event == SMP_SEC_REQUEST_EVT && btm_cb.pairing_state != BTM_PAIR_STATE_IDLE) {
                 BTM_TRACE_DEBUG("%s: Ignoring SMP Security request", __func__);
@@ -2137,9 +3118,16 @@ UINT8 btm_proc_smp_cback(tSMP_EVT event, BD_ADDR bd_addr, tSMP_EVT_DATA *p_data)
 
 
         }
-    } else {
-        BTM_TRACE_ERROR("btm_proc_smp_cback received for unknown device");
     }
+
+    if (event == SMP_SC_LOC_OOB_DATA_UP_EVT) {
+        tBTM_LE_EVT_DATA evt_data;
+        memcpy(&evt_data.local_oob_data, &p_data->loc_oob_data, sizeof(tSMP_LOC_OOB_DATA));
+        if (btm_cb.api.p_le_callback) {
+            (*btm_cb.api.p_le_callback)(event, bd_addr, &evt_data);
+        }
+    }
+
     return 0;
 }
 #endif   ///SMP_INCLUDED == TRUE
@@ -2150,7 +3138,7 @@ UINT8 btm_proc_smp_cback(tSMP_EVT event, BD_ADDR bd_addr, tSMP_EVT_DATA *p_data)
 ** Function         BTM_BleDataSignature
 **
 ** Description      This function is called to sign the data using AES128 CMAC
-**                  algorith.
+**                  algorithm.
 **
 ** Parameter        bd_addr: target device the data to be signed for.
 **                  p_text: singing data
@@ -2158,7 +3146,7 @@ UINT8 btm_proc_smp_cback(tSMP_EVT event, BD_ADDR bd_addr, tSMP_EVT_DATA *p_data)
 **                  signature: output parameter where data signature is going to
 **                             be stored.
 **
-** Returns          TRUE if signing sucessul, otherwise FALSE.
+** Returns          TRUE if signing successful, otherwise FALSE.
 **
 *******************************************************************************/
 #if (SMP_INCLUDED == TRUE)
@@ -2226,7 +3214,7 @@ BOOLEAN BTM_BleVerifySignature (BD_ADDR bd_addr, UINT8 *p_orig, UINT16 len, UINT
     tBTM_SEC_DEV_REC *p_rec = btm_find_dev (bd_addr);
     UINT8 p_mac[BTM_CMAC_TLEN_SIZE];
 
-    if (p_rec == NULL || (p_rec && !(p_rec->ble.key_type & BTM_LE_KEY_PCSRK))) {
+    if (p_rec == NULL || !(p_rec->ble.key_type & BTM_LE_KEY_PCSRK)) {
         BTM_TRACE_ERROR("can not verify signature for unknown device");
     } else if (counter < p_rec->ble.keys.counter) {
         BTM_TRACE_ERROR("signature received with out dated sign counter");
@@ -2341,7 +3329,7 @@ BOOLEAN BTM_BleSecurityProcedureIsRunning(BD_ADDR bd_addr)
 ** Function         BTM_BleGetSupportedKeySize
 **
 ** Description      This function gets the maximum encryption key size in bytes
-**                  the local device can suport.
+**                  the local device can support.
 **                  record.
 **
 ** Returns          the key size or 0 if the size can't be retrieved.
@@ -2492,7 +3480,11 @@ static void btm_ble_process_irk(tSMP_ENC *p)
         memcpy(btm_cb.devcb.id_keys.irk, p->param_buf, BT_OCTET16_LEN);
         btm_notify_new_key(BTM_BLE_KEY_TYPE_ID);
 
-#if BLE_PRIVACY_SPT == TRUE
+#if (CONTROLLER_RPA_LIST_ENABLE == TRUE)
+        btm_ble_add_default_entry_to_resolving_list();
+#endif
+
+#if (BLE_PRIVACY_SPT == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == FALSE)
         /* if privacy is enabled, new RPA should be calculated */
         if (btm_cb.ble_ctr_cb.privacy_mode != BTM_PRIVACY_NONE) {
             btm_gen_resolvable_private_addr((void *)btm_gen_resolve_paddr_low);
@@ -2753,5 +3745,91 @@ BOOLEAN btm_get_current_conn_params(BD_ADDR bda, UINT16 *interval, UINT16 *laten
     return FALSE;
 }
 
+uint8_t btm_ble_adv_active_count(void)
+{
+    uint8_t count = 0;
+    tBTM_BLE_INQ_CB *p_cb = &btm_cb.ble_ctr_cb.inq_var;
+
+    if (p_cb->state & BTM_BLE_ADVERTISING) {
+        count++;
+    }
+
+    return count;
+}
+
+uint8_t btm_ble_scan_active_count(void)
+{
+    uint8_t count = 0;
+    tBTM_BLE_INQ_CB *p_cb = &btm_cb.ble_ctr_cb.inq_var;
+
+    if (p_cb->state & BTM_BLE_SCANNING) {
+        count++;
+    }
+
+    return count;
+}
+
+#if (BLE_INCLUDED == TRUE)
+#if (SMP_INCLUDED == TRUE)
+extern bool btc_config_has_section(const char *section);
+#endif
+
+uint8_t btm_ble_sec_dev_record_count(void)
+{
+    tBTM_SEC_DEV_REC *p_dev_rec = NULL;
+    list_node_t *p_node = NULL;
+    uint8_t count = 0;
+
+    for (p_node = list_begin(btm_cb.p_sec_dev_rec_list); p_node; p_node = list_next(p_node)) {
+        p_dev_rec = list_node(p_node);
+#if (SMP_INCLUDED == TRUE)
+        if (p_dev_rec && (p_dev_rec->sec_flags & BTM_SEC_IN_USE) && (p_dev_rec->ble.key_type != BTM_LE_KEY_NONE)) {
+#else
+        if (p_dev_rec && (p_dev_rec->sec_flags & BTM_SEC_IN_USE)) {
+#endif
+#if (SMP_INCLUDED == TRUE)
+            /* Check if device exists in NVS */
+            char bdstr[18] = {0};
+            bdaddr_to_string((bt_bdaddr_t *)p_dev_rec->bd_addr, bdstr, sizeof(bdstr));
+
+            BTM_TRACE_WARNING("%s device #%d: "MACSTR", key_type=0x%02x (PENC:%d PID:%d PCSRK:%d LENC:%d LID:%d LCSRK:%d), in_nvs=%d",
+                            __func__,
+                            count,
+                            MAC2STR(p_dev_rec->bd_addr),
+                            p_dev_rec->ble.key_type,
+                            (p_dev_rec->ble.key_type & BTM_LE_KEY_PENC) ? 1 : 0,
+                            (p_dev_rec->ble.key_type & BTM_LE_KEY_PID) ? 1 : 0,
+                            (p_dev_rec->ble.key_type & BTM_LE_KEY_PCSRK) ? 1 : 0,
+                            (p_dev_rec->ble.key_type & BTM_LE_KEY_LENC) ? 1 : 0,
+                            (p_dev_rec->ble.key_type & BTM_LE_KEY_LID) ? 1 : 0,
+                            (p_dev_rec->ble.key_type & BTM_LE_KEY_LCSRK) ? 1 : 0,
+                            btc_config_has_section(bdstr));
+#else
+            BTM_TRACE_WARNING("%s device #%d: "MACSTR,
+                            __func__,
+                            count,
+                            MAC2STR(p_dev_rec->bd_addr));
+#endif
+            count++;
+        }
+    }
+
+    return count;
+}
+
+void btm_ble_clear_sec_dev_record(void)
+{
+    /* only used when connection is closed */
+    if(btm_cb.p_sec_dev_rec_list) list_clear(btm_cb.p_sec_dev_rec_list);
+}
+#endif
+
+#if (BLE_PRIVACY_SPT == TRUE)
+uint8_t btm_ble_privacy_is_enabled(void)
+{
+    tBTM_BLE_CB *p_cb = &btm_cb.ble_ctr_cb;
+    return (p_cb->privacy_mode != BTM_PRIVACY_NONE);
+}
+#endif
 
 #endif /* BLE_INCLUDED */

@@ -1,17 +1,5 @@
-GATT DEFINES
+GATT Defines
 ============
-
-Overview
---------
-
-`Instructions`_
-
-Application Example
--------------------
-
-`Instructions`_
-
-.. _Instructions: ../template.html
 
 API Reference
 -------------

@@ -20,6 +20,11 @@
 #define INCLUDES_H
 
 #include "supplicant_opt.h"
+#include "esp_private/esp_wifi_private.h"
+
+#define AES_SMALL_TABLES
+#define CONFIG_NO_RANDOM_POOL
+#define CONFIG_INTERNAL_LIBTOMMATH
 
 /* Include possible build time configuration before including anything else */
 #ifndef __ets__
@@ -54,10 +59,29 @@
 #endif /* CONFIG_NATIVE_WINDOWS */
 
 #else
+// for ETSTimer type
 #if CONFIG_IDF_TARGET_ESP32
-#include "esp32/rom/ets_sys.h" // will be removed in idf v5.0
+#include "esp32/rom/ets_sys.h"
 #elif CONFIG_IDF_TARGET_ESP32S2
 #include "esp32s2/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32S3
+#include "esp32s3/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32C3
+#include "esp32c3/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32C2
+#include "esp32c2/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32C6
+#include "esp32c6/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32C5
+#include "esp32c5/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32H2
+#include "esp32h2/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32P4
+#include "esp32p4/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32C61
+#include "esp32c61/rom/ets_sys.h"
+#elif CONFIG_IDF_TARGET_ESP32S31
+#include "esp32s31/rom/ets_sys.h"
 #endif
 
 #endif /* !__ets__ */

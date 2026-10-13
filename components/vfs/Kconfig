@@ -14,6 +14,11 @@ menu "Virtual file system"
             Disabling this option can save memory when the support for these functions
             is not required.
 
+            Note that the following functions can still be used with socket file descriptors
+            when this option is disabled:
+
+            close, read, write, ioctl, fcntl.
+
     config VFS_SUPPORT_DIR
         bool "Provide directory related functions"
         default y
@@ -53,19 +58,41 @@ menu "Virtual file system"
         depends on VFS_SUPPORT_SELECT
         default y
         help
-            Select() related functions might produce an unconveniently lot of
+            Select() related functions might produce an inconveniently lot of
             debug outputs when one sets the default log level to DEBUG or higher.
             It is possible to suppress these debug outputs by enabling this
             option.
 
+    config VFS_SELECT_IN_RAM
+        bool "Make VFS driver select() callbacks IRAM-safe"
+        default n
+        depends on VFS_SUPPORT_SELECT
+        help
+            If enabled, VFS driver select() callback function will be placed in IRAM.
+
     config VFS_SUPPORT_TERMIOS
         bool "Provide termios.h functions"
-        default y
+        default n
         # Very likely, only makes sense for UART VFS driver, which itself depends on VFS_SUPPORT_IO
         depends on VFS_SUPPORT_IO
         help
             Disabling this option can save memory when the support for termios.h is not required.
 
+    config VFS_MAX_COUNT
+        int "Maximum Number of Virtual Filesystems"
+        default 8
+        range 1 20
+        depends on VFS_SUPPORT_IO
+        help
+            Define maximum number of virtual filesystems that can be registered.
+
+    config VFS_SUPPRESS_CTX_DEPRECATION
+        bool "Suppress context-less API deprecation warning"
+        default n
+        help
+            The VFS APIs without context pointer are deprecated and will be removed in the next major release.
+            Please switch to the APIs with context pointer,
+            or alternatively enable this option to silence the warning.
 
     menu "Host File System I/O (Semihosting)"
         depends on VFS_SUPPORT_IO
@@ -75,15 +102,13 @@ menu "Virtual file system"
             default 1
             help
                 Define maximum number of host filesystem mount points.
-
-        config VFS_SEMIHOSTFS_HOST_PATH_MAX_LEN
-            int "Host FS: Maximum path length for the host base directory"
-            default 128
-            help
-                Define maximum path length for the host base directory which is to be mounted.
-                If host path passed to esp_vfs_semihost_register() is longer than this value
-                it will be truncated.
-
     endmenu
+
+    config VFS_INITIALIZE_DEV_NULL
+        bool "Initialize /dev/null VFS"
+        default y
+        depends on VFS_SUPPORT_IO
+        help
+            If enabled, /dev/null VFS will be automatically initialized at startup.
 
 endmenu

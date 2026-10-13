@@ -1,15 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 #pragma once
-#include <stdint.h>
 
-#define CHIP_FEATURE_EMB_FLASH  (1UL << 0)
-#define CHIP_FEATURE_BT         (1UL << 4)
-#define CHIP_FEATURE_BLE        (1UL << 5)
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-typedef struct {
-    uint32_t features;       //!< bit mask of CHIP_FEATURE_x feature flags
-    uint8_t cores;           //!< number of CPU cores
-    uint8_t revision;        //!< chip revision number
-} esp_chip_info_t;
+#define ESP_OK          0       /*!< esp_err_t value indicating success (no error) */
+
+typedef int esp_err_t;
 
 void esp_restart(void);
-void esp_chip_info(esp_chip_info_t* out_info);
+
+#ifdef __cplusplus
+}
+#endif

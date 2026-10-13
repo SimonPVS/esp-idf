@@ -45,6 +45,18 @@
 /* OS Configuration from User config (eg: sdkconfig) */
 #define BT_BTU_TASK_STACK_SIZE      UC_BTU_TASK_STACK_SIZE
 
+#if (UC_BT_BLUEDROID_ESP_COEX_VSC == TRUE)
+#define ESP_COEX_VSC_INCLUDED        TRUE
+#else
+#define ESP_COEX_VSC_INCLUDED        FALSE
+#endif
+
+#if (UC_BT_CONTROLLER_INCLUDED == TRUE)
+#define BT_CONTROLLER_INCLUDED       TRUE
+#else
+#define BT_CONTROLLER_INCLUDED       FALSE
+#endif
+
 /******************************************************************************
 **
 ** Classic BT features
@@ -59,6 +71,12 @@
 #define BTA_DM_PM_INCLUDED          TRUE
 #define BTC_DM_PM_INCLUDED          TRUE
 #define SDP_INCLUDED                TRUE
+#define BTA_DM_QOS_INCLUDED         TRUE
+
+#define BR_EDR_MAX_RECONNECT_ON_COLLISION UC_BT_CLASSIC_MAX_RECONNECT_ON_COLLISION
+
+#define ESP_BT_CLASSIC_ENABLE_ENC_KEY_SIZE_CTRL_VSC    UC_BT_CLASSIC_ENABLE_ENC_KEY_SIZE_CTRL_VSC
+#define ESP_BT_CLASSIC_ENABLE_POWER_CTRL_VSC UC_BT_CLASSIC_ENABLE_POWER_CTRL_VSC
 
 #if (UC_BT_A2DP_ENABLED == TRUE)
 #define BTA_AR_INCLUDED             TRUE
@@ -70,68 +88,173 @@
 #define BTC_AV_INCLUDED             TRUE
 #define BTA_AV_SINK_INCLUDED        TRUE
 #define BTC_AV_SINK_INCLUDED        TRUE
-#define SBC_DEC_INCLUDED            TRUE
 #define BTC_AV_SRC_INCLUDED         TRUE
+#if (UC_BT_A2DP_USE_EXTERNAL_CODEC == TRUE)
+#define BTC_AV_EXT_CODEC            TRUE
+#define BTA_AV_EXT_CODEC            TRUE
+#else
+#define SBC_DEC_INCLUDED            TRUE
 #define SBC_ENC_INCLUDED            TRUE
+#endif
+#if (UC_BT_A2DP_CODEC_AAC_ENABLED == TRUE)
+#define BTC_AV_CODEC_AAC_INCLUDED   TRUE
+#define BTA_AV_CODEC_AAC_INCLUDED   TRUE
+#define A2D_AV_CODEC_AAC_INCLUDED   TRUE
+#endif
+#if UC_BT_AVRCP_CT_COVER_ART_ENABLED
+#define BTA_AV_CA_INCLUDED          TRUE
+#define BTC_AV_CA_INCLUDED          TRUE
+#define AVRC_CA_INCLUDED            TRUE
+#endif /* UC_BT_AVRCP_CT_COVER_ART_ENABLED */
 #endif /* UC_BT_A2DP_ENABLED */
 
 #if (UC_BT_SPP_ENABLED == TRUE)
 #define RFCOMM_INCLUDED             TRUE
 #define BTA_JV_INCLUDED             TRUE
+#define BTA_JV_RFCOMM_INCLUDED      TRUE
 #define BTC_SPP_INCLUDED            TRUE
 #endif /* UC_BT_SPP_ENABLED */
 
+#if (UC_BT_L2CAP_ENABLED == TRUE)
+#define BTA_JV_INCLUDED             TRUE
+#define BTC_L2CAP_INCLUDED          TRUE
+#define VND_BT_JV_BTA_L2CAP         TRUE
+#endif /* UC_BT_L2CAP_ENABLED */
+
+#if (UC_BT_SDP_COMMON_ENABLED == TRUE)
+#define BTC_SDP_COMMON_INCLUDED     TRUE
+#endif /* UC_BT_SDP_COMMON_ENABLED */
+
+#if (UC_BT_HFP_AG_ENABLED == TRUE) || (UC_BT_HFP_CLIENT_ENABLED == TRUE)
+#ifndef RFCOMM_INCLUDED
+#define RFCOMM_INCLUDED             TRUE
+#endif
+#ifndef BTM_SCO_INCLUDED
+#define BTM_SCO_INCLUDED            TRUE
+#endif
+#if (UC_BT_HFP_AUDIO_DATA_PATH_HCI == TRUE)
+#if (UC_BT_HFP_USE_EXTERNAL_CODEC == TRUE)
+#define BTC_HFP_EXT_CODEC           TRUE
+#define BTA_HFP_EXT_CODEC           TRUE
+#define PLC_INCLUDED                FALSE
+#else
+#ifndef SBC_DEC_INCLUDED
+#define SBC_DEC_INCLUDED            TRUE
+#endif
+#ifndef SBC_ENC_INCLUDED
+#define SBC_ENC_INCLUDED            TRUE
+#endif
+#define PLC_INCLUDED                TRUE
+#endif /* (UC_BT_HFP_USE_EXTERNAL_CODEC == TRUE) */
+#else
+#define PLC_INCLUDED                FALSE
+#endif
+
 #if (UC_BT_HFP_AG_ENABLED == TRUE)
+#ifndef BTM_MAX_SCO_LINKS_AG
+#define BTM_MAX_SCO_LINKS_AG        (1)
+#endif
 #define BTC_HF_INCLUDED             TRUE
 #define BTA_AG_INCLUDED             TRUE
-#define PLC_INCLUDED                TRUE
-#ifndef RFCOMM_INCLUDED
-#define RFCOMM_INCLUDED             TRUE
+#else
+#ifndef BTM_MAX_SCO_LINKS_AG
+#define BTM_MAX_SCO_LINKS_AG        (0)
 #endif
-#ifndef BTM_SCO_INCLUDED
-#define BTM_SCO_INCLUDED            TRUE
-#endif
-#ifndef BTM_MAX_SCO_LINKS
-#define BTM_MAX_SCO_LINKS           (1)
-#endif
-#ifndef SBC_DEC_INCLUDED
-#define SBC_DEC_INCLUDED            TRUE
-#endif
-#ifndef SBC_ENC_INCLUDED
-#define SBC_ENC_INCLUDED            TRUE
-#endif
-#endif  /* UC_BT_HFP_AG_ENABLED */
-
+#endif /* (UC_BT_HFP_AG_ENABLED == TRUE) */
 #if (UC_BT_HFP_CLIENT_ENABLED == TRUE)
+#ifndef BTM_MAX_SCO_LINKS_CLIENT
+#define BTM_MAX_SCO_LINKS_CLIENT    (1)
+#endif
 #define BTC_HF_CLIENT_INCLUDED      TRUE
 #define BTA_HF_INCLUDED             TRUE
-#define PLC_INCLUDED                TRUE
-#ifndef RFCOMM_INCLUDED
-#define RFCOMM_INCLUDED             TRUE
+#else
+#ifndef BTM_MAX_SCO_LINKS_CLIENT
+#define BTM_MAX_SCO_LINKS_CLIENT    (0)
 #endif
-#ifndef BTM_SCO_INCLUDED
-#define BTM_SCO_INCLUDED            TRUE
-#endif
+#endif /* (UC_BT_HFP_CLIENT_ENABLED == TRUE) */
+
 #ifndef BTM_MAX_SCO_LINKS
-#define BTM_MAX_SCO_LINKS           (1)
+#define BTM_MAX_SCO_LINKS           (BTM_MAX_SCO_LINKS_AG + BTM_MAX_SCO_LINKS_CLIENT)
 #endif
+#endif /* (UC_BT_HFP_AG_ENABLED == TRUE) || (UC_BT_HFP_CLIENT_ENABLED == TRUE) */
 
-#ifndef SBC_DEC_INCLUDED
-#define SBC_DEC_INCLUDED            TRUE
-#endif
-#ifndef SBC_ENC_INCLUDED
-#define SBC_ENC_INCLUDED            TRUE
-#endif
-#endif  /* UC_BT_HFP_CLIENT_ENABLED */
-
-#if UC_BT_SSP_ENABLED
-#define BT_SSP_INCLUDED             TRUE
-#endif /* UC_BT_SSP_ENABLED */
+#if UC_BT_HID_ENABLED
+#define BT_HID_INCLUDED             TRUE
+#endif /* UC_BT_HID_ENABLED */
 
 #if UC_BT_HID_HOST_ENABLED
 #define HID_HOST_INCLUDED           TRUE
 #define BTA_HH_INCLUDED             TRUE
+#define BTC_HH_INCLUDED             TRUE
 #endif /* UC_BT_HID_HOST_ENABLED */
+
+#if UC_BT_HID_DEVICE_ENABLED
+#define HID_DEV_INCLUDED            TRUE
+#define BTA_HD_INCLUDED             TRUE
+#define BTC_HD_INCLUDED             TRUE
+#endif /* UC_BT_HID_DEVICE_ENABLED */
+
+#if UC_BT_HID_REMOVE_DEVICE_BONDING_ENABLED
+#define BTC_HID_REMOVE_DEVICE_BONDING     TRUE
+#endif
+
+#if UC_BT_GOEPC_ENABLED
+#ifndef RFCOMM_INCLUDED
+#define RFCOMM_INCLUDED             TRUE
+#endif
+#ifndef OBEX_INCLUDED
+#define OBEX_INCLUDED               TRUE
+#endif
+#define GOEPC_INCLUDED              TRUE
+#endif /* UC_BT_GOEPC_ENABLED */
+
+#if UC_BT_GOEPS_ENABLED
+#ifndef RFCOMM_INCLUDED
+#define RFCOMM_INCLUDED             TRUE
+#endif
+#ifndef OBEX_INCLUDED
+#define OBEX_INCLUDED               TRUE
+#endif
+#define GOEPS_INCLUDED              TRUE
+#endif /* UC_BT_GOEPS_ENABLED */
+
+#if UC_BT_PBAC_ENABLED
+#define BTC_PBA_CLIENT_INCLUDED     TRUE
+#define BTC_PBA_SUPPORTED_FEAT      UC_BT_PBAC_SUPPORTED_FEAT
+#define BTC_PBA_PREFERRED_MTU       UC_BT_PBAC_PREFERRED_MTU
+#define BTA_PBA_CLIENT_INCLUDED     TRUE
+#endif
+
+#if UC_BT_PAN_ENABLED
+#define BTC_PAN_INCLUDED            TRUE
+#define BTA_PAN_INCLUDED            TRUE
+#define PAN_INCLUDED                TRUE
+#define BNEP_INCLUDED               TRUE
+#define PAN_SUPPORTS_ROLE_PANU      TRUE
+#define PAN_SUPPORTS_ROLE_GN        TRUE
+#define PAN_SUPPORTS_ROLE_NAP       TRUE
+#endif
+
+#if UC_BT_OPP_ENABLED && (UC_BT_OPP_SERVER_ENABLED || UC_BT_OPP_CLIENT_ENABLED)
+#ifndef RFCOMM_INCLUDED
+#define RFCOMM_INCLUDED             TRUE
+#endif
+#ifndef OBEX_INCLUDED
+#define OBEX_INCLUDED               TRUE
+#endif
+#define BTC_OPP_INCLUDED            TRUE
+#define BTA_OPP_INCLUDED            TRUE
+#endif
+
+#if UC_BT_OPP_SERVER_ENABLED
+#define BTA_OPP_SERVER_INCLUDED     TRUE
+#define BTC_OPP_SERVER_INCLUDED     TRUE
+#endif
+
+#if UC_BT_OPP_CLIENT_ENABLED
+#define BTA_OPP_CLIENT_INCLUDED     TRUE
+#define BTC_OPP_CLIENT_INCLUDED     TRUE
+#endif
 
 #endif /* UC_BT_CLASSIC_ENABLED */
 
@@ -159,13 +282,331 @@
 #define BLE_INCLUDED              FALSE
 #endif /* UC_BT_BLE_ENABLED */
 
-#if (UC_BT_GATTS_ENABLE)
+#if (UC_BT_BLE_50_FEATURES_SUPPORTED == TRUE)
+#define BLE_50_FEATURE_SUPPORT   TRUE
+#else
+#define BLE_50_FEATURE_SUPPORT   FALSE
+#endif
+
+/* Peripheral dual local-identity bond isolation via Host-internal pseudo
+ * address. Guarded so default builds keep the legacy single-bond behavior. */
+#if (UC_BT_BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+#define BLE_PERIPH_PSEUDO_ADDR_BOND   TRUE
+#else
+#define BLE_PERIPH_PSEUDO_ADDR_BOND   FALSE
+#endif
+
+/* Refuse a re-pairing that would end up weaker than the bond it replaces. */
+#if (UC_BT_BLE_SMP_HARDENED_REPAIRING == TRUE)
+#define BLE_SMP_HARDENED_REPAIRING    TRUE
+#else
+#define BLE_SMP_HARDENED_REPAIRING    FALSE
+#endif
+
+/* Erase the NVS bond when pairing/encryption fails while local device is Central. */
+#if (UC_BT_BLE_SMP_REMOVE_BOND_ON_PAIR_FAIL_AS_CENTRAL == TRUE)
+#define BLE_SMP_REMOVE_BOND_ON_PAIR_FAIL_AS_CENTRAL TRUE
+#else
+#define BLE_SMP_REMOVE_BOND_ON_PAIR_FAIL_AS_CENTRAL FALSE
+#endif
+
+/* Erase the NVS bond when pairing/encryption fails while local device is Peripheral. */
+#if (UC_BT_BLE_SMP_REMOVE_BOND_ON_PAIR_FAIL_AS_PERIPHERAL == TRUE)
+#define BLE_SMP_REMOVE_BOND_ON_PAIR_FAIL_AS_PERIPHERAL TRUE
+#else
+#define BLE_SMP_REMOVE_BOND_ON_PAIR_FAIL_AS_PERIPHERAL FALSE
+#endif
+
+/* Discard the local LE keys when the peer rejects encryption with "PIN or Key Missing". */
+#if (UC_BT_BLE_SMP_UNBOND_ON_KEY_MISSING == TRUE)
+#define BLE_SMP_UNBOND_ON_KEY_MISSING TRUE
+#else
+#define BLE_SMP_UNBOND_ON_KEY_MISSING FALSE
+#endif
+
+#if (UC_BT_BLE_ENABLED ==TRUE)
+#if (UC_BT_BLE_42_FEATURES_SUPPORTED == TRUE || BLE_50_FEATURE_SUPPORT == FALSE)
+#define BLE_42_FEATURE_SUPPORT   TRUE
+#else
+#define BLE_42_FEATURE_SUPPORT   FALSE
+#endif
+#else
+#define BLE_42_FEATURE_SUPPORT   FALSE
+#define BLE_50_FEATURE_SUPPORT   FALSE
+#endif /* UC_BT_BLE_ENABLED */
+
+#if (UC_BT_BLE_42_DTM_TEST_EN == TRUE)
+#define BLE_42_DTM_TEST_EN       TRUE
+#else
+#define BLE_42_DTM_TEST_EN       FALSE
+#endif
+
+#if (UC_BT_BLE_42_ADV_EN == TRUE)
+#define BLE_42_ADV_EN       TRUE
+#else
+#define BLE_42_ADV_EN       FALSE
+#endif
+
+#if (UC_BT_BLE_42_SCAN_EN == TRUE)
+#define BLE_42_SCAN_EN       TRUE
+#else
+#define BLE_42_SCAN_EN       FALSE
+#endif
+
+#if (UC_BT_BLE_50_EXTEND_ADV_EN == TRUE)
+#define BLE_50_EXTEND_ADV_EN       TRUE
+#else
+#define BLE_50_EXTEND_ADV_EN       FALSE
+#endif
+
+#if (UC_BT_BLE_50_PERIODIC_ADV_EN == TRUE)
+#define BLE_50_PERIODIC_ADV_EN       TRUE
+#else
+#define BLE_50_PERIODIC_ADV_EN       FALSE
+#endif
+
+#if (UC_BT_BLE_50_EXTEND_SCAN_EN == TRUE)
+#define BLE_50_EXTEND_SCAN_EN       TRUE
+#else
+#define BLE_50_EXTEND_SCAN_EN       FALSE
+#endif
+
+#if (UC_BT_BLE_50_EXTEND_SYNC_EN == TRUE)
+#define BLE_50_EXTEND_SYNC_EN       TRUE
+#else
+#define BLE_50_EXTEND_SYNC_EN       FALSE
+#endif
+
+#if (UC_BT_BLE_50_DTM_TEST_EN == TRUE)
+#define BLE_50_DTM_TEST_EN       TRUE
+#else
+#define BLE_50_DTM_TEST_EN       FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+#define BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER   TRUE
+#else
+#define BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER   FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_PERIODIC_ADV_ENH == TRUE)
+#define BLE_FEAT_PERIODIC_ADV_ENH   TRUE
+#else
+#define BLE_FEAT_PERIODIC_ADV_ENH   FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_CREATE_SYNC_ENH == TRUE)
+#define BLE_FEAT_CREATE_SYNC_ENH   TRUE
+#else
+#define BLE_FEAT_CREATE_SYNC_ENH   FALSE
+#endif
+
+#ifdef UC_BT_BLE_FEAT_CREATE_SYNC_RETRY_MAX
+#define BLE_FEAT_CREATE_SYNC_RETRY_MAX   UC_BT_BLE_FEAT_CREATE_SYNC_RETRY_MAX
+#else
+#define BLE_FEAT_CREATE_SYNC_RETRY_MAX   3
+#endif
+
+#if (UC_BT_BLE_FEAT_ISO_EN == TRUE)
+#define BLE_FEAT_ISO_EN     TRUE
+#else
+#define BLE_FEAT_ISO_EN     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_ISO_60_EN == TRUE)
+#define BLE_FEAT_ISO_60_EN     TRUE
+#else
+#define BLE_FEAT_ISO_60_EN     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_ISO_BIG_BROADCASTER == TRUE)
+#define BLE_FEAT_ISO_BIG_BROADCASTER_EN   TRUE
+#else
+#define BLE_FEAT_ISO_BIG_BROADCASTER_EN   FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_ISO_BIG_SYNCER == TRUE)
+#define BLE_FEAT_ISO_BIG_SYNCER_EN   TRUE
+#else
+#define BLE_FEAT_ISO_BIG_SYNCER_EN   FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_ISO_CIG_CENTRAL == TRUE)
+#define BLE_FEAT_ISO_CIG_CENTRAL_EN   TRUE
+#else
+#define BLE_FEAT_ISO_CIG_CENTRAL_EN   FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_ISO_CIG_PERIPHERAL == TRUE)
+#define BLE_FEAT_ISO_CIG_PERIPHERAL_EN   TRUE
+#else
+#define BLE_FEAT_ISO_CIG_PERIPHERAL_EN   FALSE
+#endif
+
+#if ((BLE_FEAT_ISO_CIG_CENTRAL_EN == TRUE) || (BLE_FEAT_ISO_CIG_PERIPHERAL_EN == TRUE))
+#define BLE_FEAT_ISO_CIG_EN             TRUE
+#else
+#define BLE_FEAT_ISO_CIG_EN             FALSE
+#endif
+
+#ifdef UC_BT_BLE_ISO_CIS_MAX_COUNT
+#define BLE_ISO_CIS_MAX_COUNT   UC_BT_BLE_ISO_CIS_MAX_COUNT
+#else
+#define BLE_ISO_CIS_MAX_COUNT   (0)
+#endif
+
+#ifdef UC_BT_BLE_ISO_BIS_MAX_COUNT
+#define BLE_ISO_BIS_MAX_COUNT   UC_BT_BLE_ISO_BIS_MAX_COUNT
+#else
+#define BLE_ISO_BIS_MAX_COUNT   (0)
+#endif
+
+#ifdef UC_BT_BLE_ISO_STD_FLOW_CTRL
+#define BLE_ISO_STD_FLOW_CTRL        TRUE
+#endif
+
+#ifdef UC_BT_BLE_ISO_NON_STD_FLOW_CTRL
+#define BLE_ISO_NON_STD_FLOW_CTRL        TRUE
+#endif
+
+#if ((UC_BT_BLE_ISO_STD_FLOW_CTRL == TRUE) && (UC_BT_BLE_ISO_NON_STD_FLOW_CTRL == TRUE))
+#error "Only one of standard or non-standard can be enabled"
+#endif
+
+#if (UC_BT_BLE_FEAT_CTE_EN == TRUE)
+#define BLE_FEAT_CTE_EN     TRUE
+#else
+#define BLE_FEAT_CTE_EN     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_CTE_CONNECTIONLESS_EN == TRUE)
+#define BLE_FEAT_CTE_CONNECTIONLESS_EN     TRUE
+#else
+#define BLE_FEAT_CTE_CONNECTIONLESS_EN     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_CTE_CONNECTION_EN == TRUE)
+#define BLE_FEAT_CTE_CONNECTION_EN     TRUE
+#else
+#define BLE_FEAT_CTE_CONNECTION_EN     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_POWER_CONTROL == TRUE)
+#define BLE_FEAT_POWER_CONTROL_EN     TRUE
+#else
+#define BLE_FEAT_POWER_CONTROL_EN     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_CONN_SUBRATING == TRUE)
+#define BLE_FEAT_CONN_SUBRATING     TRUE
+#else
+#define BLE_FEAT_CONN_SUBRATING     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_PAWR_EN == TRUE)
+#define BT_BLE_FEAT_PAWR_EN     TRUE
+#else
+#define BT_BLE_FEAT_PAWR_EN     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_ADV_CODING_SELECTION == TRUE)
+#define BT_BLE_FEAT_ADV_CODING_SELECTION     TRUE
+#else
+#define BT_BLE_FEAT_ADV_CODING_SELECTION     FALSE
+#endif
+
+#if (UC_BT_BLE_FEAT_CHANNEL_SOUNDING == TRUE)
+#define BT_BLE_FEAT_CHANNEL_SOUNDING     TRUE
+#else
+#define BT_BLE_FEAT_CHANNEL_SOUNDING     FALSE
+#endif
+
+#if (BT_BLE_FEAT_CHANNEL_SOUNDING == TRUE) && (UC_BT_BLE_FEAT_CS_SECURITY_REQUIREMENTS == TRUE)
+#define BT_BLE_FEAT_CS_SECURITY_REQUIREMENTS     TRUE
+#else
+#define BT_BLE_FEAT_CS_SECURITY_REQUIREMENTS     FALSE
+#endif
+
+/* LE Monitor Advertisement (Bluetooth Core 6.0) */
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (defined UC_BT_BLE_FEAT_ADV_MONITOR) && (UC_BT_BLE_FEAT_ADV_MONITOR == TRUE)
+#define BLE_FEAT_ADV_MONITOR     TRUE
+#else
+#define BLE_FEAT_ADV_MONITOR     FALSE
+#endif
+
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (UC_BT_BLE_FEAT_DBAF == TRUE)
+#define BLE_FEAT_DBAF     TRUE
+#else
+#define BLE_FEAT_DBAF     FALSE
+#endif
+
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (UC_BT_BLE_FEAT_FRAME_SPACE_UPDATE == TRUE)
+#define BLE_FEAT_FRAME_SPACE_UPDATE     TRUE
+#else
+#define BLE_FEAT_FRAME_SPACE_UPDATE     FALSE
+#endif
+
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (UC_BT_BLE_FEAT_LL_EXT_FEAT == TRUE)
+#define BLE_FEAT_LL_EXT_FEAT     TRUE
+#else
+#define BLE_FEAT_LL_EXT_FEAT     FALSE
+#endif
+
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (UC_BT_BLE_FEAT_SHORTER_CONN_INTERVALS == TRUE)
+#define BLE_FEAT_SHORTER_CONN_INTERVALS     TRUE
+#else
+#define BLE_FEAT_SHORTER_CONN_INTERVALS     FALSE
+#endif
+
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (UC_BT_BLE_FEAT_LE_UTP == TRUE)
+#define BLE_FEAT_LE_UTP     TRUE
+#else
+#define BLE_FEAT_LE_UTP     FALSE
+#endif
+
+#if (UC_BT_BLE_VENDOR_HCI_EN == TRUE)
+#define BLE_VENDOR_HCI_EN TRUE
+#else
+#define BLE_VENDOR_HCI_EN FALSE
+#endif
+
+#if (UC_BT_BLE_HIGH_DUTY_ADV_INTERVAL == TRUE)
+#define BLE_HIGH_DUTY_ADV_INTERVAL TRUE
+#else
+#define BLE_HIGH_DUTY_ADV_INTERVAL FALSE
+#endif
+
+/* Host-side parameter validation floor (in 1.25 ms units) for the BLE
+ * connection interval. Internal to the Bluedroid host: not sent on air, not
+ * exposed via the GATT Preferred Connection Parameters Characteristic, and
+ * not a public API constant - those use BTM_BLE_CONN_INT_MIN (0x0006).
+ *
+ * When UC_BT_BLE_HOST_ALLOW_SUB_SPEC_MIN_CONN_INT == 1 the host stops
+ * enforcing a minimum (the actual lower limit is then defined entirely by
+ * the controller). 0x0001 is used rather than 0x0000 so the existing
+ * `uint16_t < MIN` range checks remain well-defined under GCC
+ * `-Wtype-limits`. */
+#ifndef BLE_CONN_INT_MIN_HOST_CHECK
+#if (UC_BT_BLE_HOST_ALLOW_SUB_SPEC_MIN_CONN_INT == 1)
+#define BLE_CONN_INT_MIN_HOST_CHECK             0x0001
+#else
+#define BLE_CONN_INT_MIN_HOST_CHECK             0x0006
+#endif
+#endif
+
+#if (UC_BT_BLE_RPA_SUPPORTED  == TRUE)
+#define CONTROLLER_RPA_LIST_ENABLE   TRUE
+#else
+#define CONTROLLER_RPA_LIST_ENABLE   FALSE
+#endif
+
+#if (UC_BT_GATTS_ENABLE == TRUE)
 #define GATTS_INCLUDED              TRUE
 #else
 #define GATTS_INCLUDED              FALSE
 #endif /* UC_BT_GATTS_ENABLE */
 
-#if (UC_BT_GATTC_ENABLE)
+#if (UC_BT_GATTC_ENABLE == TRUE)
 #define GATTC_INCLUDED              TRUE
 #else
 #define GATTC_INCLUDED              FALSE
@@ -176,6 +617,24 @@
 #else
 #define GATTC_CACHE_NVS             FALSE
 #endif  /* UC_BT_GATTC_ENABLE && UC_BT_GATTC_CACHE_NVS_FLASH_ENABLED */
+
+#if (UC_BT_GATTC_ENABLE && UC_BT_GATTC_CONNECT_RETRY_COUNT)
+#define GATTC_CONNECT_RETRY_COUNT             UC_BT_GATTC_CONNECT_RETRY_COUNT
+#else
+#define GATTC_CONNECT_RETRY_COUNT             0
+#endif  /* UC_BT_GATTC_ENABLE && UC_BT_GATTC_CONNECT_RETRY_COUNT */
+
+#if (GATTC_CONNECT_RETRY_COUNT > 0)
+#define GATTC_CONNECT_RETRY_EN     TRUE
+#else
+#define GATTC_CONNECT_RETRY_EN     FALSE
+#endif
+
+#ifdef UC_BT_GATTC_NOTIF_REG_MAX
+#define BTA_GATTC_NOTIF_REG_MAX     UC_BT_GATTC_NOTIF_REG_MAX
+#else
+#define BTA_GATTC_NOTIF_REG_MAX     5
+#endif
 
 #if (UC_BT_SMP_ENABLE)
 #define SMP_INCLUDED                TRUE
@@ -189,14 +648,51 @@
 #define BLE_PRIVACY_SPT             FALSE
 #endif  /* UC_BT_SMP_ENABLE */
 
+/* CTKD: BR↔LE key derivation via SMP over BR (CID 7) and LE LK bit. */
+#if (UC_BT_SMP_CTKD_ENABLE && (CLASSIC_BT_INCLUDED == TRUE) && (BLE_INCLUDED == TRUE) && (SMP_INCLUDED == TRUE))
+#define SMP_CTKD_INCLUDED           TRUE
+#else
+#define SMP_CTKD_INCLUDED           FALSE
+#endif
+
 #if(UC_BT_SMP_SLAVE_CON_PARAMS_UPD_ENABLE)
 #define SMP_SLAVE_CON_PARAMS_UPD_ENABLE     TRUE
 #else
 #define SMP_SLAVE_CON_PARAMS_UPD_ENABLE     FALSE
 #endif /* UC_BT_SMP_SLAVE_CON_PARAMS_UPD_ENABLE */
 
+#if (UC_BT_BLE_SMP_ID_RESET_ENABLE)
+#define BLE_SMP_ID_RESET_ENABLE          TRUE
+#else
+#define BLE_SMP_ID_RESET_ENABLE          FALSE
+#endif
+
+#if (UC_BT_BLE_SMP_BOND_NVS_FLASH)
+#define BLE_SMP_BOND_NVS_FLASH      TRUE
+#else
+#define BLE_SMP_BOND_NVS_FLASH      FALSE
+#endif
+
+#if (UC_BT_SMP_CRYPTO_STACK_NATIVE)
+#define SMP_CRYPTO_STACK_NATIVE     TRUE
+#else
+#define SMP_CRYPTO_STACK_NATIVE     FALSE
+#endif /* UC_BT_SMP_CRYPTO_STACK_NATIVE */
+
+#if (UC_BT_SMP_CRYPTO_MBEDTLS)
+#define SMP_CRYPTO_MBEDTLS          TRUE
+#else
+#define SMP_CRYPTO_MBEDTLS          FALSE
+#endif /* UC_BT_SMP_CRYPTO_MBEDTLS */
+
+#if (UC_BT_SMP_CRYPTO_TINYCRYPT)
+#define SMP_CRYPTO_TINYCRYPT        TRUE
+#else
+#define SMP_CRYPTO_TINYCRYPT        FALSE
+#endif /* UC_BT_SMP_CRYPTO_TINYCRYPT */
+
 #ifdef UC_BTDM_BLE_ADV_REPORT_FLOW_CTRL_SUPP
-#define BLE_ADV_REPORT_FLOW_CONTROL         UC_BTDM_BLE_ADV_REPORT_FLOW_CTRL_SUPP
+#define BLE_ADV_REPORT_FLOW_CONTROL         (UC_BTDM_BLE_ADV_REPORT_FLOW_CTRL_SUPP && BLE_INCLUDED)
 #endif /* UC_BTDM_BLE_ADV_REPORT_FLOW_CTRL_SUPP */
 
 #ifdef UC_BTDM_BLE_ADV_REPORT_FLOW_CTRL_NUM
@@ -211,6 +707,16 @@
 #define MAX_ACL_CONNECTIONS         UC_BT_ACL_CONNECTIONS
 #define GATT_MAX_PHY_CHANNEL        UC_BT_ACL_CONNECTIONS
 #endif  /* UC_BT_ACL_CONNECTIONS */
+
+#ifdef UC_BT_MULTI_CONNECTION_ENBALE
+#define BT_MULTI_CONNECTION_ENBALE  UC_BT_MULTI_CONNECTION_ENBALE
+#endif
+
+#if(BT_MULTI_CONNECTION_ENBALE && (CONFIG_IDF_TARGET_ESP32C3 || CONFIG_IDF_TARGET_ESP32S3))
+#define BLE_CE_LEN_MIN           5
+#else
+#define BLE_CE_LEN_MIN           0
+#endif
 
 #ifdef UC_BT_BLE_ESTAB_LINK_CONN_TOUT
 #define BLE_ESTABLISH_LINK_CONNECTION_TIMEOUT UC_BT_BLE_ESTAB_LINK_CONN_TOUT
@@ -262,6 +768,10 @@
 #define BTC_AV_INCLUDED FALSE
 #endif
 
+#ifndef BTC_AV_CA_INCLUDED
+#define BTC_AV_CA_INCLUDED FALSE
+#endif
+
 #ifndef BTC_AV_SINK_INCLUDED
 #define BTC_AV_SINK_INCLUDED FALSE
 #endif
@@ -270,8 +780,32 @@
 #define BTC_AV_SRC_INCLUDED FALSE
 #endif
 
+#ifndef BTC_AV_EXT_CODEC
+#define BTC_AV_EXT_CODEC FALSE
+#endif
+
 #ifndef BTC_SPP_INCLUDED
 #define BTC_SPP_INCLUDED FALSE
+#endif
+
+#ifndef BTC_PAN_INCLUDED
+#define BTC_PAN_INCLUDED FALSE
+#endif
+
+#ifndef BTA_PAN_INCLUDED
+#define BTA_PAN_INCLUDED FALSE
+#endif
+
+#ifndef BTC_HH_INCLUDED
+#define BTC_HH_INCLUDED FALSE
+#endif
+
+#ifndef BTC_HD_INCLUDED
+#define BTC_HD_INCLUDED FALSE
+#endif
+
+#ifndef BTC_HID_REMOVE_DEVICE_BONDING
+#define BTC_HID_REMOVE_DEVICE_BONDING     FALSE
 #endif
 
 #ifndef SBC_DEC_INCLUDED
@@ -280,6 +814,10 @@
 
 #ifndef SBC_ENC_INCLUDED
 #define SBC_ENC_INCLUDED FALSE
+#endif
+
+#ifndef BTC_HFP_EXT_CODEC
+#define BTC_HFP_EXT_CODEC FALSE
 #endif
 
 /******************************************************************************
@@ -295,8 +833,12 @@
 #define BTA_DM_PM_INCLUDED FALSE
 #endif
 
-#ifndef BTA_PAN_INCLUDED
-#define BTA_PAN_INCLUDED FALSE
+#ifndef BTA_DM_QOS_INCLUDED
+#define BTA_DM_QOS_INCLUDED FALSE
+#endif
+
+#ifndef BTA_HD_INCLUDED
+#define BTA_HD_INCLUDED FALSE
 #endif
 
 #ifndef BTA_HH_INCLUDED
@@ -319,6 +861,14 @@
 #define BTA_AV_INCLUDED FALSE
 #endif
 
+#ifndef BTA_AV_CA_INCLUDED
+#define BTA_AV_CA_INCLUDED FALSE
+#endif
+
+#ifndef BTA_AV_EXT_CODEC
+#define BTA_AV_EXT_CODEC FALSE
+#endif
+
 #ifndef BTA_AV_SINK_INCLUDED
 #define BTA_AV_SINK_INCLUDED FALSE
 #endif
@@ -329,6 +879,10 @@
 
 #ifndef BTA_SDP_INCLUDED
 #define BTA_SDP_INCLUDED FALSE
+#endif
+
+#ifndef BTA_HFP_EXT_CODEC
+#define BTA_HFP_EXT_CODEC FALSE
 #endif
 
 /* This is set to enable use of GAP L2CAP connections. */
@@ -402,12 +956,6 @@
 #define BTA_AV_CO_CP_SCMS_T  FALSE
 #endif
 
-#if UC_BT_BLE_HOST_QUEUE_CONGESTION_CHECK
-#define SCAN_QUEUE_CONGEST_CHECK  TRUE
-#else
-#define SCAN_QUEUE_CONGEST_CHECK  FALSE
-#endif
-
 #ifdef UC_CONFIG_BT_GATTS_PPCP_CHAR_GAP
 #define BTM_PERIPHERAL_ENABLED   UC_CONFIG_BT_GATTS_PPCP_CHAR_GAP
 #endif
@@ -416,13 +964,48 @@
 #define GATTS_SEND_SERVICE_CHANGE_MODE UC_BT_GATTS_SEND_SERVICE_CHANGE_MODE
 #endif
 
+#if (UC_BT_GATTS_ROBUST_CACHING_ENABLED == TRUE)
+#define GATTS_ROBUST_CACHING_ENABLED TRUE
+#else
+#define GATTS_ROBUST_CACHING_ENABLED FALSE
+#endif
+
+#if (UC_BT_GATTS_DEVICE_NAME_WRITABLE == TRUE)
+#define GATTS_DEVICE_NAME_WRITABLE TRUE
+#else
+#define GATTS_DEVICE_NAME_WRITABLE FALSE
+#endif
+
+#if (UC_BT_GATTS_APPEARANCE_WRITABLE == TRUE)
+#define GATTS_APPEARANCE_WRITABLE TRUE
+#else
+#define GATTS_APPEARANCE_WRITABLE FALSE
+#endif
+
+#if (UC_BT_GATTS_SECURITY_LEVELS_CHAR == TRUE)
+#define BT_GATTS_SECURITY_LEVELS_CHAR TRUE
+#else
+#define BT_GATTS_SECURITY_LEVELS_CHAR FALSE
+#endif
+
+#if (UC_BT_GATTS_KEY_MATERIAL_CHAR == TRUE)
+#define BT_GATTS_KEY_MATERIAL_CHAR TRUE
+#else
+#define BT_GATTS_KEY_MATERIAL_CHAR FALSE
+#endif
+
 #ifdef UC_BT_BLE_ACT_SCAN_REP_ADV_SCAN
 #define BTM_BLE_ACTIVE_SCAN_REPORT_ADV_SCAN_RSP_INDIVIDUALLY    UC_BT_BLE_ACT_SCAN_REP_ADV_SCAN
 #endif
 
-/* This feature is used to eanble interleaved scan*/
-#ifndef BTA_HOST_INTERLEAVE_SEARCH
-#define BTA_HOST_INTERLEAVE_SEARCH FALSE
+#ifdef UC_BT_BLE_RPA_TIMEOUT
+#define BTM_BLE_PRIVATE_ADDR_INT UC_BT_BLE_RPA_TIMEOUT
+#endif
+
+#if (UC_BT_CLASSIC_BQB_ENABLED == TRUE)
+#define BT_CLASSIC_BQB_INCLUDED TRUE
+#else
+#define BT_CLASSIC_BQB_INCLUDED FALSE
 #endif
 
 #ifndef BT_USE_TRACES
@@ -672,6 +1255,20 @@
 #define BTM_MSBC_FRAME_DATA_SIZE          57
 #endif
 
+/* LC3-SWB eSCO air frame (H2 + payload); same 60-byte eSCO packet as mSBC */
+#ifndef BTM_LC3_FRAME_SIZE
+#define BTM_LC3_FRAME_SIZE                  60
+#endif
+
+#ifndef BTM_LC3_FRAME_DATA_SIZE
+#define BTM_LC3_FRAME_DATA_SIZE             58
+#endif
+
+/* Transparent wideband air frame size (mSBC and LC3-SWB) */
+#ifndef BTM_HFP_TRANSPARENT_FRAME_SIZE
+#define BTM_HFP_TRANSPARENT_FRAME_SIZE      BTM_MSBC_FRAME_SIZE
+#endif
+
 /* The size in bytes of the BTM inquiry database. 5 As Default */
 #ifndef BTM_INQ_DB_SIZE
 #define BTM_INQ_DB_SIZE             5
@@ -750,18 +1347,120 @@
 #define BTM_DEFAULT_SCO_MODE        2
 #endif
 
-/* The number of security records for peer devices. 100 AS Default*/
+/* The number of security records for peer devices. 15 AS Default*/
 #ifndef BTM_SEC_MAX_DEVICE_RECORDS
-#if SMP_INCLUDED == TRUE
-#define BTM_SEC_MAX_DEVICE_RECORDS  15 // 100
-#else
-#define BTM_SEC_MAX_DEVICE_RECORDS  8
-#endif /* SMP_INCLUDED == TRUE */
+#define BTM_SEC_MAX_DEVICE_RECORDS  (UC_BT_SMP_MAX_BONDS + UC_BT_ACL_CONNECTIONS)
 #endif
 
-/* The number of security records for services. 32 AS Default*/
+#ifndef BTM_SEC_MAX_BONDS
+#define BTM_SEC_MAX_BONDS  UC_BT_SMP_MAX_BONDS
+#endif
+
+#if BTA_SDP_INCLUDED
+#define BTM_SDP_SEC_SERVICE_RECORDS 1
+#else
+#define BTM_SDP_SEC_SERVICE_RECORDS 0
+#endif
+
+#if BTA_AG_INCLUDED
+#define BTM_AG_SEC_SERVICE_RECORDS 1
+#else
+#define BTM_AG_SEC_SERVICE_RECORDS 0
+#endif
+
+#if BTA_HF_INCLUDED
+#define BTM_HF_SEC_SERVICE_RECORDS 1
+#else
+#define BTM_HF_SEC_SERVICE_RECORDS 0
+#endif
+
+#if BTA_JV_INCLUDED
+#define BTM_JV_SEC_SERVICE_RECORDS (MAX_RFC_PORTS - BTM_HF_SEC_SERVICE_RECORDS - BTM_AG_SEC_SERVICE_RECORDS)
+#else
+#define BTM_JV_SEC_SERVICE_RECORDS 0
+#endif
+
+#if BTA_PBA_CLIENT_INCLUDED
+#define BTM_PBA_SEC_SERVICE_RECORDS 2
+#else
+#define BTM_PBA_SEC_SERVICE_RECORDS 0
+#endif
+
+#if BTA_PAN_INCLUDED
+#define BTM_PAN_SEC_SERVICE_RECORDS 6
+#else
+#define BTM_PAN_SEC_SERVICE_RECORDS 0
+#endif
+
+#if BTA_OPP_SERVER_INCLUDED && BTA_OPP_CLIENT_INCLUDED
+#define BTM_OPP_SEC_SERVICE_RECORDS 4
+#elif BTA_OPP_SERVER_INCLUDED
+#define BTM_OPP_SEC_SERVICE_RECORDS 3
+#elif BTA_OPP_CLIENT_INCLUDED
+#define BTM_OPP_SEC_SERVICE_RECORDS 1
+#else
+#define BTM_OPP_SEC_SERVICE_RECORDS 0
+#endif
+
+#if BTA_AV_CA_INCLUDED
+#define BTM_AC_VA_SEC_SERVICE_RECORDS 1
+#else
+#define BTM_AC_VA_SEC_SERVICE_RECORDS 0
+#endif
+
+#if AVCT_INCLUDED
+#if AVCT_BROWSE_INCLUDED
+#define BTM_AVCT_SEC_SERVICE_RECORDS 2
+#else
+#define BTM_AVCT_SEC_SERVICE_RECORDS 1
+#endif // AVCT_BROWSE_INCLUDED
+#else
+#define BTM_AVCT_SEC_SERVICE_RECORDS 0
+#endif
+
+#if AVDT_INCLUDED
+#if AVDT_REPORTING
+#define BTM_AVDT_SEC_SERVICE_RECORDS 3
+#else
+#define BTM_AVDT_SEC_SERVICE_RECORDS 2
+#endif // AVDT_INCLUDED
+#else
+#define BTM_AVDT_SEC_SERVICE_RECORDS 0
+#endif
+
+#if GAP_CONN_INCLUDED
+#define BTM_GAP_SEC_SERVICE_RECORDS GAP_MAX_CONNECTIONS
+#else
+#define BTM_GAP_SEC_SERVICE_RECORDS 0
+#endif
+
+#if HID_DEV_INCLUDED
+#define BTM_HIDD_SEC_SERVICE_RECORDS 3
+#else
+#define BTM_HIDD_SEC_SERVICE_RECORDS 0
+#endif
+
+#if HID_HOST_INCLUDED
+#define BTM_HIDH_SEC_SERVICE_RECORDS 3
+#else
+#define BTM_HIDH_SEC_SERVICE_RECORDS 0
+#endif
+
+#if BLE_INCLUDED
+#define BTM_GATT_SEC_SERVICE_RECORDS 1
+#else
+#define BTM_GATT_SEC_SERVICE_RECORDS 0
+#endif
+
+#define BTM_SEC_DEV_SERVICE_RECORDS  1
+
+/* The number of security records for services. */
 #ifndef BTM_SEC_MAX_SERVICE_RECORDS
-#define BTM_SEC_MAX_SERVICE_RECORDS 8 // 32
+#define BTM_SEC_MAX_SERVICE_RECORDS (BTM_SDP_SEC_SERVICE_RECORDS + BTM_AG_SEC_SERVICE_RECORDS     \
+   + BTM_AVCT_SEC_SERVICE_RECORDS + BTM_AVDT_SEC_SERVICE_RECORDS + BTM_GAP_SEC_SERVICE_RECORDS    \
+   + BTM_HIDD_SEC_SERVICE_RECORDS  + BTM_GATT_SEC_SERVICE_RECORDS + BTM_PBA_SEC_SERVICE_RECORDS   \
+   + BTM_HIDH_SEC_SERVICE_RECORDS + BTM_SEC_DEV_SERVICE_RECORDS + BTM_HF_SEC_SERVICE_RECORDS      \
+   + BTM_JV_SEC_SERVICE_RECORDS + BTM_PAN_SEC_SERVICE_RECORDS + BTM_AC_VA_SEC_SERVICE_RECORDS + BTM_OPP_SEC_SERVICE_RECORDS )
 #endif
 
 /* If True, force a retrieval of remote device name for each bond in case it's changed */
@@ -776,8 +1475,12 @@
 
 /* Maximum local device name length stored btm database.
   '0' disables storage of the local name in BTM */
-#ifndef BTM_MAX_LOC_BD_NAME_LEN
+#if UC_MAX_LOC_BD_NAME_LEN
+#define BTM_MAX_LOC_BD_NAME_LEN     UC_MAX_LOC_BD_NAME_LEN
+#define BTC_MAX_LOC_BD_NAME_LEN     BTM_MAX_LOC_BD_NAME_LEN
+#else
 #define BTM_MAX_LOC_BD_NAME_LEN     64
+#define BTC_MAX_LOC_BD_NAME_LEN     BTM_MAX_LOC_BD_NAME_LEN
 #endif
 
 /* Fixed Default String. When this is defined as null string, the device's
@@ -879,16 +1582,31 @@
 **************************/
 
 /* 4.1/4.2 secure connections feature */
-#ifndef SC_MODE_INCLUDED
-// Disable AES-CCM (BT 4.1) for BT Classic to workaround controller AES issue. E0 encryption (BT 4.0) will be used.
+#if defined(CONFIG_IDF_TARGET_ESP32) && (BT_CONTROLLER_INCLUDED == TRUE)
+// Disable AES-CCM (BT 4.1) for BT Classic to workaround controller AES issue on ESP32 controller. E0 encryption (BT 4.0) will be used.
 #define SC_MODE_INCLUDED                FALSE
-#endif
+#else
+#define SC_MODE_INCLUDED                TRUE
+#endif // CONFIG_IDF_TARGET_ESP32
 
 /* Used for conformance testing ONLY */
 #ifndef BTM_BLE_CONFORMANCE_TESTING
 #define BTM_BLE_CONFORMANCE_TESTING           FALSE
 #endif
 
+#if (CLASSIC_BT_INCLUDED == TRUE)
+#if (BT_CONTROLLER_INCLUDED == TRUE) && (CONFIG_IDF_TARGET_ESP32)
+#define BR_EDR_SET_CTRL_SCO_DATAPATH     (TRUE)
+#else
+#define BR_EDR_SET_CTRL_SCO_DATAPATH     (FALSE)
+#endif
+
+#if (BT_CONTROLLER_INCLUDED == TRUE) && (CONFIG_IDF_TARGET_ESP32)
+#define BR_EDR_GET_EIR_TX_PWR_LEVEL      (TRUE)
+#else
+#define BR_EDR_GET_EIR_TX_PWR_LEVEL      (FALSE)
+#endif
+#endif
 /******************************************************************************
 **
 ** CONTROLLER TO HOST FLOW CONTROL
@@ -912,6 +1630,97 @@
 #define BLE_MAX_L2CAP_CLIENTS           15
 #endif
 
+/* Support status of L2CAP connection-oriented dynamic channels over LE transport with dynamic CID */
+#ifndef BLE_L2CAP_COC_INCLUDED
+#if (UC_BT_BLE_L2CAP_COC_ENABLED == TRUE)
+#define BLE_L2CAP_COC_INCLUDED          TRUE
+#else
+#define BLE_L2CAP_COC_INCLUDED          FALSE
+#endif
+#endif
+
+#if (BLE_L2CAP_COC_INCLUDED == TRUE)
+#undef BLE_MAX_L2CAP_CLIENTS
+#define BLE_MAX_L2CAP_CLIENTS           UC_BT_BLE_L2CAP_COC_MAX_CHAN
+#endif
+
+/* Initial LE CoC/ECFC RX credit window (K-frames) from
+ * CONFIG_BT_BLE_L2CAP_COC_INIT_CREDITS. Defined even when CoC is disabled so
+ * that internal headers that reference L2CAP_LE_INIT_CREDITS remain valid. */
+#ifndef L2CAP_LE_INIT_CREDITS
+#define L2CAP_LE_INIT_CREDITS           UC_BT_BLE_L2CAP_COC_INIT_CREDITS
+#endif
+
+/* Default LE CoC/ECFC MPS from CONFIG_BT_BLE_L2CAP_COC_MPS. */
+#ifndef L2CAP_LE_COC_MPS
+#define L2CAP_LE_COC_MPS                UC_BT_BLE_L2CAP_COC_MPS
+#endif
+
+#ifndef BLE_L2CAP_COC_CLIENT_INCLUDED
+#if (BLE_L2CAP_COC_INCLUDED == TRUE) && (GATTC_INCLUDED == TRUE)
+#define BLE_L2CAP_COC_CLIENT_INCLUDED     TRUE
+#else
+#define BLE_L2CAP_COC_CLIENT_INCLUDED     FALSE
+#endif
+#endif
+
+#ifndef BLE_L2CAP_COC_SERVER_INCLUDED
+#if (BLE_L2CAP_COC_INCLUDED == TRUE) && (GATTS_INCLUDED == TRUE)
+#define BLE_L2CAP_COC_SERVER_INCLUDED     TRUE
+#else
+#define BLE_L2CAP_COC_SERVER_INCLUDED     FALSE
+#endif
+#endif
+
+#ifndef BLE_L2CAP_ENHANCED_COC_INCLUDED
+#if (UC_BT_BLE_L2CAP_ENHANCED_COC == TRUE) && (BLE_L2CAP_COC_INCLUDED == TRUE)
+#define BLE_L2CAP_ENHANCED_COC_INCLUDED TRUE
+#else
+#define BLE_L2CAP_ENHANCED_COC_INCLUDED FALSE
+#endif
+#endif
+
+#ifndef BLE_EATT_INCLUDED
+#if (UC_BT_BLE_EATT_ENABLE == TRUE) && (BLE_L2CAP_ENHANCED_COC_INCLUDED == TRUE)
+#define BLE_EATT_INCLUDED               TRUE
+#else
+#define BLE_EATT_INCLUDED               FALSE
+#endif
+#endif
+
+#ifndef BLE_EATT_CLIENT_INCLUDED
+#if (BLE_EATT_INCLUDED == TRUE) && (GATTC_INCLUDED == TRUE)
+#define BLE_EATT_CLIENT_INCLUDED          TRUE
+#else
+#define BLE_EATT_CLIENT_INCLUDED          FALSE
+#endif
+#endif
+
+#ifndef BLE_EATT_SERVER_INCLUDED
+#if (BLE_EATT_INCLUDED == TRUE) && (GATTS_INCLUDED == TRUE)
+#define BLE_EATT_SERVER_INCLUDED          TRUE
+#else
+#define BLE_EATT_SERVER_INCLUDED          FALSE
+#endif
+#endif
+
+/* EATT bearer count and MTU from CONFIG_BT_BLE_EATT_CHAN_NUM / CONFIG_BT_BLE_EATT_MTU. */
+#ifndef GATT_EATT_MAX_CHAN
+#define GATT_EATT_MAX_CHAN              UC_BT_BLE_EATT_CHAN_NUM
+#endif
+
+#ifndef GATT_EATT_MTU
+#define GATT_EATT_MTU                   UC_BT_BLE_EATT_MTU
+#endif
+
+/* Support status of L2CAP connection-oriented dynamic channels over LE or BR/EDR transport with dynamic CID */
+#ifndef L2CAP_COC_INCLUDED
+#if (CLASSIC_BT_INCLUDED == TRUE || BLE_L2CAP_COC_INCLUDED == TRUE)
+#define L2CAP_COC_INCLUDED              TRUE
+#else
+#define L2CAP_COC_INCLUDED              FALSE
+#endif
+#endif
 
 /* The maximum number of simultaneous links that L2CAP can support. Up to 7*/
 #ifndef MAX_ACL_CONNECTIONS
@@ -1084,8 +1893,8 @@
 #define BLE_INCLUDED            FALSE
 #endif
 
-#ifndef BLE_ANDROID_CONTROLLER_SCAN_FILTER
-#define BLE_ANDROID_CONTROLLER_SCAN_FILTER            TRUE
+#ifndef BLE_HOST_BG_CONNECT_EN
+#define BLE_HOST_BG_CONNECT_EN              FALSE
 #endif
 
 #ifndef LOCAL_BLE_CONTROLLER_ID
@@ -1107,29 +1916,28 @@
 #define BLE_LOCAL_PRIVACY_ENABLED         TRUE
 #endif
 
-/*
- * Toggles support for vendor specific extensions such as RPA offloading,
- * feature discovery, multi-adv etc.
- */
-#ifndef BLE_VND_INCLUDED
-#define BLE_VND_INCLUDED        FALSE
-#endif
-
 #ifndef BTM_BLE_ADV_TX_POWER
+#ifdef CONFIG_IDF_TARGET_ESP32
 #define BTM_BLE_ADV_TX_POWER {-12, -9, -6, -3, 0, 3, 6, 9}
+#else
+#define BTM_BLE_ADV_TX_POWER {-24, -21, -18, -15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 20}
+#endif
 #endif
 
 #ifndef BTM_TX_POWER
+#ifdef CONFIG_IDF_TARGET_ESP32
 #define BTM_TX_POWER {-12, -9, -6, -3, 0, 3, 6, 9}
+#else
+#define BTM_TX_POWER {-24, -21, -18, -15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 20}
+#endif
 #endif
 
 #ifndef BTM_TX_POWER_LEVEL_MAX
+#ifdef CONFIG_IDF_TARGET_ESP32
 #define BTM_TX_POWER_LEVEL_MAX 7
+#else
+#define BTM_TX_POWER_LEVEL_MAX 15
 #endif
-
-
-#ifndef BLE_BATCH_SCAN_INCLUDED
-#define BLE_BATCH_SCAN_INCLUDED  TRUE
 #endif
 
 /******************************************************************************
@@ -1195,7 +2003,7 @@
 #endif
 
 #ifndef GATT_MAX_SR_PROFILES
-#define GATT_MAX_SR_PROFILES        8 /* max is 32 */
+#define GATT_MAX_SR_PROFILES        UC_CONFIG_BT_GATT_MAX_SR_PROFILES
 #endif
 
 #ifndef GATT_MAX_APPS
@@ -1211,7 +2019,7 @@
 #define GATT_CONFORMANCE_TESTING           FALSE
 #endif
 
-/* number of background connection device allowence, ideally to be the same as WL size
+/* number of background connection device allowance, ideally to be the same as WL size
 */
 #ifndef GATT_MAX_BG_CONN_DEV
 #define GATT_MAX_BG_CONN_DEV        8 /*MAX is 32*/
@@ -1281,25 +2089,18 @@
 
 /******************************************************************************
 **
-** BT_SSP
-**
-******************************************************************************/
-#ifndef BT_SSP_INCLUDED
-#define BT_SSP_INCLUDED         FALSE
-#endif
-
-#if BT_SSP_INCLUDED == TRUE && CLASSIC_BT_INCLUDED == FALSE
-#error "Can't have SSP without CLASSIC BT"
-#endif
-
-/******************************************************************************
-**
 ** SDP
 **
 ******************************************************************************/
 
 #ifndef SDP_INCLUDED
 #define SDP_INCLUDED                FALSE
+#endif
+
+#if (SDP_INCLUDED == TRUE) && (BTA_JV_INCLUDED == TRUE) && (BT_CLASSIC_BQB_INCLUDED == TRUE)
+#define BT_SDP_BQB_INCLUDED         TRUE
+#else
+#define BT_SDP_BQB_INCLUDED         FALSE
 #endif
 
 /* This is set to enable SDP server functionality. */
@@ -1327,16 +2128,21 @@
 
 /* The maximum number of attributes in each record. */
 #ifndef SDP_MAX_REC_ATTR
+#if (defined(HID_DEV_INCLUDED) && (HID_DEV_INCLUDED==TRUE)) || (defined(BTC_SDP_COMMON_INCLUDED) && (BTC_SDP_COMMON_INCLUDED==TRUE))
+#define SDP_MAX_REC_ATTR            25
+#else
 #define SDP_MAX_REC_ATTR            8
+#endif /* defined(HID_DEV_INCLUDED) && (HID_DEV_INCLUDED==TRUE) */
 #endif
 
+/* The maximum length, in bytes, of all SDP attributes combined. */
 #ifndef SDP_MAX_PAD_LEN
-#define SDP_MAX_PAD_LEN             300
+#define SDP_MAX_PAD_LEN             UC_SDP_MAX_PAD_LEN
 #endif
 
 /* The maximum length, in bytes, of an attribute. */
 #ifndef SDP_MAX_ATTR_LEN
-#define SDP_MAX_ATTR_LEN            400
+#define SDP_MAX_ATTR_LEN            UC_SDP_MAX_ATTR_LEN
 #endif
 
 /* The maximum number of attribute filters supported by SDP databases. */
@@ -1366,7 +2172,7 @@
 
 /* The maximum number of simultaneous client and server connections. */
 #ifndef SDP_MAX_CONNECTIONS
-#define SDP_MAX_CONNECTIONS         2 // 4
+#define SDP_MAX_CONNECTIONS         4
 #endif
 
 /* The MTU size for the L2CAP configuration. */
@@ -1398,6 +2204,16 @@
 #define RFCOMM_INCLUDED             FALSE
 #endif
 
+#if (RFCOMM_INCLUDED == TRUE) && (BT_CLASSIC_BQB_INCLUDED == TRUE)
+#define BT_RFCOMM_BQB_INCLUDED      TRUE
+#else
+#define BT_RFCOMM_BQB_INCLUDED      FALSE
+#endif
+
+#ifndef BTA_JV_RFCOMM_INCLUDED
+#define BTA_JV_RFCOMM_INCLUDED      FALSE
+#endif
+
 /* The maximum number of ports supported. */
 #ifndef MAX_RFC_PORTS
 #define MAX_RFC_PORTS               8 /*max is 30*/
@@ -1427,7 +2243,7 @@
 
 /* The port receive queue low watermark level, in number of buffers. */
 #ifndef PORT_RX_BUF_LOW_WM
-#define PORT_RX_BUF_LOW_WM          4
+#define PORT_RX_BUF_LOW_WM          6
 #endif
 
 /* The port receive queue high watermark level, in number of buffers. */
@@ -1475,6 +2291,31 @@
 #define PORT_CREDIT_RX_LOW          8
 #endif
 
+/* ERTM Tx window size */
+#ifndef RFC_FCR_OPT_TX_WINDOW_SIZE
+#define RFC_FCR_OPT_TX_WINDOW_SIZE  10
+#endif
+
+/* ERTM Maximum transmissions before disconnecting */
+#ifndef RFC_FCR_OPT_MAX_TX_B4_DISCNT
+#define RFC_FCR_OPT_MAX_TX_B4_DISCNT 20
+#endif
+
+/* ERTM Retransmission timeout (2 secs) */
+#ifndef RFC_FCR_OPT_RETX_TOUT
+#define RFC_FCR_OPT_RETX_TOUT        2000
+#endif
+
+/* ERTM Monitor timeout (12 secs) */
+#ifndef RFC_FCR_OPT_MONITOR_TOUT
+#define RFC_FCR_OPT_MONITOR_TOUT     12000
+#endif
+
+/* ERTM ERTM MPS segment size */
+#ifndef RFC_FCR_OPT_MAX_PDU_SIZE
+#define RFC_FCR_OPT_MAX_PDU_SIZE     1010
+#endif
+
 /******************************************************************************
 **
 ** OBEX
@@ -1512,51 +2353,118 @@
 #define OBX_FCR_TX_BUF_SIZE     BT_DEFAULT_BUFFER_SIZE
 #endif
 
-/* This option is application when OBX_14_INCLUDED=TRUE
-Size of the transmission window when using enhanced retransmission mode. Not used
-in basic and streaming modes. Range: 1 - 63
-*/
+/*
+ * Size of the transmission window when using enhanced retransmission mode. Not used
+ * in basic and streaming modes. Range: 1 - 63
+ */
 #ifndef OBX_FCR_OPT_TX_WINDOW_SIZE_BR_EDR
-#define OBX_FCR_OPT_TX_WINDOW_SIZE_BR_EDR       20
+#define OBX_FCR_OPT_TX_WINDOW_SIZE_BR_EDR       10
 #endif
 
-/* This option is application when OBX_14_INCLUDED=TRUE
-Number of transmission attempts for a single I-Frame before taking
-Down the connection. Used In ERTM mode only. Value is Ignored in basic and
-Streaming modes.
-Range: 0, 1-0xFF
-0 - infinite retransmissions
-1 - single transmission
-*/
+/*
+ * Number of transmission attempts for a single I-Frame before taking
+ * Down the connection. Used In ERTM mode only. Value is Ignored in basic and
+ * Streaming modes.
+ * Range: 0, 1-0xFF
+ * 0 - infinite retransmissions
+ * 1 - single transmission
+ */
 #ifndef OBX_FCR_OPT_MAX_TX_B4_DISCNT
 #define OBX_FCR_OPT_MAX_TX_B4_DISCNT    20
 #endif
 
-/* This option is application when OBX_14_INCLUDED=TRUE
-Retransmission Timeout
-Range: Minimum 2000 (2 secs) on BR/EDR when supporting PBF.
+/*
+ * Retransmission Timeout
+ * Range: Minimum 2000 (2 secs) on BR/EDR when supporting PBF.
  */
 #ifndef OBX_FCR_OPT_RETX_TOUT
 #define OBX_FCR_OPT_RETX_TOUT           2000
 #endif
 
-/* This option is application when OBX_14_INCLUDED=TRUE
-Monitor Timeout
-Range: Minimum 12000 (12 secs) on BR/EDR when supporting PBF.
-*/
+/*
+ * Monitor Timeout
+ * Range: Minimum 12000 (12 secs) on BR/EDR when supporting PBF.
+ */
 #ifndef OBX_FCR_OPT_MONITOR_TOUT
 #define OBX_FCR_OPT_MONITOR_TOUT        12000
 #endif
 
-/* This option is application when OBX_14_INCLUDED=TRUE
-Maximum PDU payload size.
-Suggestion: The maximum amount of data that will fit into a 3-DH5 packet.
-Range: 2 octets
+/*
+ * Maximum PDU payload size.
+ * Suggestion: The maximum amount of data that will fit into a 3-DH5 packet.
+ * Range: 2 octets
 */
 #ifndef OBX_FCR_OPT_MAX_PDU_SIZE
 #define OBX_FCR_OPT_MAX_PDU_SIZE        L2CAP_MPS_OVER_BR_EDR
 #endif
 
+/*
+ * Pool ID where to reassemble the SDU.
+ * This Pool will allow buffers to be used that are larger than
+ * the L2CAP_MAX_MTU.
+ */
+#ifndef OBX_USER_RX_POOL_ID
+#define OBX_USER_RX_POOL_ID              4
+#endif
+
+/*
+ * Pool ID where to hold the SDU.
+ * This Pool will allow buffers to be used that are larger than
+ * the L2CAP_MAX_MTU.
+ */
+#ifndef OBX_USER_TX_POOL_ID
+#define OBX_USER_TX_POOL_ID              4
+#endif
+
+/*
+ * GKI Buffer Pool ID used to hold MPS segments during SDU reassembly
+ */
+#ifndef OBX_FCR_RX_POOL_ID
+#define OBX_FCR_RX_POOL_ID                3
+#endif
+
+/*
+ * Pool ID used to hold MPS segments used in (re)transmissions.
+ * L2CAP_DEFAULT_ERM_POOL_ID is specified to use the HCI ACL data pool.
+ * Note:  This pool needs to have enough buffers to hold two times the window size negotiated
+ * in the L2CA_SetFCROptions (2 * tx_win_size)  to allow for retransmissions.
+ * The size of each buffer must be able to hold the maximum MPS segment size passed in
+ * L2CA_SetFCROptions plus BT_HDR (8) + HCI preamble (4) + L2CAP_MIN_OFFSET (11 - as of BT 2.1 + EDR Spec).
+ */
+#ifndef OBX_FCR_TX_POOL_ID
+#define OBX_FCR_TX_POOL_ID                3
+#endif
+
+/* Maximum OBEX connection allowed */
+#ifndef OBEX_MAX_CONNECTION
+#define OBEX_MAX_CONNECTION               3
+#endif
+
+/* Maximum OBEX server allowed */
+#ifndef OBEX_MAX_SERVER
+#define OBEX_MAX_SERVER                   2
+#endif
+
+/******************************************************************************
+**
+** GOEP
+**
+******************************************************************************/
+
+/* Maximum GOEP client connection allowed */
+#ifndef GOEPC_MAX_CONNECTION
+#define GOEPC_MAX_CONNECTION              3
+#endif
+
+/* Maximum GOEP server listener allowed */
+#ifndef GOEPS_MAX_SERVER
+#define GOEPS_MAX_SERVER                  OBEX_MAX_SERVER
+#endif
+
+/* Maximum GOEP server connection allowed */
+#ifndef GOEPS_MAX_CONNECTION
+#define GOEPS_MAX_CONNECTION              OBEX_MAX_CONNECTION
+#endif
 
 /******************************************************************************
 **
@@ -1640,7 +2548,12 @@ Range: 2 octets
 
 /* Number of simultaneous stream endpoints. */
 #ifndef AVDT_NUM_SEPS
-#define AVDT_NUM_SEPS               3
+#define AVDT_NUM_SEPS               UC_BT_A2DP_SEP_NUM_MAX
+#endif
+
+/* Maximum number of peer SEPs accepted in AVDTP Discover results. */
+#ifndef AVDT_DIS_RES_MAX_NUM_SEPS
+#define AVDT_DIS_RES_MAX_NUM_SEPS    32
 #endif
 
 /* Number of transport channels setup per media stream(audio or video) */
@@ -1761,17 +2674,30 @@ Range: 2 octets
 
 /******************************************************************************
 **
+** HFP
+**
+******************************************************************************/
+
+#if (BTC_HF_INCLUDED == TRUE) && (BT_CLASSIC_BQB_INCLUDED == TRUE)
+#define BT_HF_AG_BQB_INCLUDED           TRUE
+#else
+#define BT_HF_AG_BQB_INCLUDED           FALSE
+#endif
+
+#if (BTC_HF_CLIENT_INCLUDED == TRUE) && (BT_CLASSIC_BQB_INCLUDED == TRUE)
+#define BT_HF_CLIENT_BQB_INCLUDED       TRUE
+#else
+#define BT_HF_CLIENT_BQB_INCLUDED       FALSE
+#endif
+
+/******************************************************************************
+**
 ** GAP
 **
 ******************************************************************************/
 
 #ifndef GAP_INCLUDED
 #define GAP_INCLUDED                TRUE
-#endif
-
-/* This is set to enable posting event for data write */
-#ifndef GAP_CONN_POST_EVT_INCLUDED
-#define GAP_CONN_POST_EVT_INCLUDED  FALSE
 #endif
 
 /* The maximum number of simultaneous GAP L2CAP connections. */
@@ -1794,6 +2720,18 @@ Range: 2 octets
 ** HID
 **
 ******************************************************************************/
+#ifndef BT_HID_INCLUDED
+#define BT_HID_INCLUDED         FALSE
+#endif
+
+/* HID Device Role Included */
+#ifndef HID_DEV_INCLUDED
+#define HID_DEV_INCLUDED   FALSE
+#endif
+
+#ifndef HID_DEV_SUBCLASS
+#define HID_DEV_SUBCLASS   COD_MINOR_POINTING
+#endif
 
 #ifndef HID_CONTROL_BUF_SIZE
 #define HID_CONTROL_BUF_SIZE            BT_DEFAULT_BUFFER_SIZE
@@ -1801,6 +2739,20 @@ Range: 2 octets
 
 #ifndef HID_INTERRUPT_BUF_SIZE
 #define HID_INTERRUPT_BUF_SIZE          BT_DEFAULT_BUFFER_SIZE
+#endif
+
+#ifndef HID_DEV_MTU_SIZE
+#define HID_DEV_MTU_SIZE 64
+#endif
+
+#ifndef HID_DEV_FLUSH_TO
+#define HID_DEV_FLUSH_TO 0xffff
+#endif
+
+#if (BTA_HD_INCLUDED == TRUE) && (HID_DEV_INCLUDED == TRUE) && (BT_CLASSIC_BQB_INCLUDED == TRUE)
+#define BT_HID_DEVICE_BQB_INCLUDED      TRUE
+#else
+#define BT_HID_DEVICE_BQB_INCLUDED      FALSE
 #endif
 
 /*************************************************************************
@@ -1846,10 +2798,58 @@ Range: 2 octets
 #endif
 
 /*************************************************************************
+** Definitions for OBEX
+*/
+#ifndef OBEX_INCLUDED
+#define OBEX_INCLUDED            FALSE
+#endif
+
+/*************************************************************************
+** Definitions for OBEX
+*/
+#ifndef GOEPC_INCLUDED
+#define GOEPC_INCLUDED            FALSE
+#endif
+
+#ifndef GOEPS_INCLUDED
+#define GOEPS_INCLUDED            FALSE
+#endif
+
+#ifndef BTC_OPP_INCLUDED
+#define BTC_OPP_INCLUDED          FALSE
+#endif
+
+#ifndef BTA_OPP_INCLUDED
+#define BTA_OPP_INCLUDED          FALSE
+#endif
+
+#ifndef BTA_OPP_SERVER_INCLUDED
+#define BTA_OPP_SERVER_INCLUDED   FALSE
+#endif
+
+#ifndef BTA_OPP_CLIENT_INCLUDED
+#define BTA_OPP_CLIENT_INCLUDED   FALSE
+#endif
+
+#ifndef BTC_OPP_SERVER_INCLUDED
+#define BTC_OPP_SERVER_INCLUDED   FALSE
+#endif
+
+#ifndef BTC_OPP_CLIENT_INCLUDED
+#define BTC_OPP_CLIENT_INCLUDED   FALSE
+#endif
+
+/*************************************************************************
  * A2DP Definitions
  */
 #ifndef A2D_INCLUDED
 #define A2D_INCLUDED            FALSE
+#endif
+
+#if (BTC_AV_SRC_INCLUDED == TRUE) && (BT_CLASSIC_BQB_INCLUDED == TRUE)
+#define A2D_SRC_BQB_INCLUDED TRUE
+#else
+#define A2D_SRC_BQB_INCLUDED FALSE
 #endif
 
 /******************************************************************************
@@ -1875,6 +2875,10 @@ Range: 2 octets
 ******************************************************************************/
 #ifndef AVRC_INCLUDED
 #define AVRC_INCLUDED               FALSE
+#endif
+
+#ifndef AVRC_CA_INCLUDED
+#define AVRC_CA_INCLUDED            FALSE
 #endif
 
 #ifndef AVRC_METADATA_INCLUDED
@@ -2064,6 +3068,10 @@ The maximum number of payload octets that the local device can receive in a sing
 #define BTA_DM_AVOID_A2DP_ROLESWITCH_ON_INQUIRY FALSE
 #endif
 
+#ifndef BTA_GATTC_MAX_CACHE_CHAR
+#define BTA_GATTC_MAX_CACHE_CHAR UC_BT_GATTC_MAX_CACHE_CHAR
+#endif
+
 /******************************************************************************
 **
 ** Tracing:  Include trace header file here.
@@ -2073,18 +3081,6 @@ The maximum number of payload octets that the local device can receive in a sing
 /* Enable/disable BTSnoop memory logging */
 #ifndef BTSNOOP_MEM
 #define BTSNOOP_MEM FALSE
-#endif
-
-#if UC_BT_BLUEDROID_MEM_DEBUG
-#define HEAP_MEMORY_DEBUG   TRUE
-#else
-#define HEAP_MEMORY_DEBUG   FALSE
-#endif
-
-#if UC_HEAP_ALLOCATION_FROM_SPIRAM_FIRST
-#define HEAP_ALLOCATION_FROM_SPIRAM_FIRST TRUE
-#else
-#define HEAP_ALLOCATION_FROM_SPIRAM_FIRST FALSE
 #endif
 
 #include "common/bt_trace.h"

@@ -1,18 +1,5 @@
-BT GENERIC DEFINES
-==================
-
-Overview
---------
-
-`Instructions`_
-
-Application Example
--------------------
-
-`Instructions`_
-
-.. _Instructions: ../template.html
-
+Bluetooth® Generic Defines
+==========================
 
 API Reference
 -------------

@@ -83,6 +83,12 @@ tPORT *port_allocate_port (UINT8 dlci, BD_ADDR bd_addr)
 
             /* During the open set default state for the port connection */
             port_set_defaults (p_port);
+            if (p_port->tx.queue == NULL || p_port->rx.queue == NULL) {
+                fixed_queue_free(p_port->tx.queue, osi_free_func);
+                fixed_queue_free(p_port->rx.queue, osi_free_func);
+                memset(p_port, 0, sizeof (tPORT));
+                return (NULL);
+            }
 
             rfc_cb.rfc.last_port = yy;
             RFCOMM_TRACE_DEBUG("rfc_cb.port.port[%d]:%p allocated, last_port:%d", yy, p_port, rfc_cb.rfc.last_port);
@@ -101,7 +107,7 @@ tPORT *port_allocate_port (UINT8 dlci, BD_ADDR bd_addr)
 **
 ** Function         port_set_defaults
 **
-** Description      Set defualt port parameters
+** Description      Set default port parameters
 **
 **
 *******************************************************************************/
@@ -196,7 +202,7 @@ void port_select_mtu (tPORT *p_port)
 **
 ** Function         port_release_port
 **
-** Description      Release port infor control block.
+** Description      Release port info control block.
 **
 ** Returns          Pointer to the PORT or NULL if not found
 **
@@ -210,17 +216,17 @@ void port_release_port (tPORT *p_port)
 
     osi_mutex_global_lock();
     RFCOMM_TRACE_DEBUG("port_release_port, p_port:%p", p_port);
-    if (p_port->rx.queue) {
+    if (p_port->rx.queue != NULL) {
         while ((p_buf = (BT_HDR *)fixed_queue_dequeue(p_port->rx.queue, 0)) != NULL) {
-            osi_free (p_buf);
+            osi_free(p_buf);
         }
     }
     p_port->rx.queue_size = 0;
 
-    if (p_port->tx.queue) {
+    if (p_port->tx.queue != NULL) {
         while ((p_buf = (BT_HDR *)fixed_queue_dequeue(p_port->tx.queue, 0)) != NULL) {
-            osi_free (p_buf);
-        }   
+            osi_free(p_buf);
+        }
     }
     p_port->tx.queue_size = 0;
 
@@ -241,7 +247,7 @@ void port_release_port (tPORT *p_port)
         p_port->tx.queue = NULL;
         fixed_queue_free(p_port->rx.queue, NULL);
         p_port->rx.queue = NULL;
-		
+
         RFCOMM_TRACE_DEBUG ("port_release_port:p_port->keep_port_handle:%d", p_port->keep_port_handle);
         if ( p_port->keep_port_handle ) {
             RFCOMM_TRACE_DEBUG ("port_release_port:Initialize handle:%d", p_port->inx);
@@ -514,10 +520,12 @@ void port_flow_control_peer(tPORT *p_port, BOOLEAN enable, UINT16 count)
                     && (p_port->credit_rx_max > p_port->credit_rx)) {
                 rfc_send_credit(p_port->rfc.p_mcb, p_port->dlci,
                                 (UINT8) (p_port->credit_rx_max - p_port->credit_rx));
-
+                RFCOMM_TRACE_DEBUG("send credit: max %d, rx %d, count %d", p_port->credit_rx_max, p_port->credit_rx, count);
                 p_port->credit_rx = p_port->credit_rx_max;
 
                 p_port->rx.peer_fc = FALSE;
+            } else {
+                RFCOMM_TRACE_DEBUG("credit: max %d, rx %d, low %d", p_port->credit_rx_max, p_port->credit_rx, p_port->credit_rx_low);
             }
         }
         /* else want to disable flow from peer */

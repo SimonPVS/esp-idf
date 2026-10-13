@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 /*******************************************************************************
  *
@@ -31,6 +23,7 @@
 /*******************************************************************************
  **  Data types
  *******************************************************************************/
+#if (BTC_AV_EXT_CODEC == FALSE)
 
 /* tBTC_MEDIA_INIT_AUDIO msg structure */
 typedef struct {
@@ -57,6 +50,8 @@ typedef struct {
     tBTC_AV_FEEDING_MODE feeding_mode;
     tBTC_AV_MEDIA_FEEDINGS feeding;
 } tBTC_MEDIA_INIT_AUDIO_FEEDING;
+
+#endif
 
 /*******************************************************************************
  **  Public functions
@@ -86,29 +81,6 @@ void btc_a2dp_source_shutdown(void);
 
 /*******************************************************************************
  **
- ** Function         btc_a2dp_source_enc_init_req
- **
- ** Description      Request to initialize the media task encoder
- **
- ** Returns          TRUE is success
- **
- *******************************************************************************/
-BOOLEAN btc_a2dp_source_enc_init_req(tBTC_MEDIA_INIT_AUDIO *p_msg);
-
-/*******************************************************************************
- **
- ** Function         btc_a2dp_source_enc_udpate_req
- **
- ** Description      Request to update the media task encoder
- **
- ** Returns          TRUE is success
- **
- *******************************************************************************/
-BOOLEAN btc_a2dp_source_enc_update_req(tBTC_MEDIA_UPDATE_AUDIO *p_msg);
-
-
-/*******************************************************************************
- **
  ** Function         btc_a2dp_source_start_audio_req
  **
  ** Description      Request to start audio encoding task
@@ -120,28 +92,6 @@ BOOLEAN btc_a2dp_source_start_audio_req(void);
 
 /*******************************************************************************
  **
- ** Function         btc_a2dp_source_stop_audio_req
- **
- ** Description      Request to stop audio encoding task
- **
- ** Returns          TRUE is success
- **
- *******************************************************************************/
-BOOLEAN btc_a2dp_source_stop_audio_req(void);
-
-/*******************************************************************************
- **
- ** Function         btc_a2dp_source_tx_flush_req
- **
- ** Description      Request to flush audio encoding pipe
- **
- ** Returns          TRUE is success
- **
- *******************************************************************************/
-BOOLEAN btc_a2dp_source_tx_flush_req(void);
-
-/*******************************************************************************
- **
  ** Function         btc_a2dp_source_audio_readbuf
  **
  ** Description      Read an audio buffer from the BTC media TX queue
@@ -150,27 +100,6 @@ BOOLEAN btc_a2dp_source_tx_flush_req(void);
  **
  *******************************************************************************/
 BT_HDR *btc_a2dp_source_audio_readbuf(void);
-
-/*******************************************************************************
- **
- ** Function         btc_a2dp_source_audio_feeding_init_req
- **
- ** Description      Request to initialize audio feeding
- **
- ** Returns          TRUE if success
- **
- *******************************************************************************/
-
-BOOLEAN btc_a2dp_source_audio_feeding_init_req(tBTC_MEDIA_INIT_AUDIO_FEEDING *p_msg);
-
-/*******************************************************************************
- **
- ** Function         btc_a2dp_source_is_streaming
- **
- ** Description      Check whether A2DP source is in streaming state
- **
- *******************************************************************************/
-bool btc_a2dp_source_is_streaming(void);
 
 /*******************************************************************************
  **
@@ -214,15 +143,6 @@ void btc_a2dp_source_on_suspended(tBTA_AV_SUSPEND *p_av);
 
 /*******************************************************************************
  **
- ** Function         btc_a2dp_source_setup_codec
- **
- ** Description      initialize the encoder parameters
- **
- *******************************************************************************/
-void btc_a2dp_source_setup_codec(void);
-
-/*******************************************************************************
- **
  ** Function         btc_a2dp_source_set_tx_flush
  **
  ** Description      enable/disable discarding of transmitted frames
@@ -232,12 +152,58 @@ void btc_a2dp_source_set_tx_flush(BOOLEAN enable);
 
 /*******************************************************************************
  **
+ ** Function         btc_a2dp_source_set_pref_mcc
+ **
+ ** Description      set preferred codec configuration
+ **
+ ** Returns          TRUE if the preferred config is supported, FALSE otherwise
+ **
+ *******************************************************************************/
+BOOLEAN btc_a2dp_source_set_pref_mcc(tBTA_AV_HNDL hndl, tBTC_AV_CODEC_INFO *pref_mcc);
+
+#if (BTC_AV_EXT_CODEC == FALSE)
+
+/*******************************************************************************
+ **
+ ** Function         btc_a2dp_source_setup_codec
+ **
+ ** Description      initialize the encoder parameters
+ **
+ *******************************************************************************/
+void btc_a2dp_source_setup_codec(void);
+
+/*******************************************************************************
+ **
  ** Function         btc_a2dp_source_encoder_update
  **
  ** Description      update changed SBC encoder parameters
  **
  *******************************************************************************/
 void btc_a2dp_source_encoder_update(void);
+
+#endif
+
+/*****************************************************************************
+**
+** Function        btc_source_report_delay_value
+**
+** Description     Report sink delay report value
+**
+*******************************************************************************/
+void btc_source_report_delay_value(UINT16 delay_value);
+
+#if (BTC_AV_EXT_CODEC == TRUE)
+
+/*****************************************************************************
+**
+** Function        btc_a2dp_source_enqueue_audio_frame
+**
+** Description     Enqueue source audio frame to tx queue
+**
+*******************************************************************************/
+BOOLEAN btc_a2dp_source_enqueue_audio_frame(BT_HDR *p_buf);
+
+#endif
 
 #endif /* #if BTC_AV_SRC_INCLUDED */
 

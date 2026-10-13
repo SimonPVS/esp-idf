@@ -15,8 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "esp_vfs.h"
-#include "esp_vfs_dev.h"
+#include "driver/uart_vfs.h"
 #include "driver/uart.h"
 #include "esp_netif.h"
 #include "lwip/sockets.h"
@@ -96,7 +95,7 @@ static void uart1_init(void)
         .parity    = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_APB,
+        .source_clk = UART_SCLK_DEFAULT,
     };
     uart_driver_install(UART_NUM_1, 256, 0, 0, NULL, 0);
     uart_param_config(UART_NUM_1, &uart_config);
@@ -107,7 +106,7 @@ static void uart1_init(void)
         uart1_deinit();
     }
 
-    esp_vfs_dev_uart_use_driver(1);
+    uart_vfs_dev_use_driver(1);
 }
 
 static void uart1_write_task(void *param)

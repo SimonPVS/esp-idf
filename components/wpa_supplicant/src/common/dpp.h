@@ -13,8 +13,13 @@
 #ifdef CONFIG_DPP
 
 #include "utils/list.h"
-#include "common/wpa_common.h"
 #include "crypto/sha256.h"
+#include "utils/includes.h"
+#include "utils/common.h"
+#include "ieee802_11_defs.h"
+#include "esp_err.h"
+#include "esp_dpp.h"
+#include "crypto/crypto.h"
 
 struct crypto_ecdh;
 struct hostapd_ip_addr;
@@ -22,11 +27,14 @@ struct dpp_global;
 
 #define DPP_HDR_LEN (4 + 2) /* OUI, OUI Type, Crypto Suite, DPP frame type */
 #define DPP_TCP_PORT 7871
-#define SSID_MAX_LEN 32
 #define PMKID_LEN 16
 #define PMK_LEN 32
 #define PMK_LEN_SUITE_B_192 48
 #define PMK_LEN_MAX 64
+
+/* Use a hardcoded Transaction ID 1 in Peer Discovery frames since there is only
+ * a single transaction in progress at any point in time. */
+static const u8 TRANSACTION_ID = 1;
 
 /* DPP events */
 #define DPP_EVENT_AUTH_SUCCESS "DPP-AUTH-SUCCESS "
@@ -56,17 +64,6 @@ struct dpp_global;
 #define DPP_EVENT_PKEX_T_LIMIT "DPP-PKEX-T-LIMIT "
 #define DPP_EVENT_INTRO "DPP-INTRO "
 #define DPP_EVENT_CONF_REQ_RX "DPP-CONF-REQ-RX "
-
-
-#define WLAN_ACTION_PUBLIC 4
-#define WLAN_PA_VENDOR_SPECIFIC 9
-#define OUI_WFA 0x506f9a
-#define DPP_OUI_TYPE 0x1A
-
-#define WLAN_EID_ADV_PROTO 108
-#define WLAN_EID_VENDOR_SPECIFIC 221
-
-#define WLAN_PA_GAS_INITIAL_REQ 10
 
 enum dpp_public_action_frame_type {
 	DPP_PA_AUTHENTICATION_REQ = 0,
@@ -147,23 +144,19 @@ struct dpp_curve_params {
 	const char *jws_alg;
 };
 
-enum dpp_bootstrap_type {
-	DPP_BOOTSTRAP_QR_CODE,
-	DPP_BOOTSTRAP_PKEX,
-	DPP_BOOTSTRAP_NFC_URI,
-};
-
 struct dpp_bootstrap_info {
 	struct dl_list list;
 	unsigned int id;
 	enum dpp_bootstrap_type type;
 	char *uri;
 	u8 mac_addr[ETH_ALEN];
+	char *chan;
 	char *info;
+	char *pk;
 	unsigned int freq[DPP_BOOTSTRAP_MAX_FREQ];
 	unsigned int num_freq;
 	int own;
-	struct crypto_key *pubkey;
+	struct crypto_ec_key *pubkey;
 	u8 pubkey_hash[SHA256_MAC_LEN];
 	const struct dpp_curve_params *curve;
 	unsigned int pkex_t; /* number of failures before dpp_pkex
@@ -182,12 +175,12 @@ struct dpp_pkex {
 	u8 peer_mac[ETH_ALEN];
 	char *identifier;
 	char *code;
-	struct crypto_key *x;
-	struct crypto_key *y;
+	struct crypto_ec_key *x;
+	struct crypto_ec_key *y;
 	u8 Mx[DPP_MAX_SHARED_SECRET_LEN];
 	u8 Nx[DPP_MAX_SHARED_SECRET_LEN];
 	u8 z[DPP_MAX_HASH_LEN];
-	struct crypto_key *peer_bootstrap_key;
+	struct crypto_ec_key *peer_bootstrap_key;
 	struct wpabuf *exchange_req;
 	struct wpabuf *exchange_resp;
 	unsigned int t; /* number of failures on code use */
@@ -231,7 +224,23 @@ struct dpp_configuration {
 	int psk_set;
 };
 
-#define DPP_MAX_CONF_OBJ 10
+#define DPP_MAX_CONF_OBJ ESP_DPP_MAX_CONFIG_COUNT
+
+struct dpp_conf {
+	char *connector;
+	struct wpabuf *c_sign_key;
+	size_t dpp_csign_len;
+	struct wpabuf *net_access_key;
+	os_time_t net_access_key_expiry;
+	uint8_t curr_chan;
+	enum dpp_akm akm;
+};
+
+struct dpp_config_store {
+	/* Single active DPP config used for Network Introduction; applications own multi-config selection. */
+	struct dpp_conf *conf;
+	u8 peer_mac_addr[ETH_ALEN];
+};
 
 struct dpp_authentication {
 	void *msg_ctx;
@@ -250,14 +259,15 @@ struct dpp_authentication {
 	u8 e_nonce[DPP_MAX_NONCE_LEN];
 	u8 i_capab;
 	u8 r_capab;
-	struct crypto_key *own_protocol_key;
-	struct crypto_key *peer_protocol_key;
+	struct crypto_ec_key *own_protocol_key;
+	struct crypto_ec_key *peer_protocol_key;
 	struct wpabuf *req_msg;
 	struct wpabuf *resp_msg;
 	/* Intersection of possible frequencies for initiating DPP
 	 * Authentication exchange */
 	unsigned int freq[DPP_BOOTSTRAP_MAX_FREQ];
 	unsigned int num_freq, freq_idx;
+	unsigned int curr_chan;
 	unsigned int curr_freq;
 	unsigned int neg_freq;
 	unsigned int num_freq_iters;
@@ -307,19 +317,24 @@ struct dpp_authentication {
 	int send_conn_status;
 	int conn_status_requested;
 	int akm_use_selector;
-#ifdef CONFIG_WPA_TESTING_OPTIONS
+	int gas_dialog_token; /* Dialog Token used in GAS Initial Request */
+
+#ifdef CONFIG_TESTING_OPTIONS
 	char *config_obj_override;
 	char *discovery_override;
 	char *groups_override;
 	unsigned int ignore_netaccesskey_mismatch:1;
-#endif /* CONFIG_WPA_TESTING_OPTIONS */
+	u64 auth_req_parse_us;
+	u64 auth_resp_form_us;
+	u64 auth_req_total_us;
+#endif /* CONFIG_TESTING_OPTIONS */
 };
 
 struct dpp_configurator {
 	struct dl_list list;
 	unsigned int id;
 	int own;
-	struct crypto_key *csign;
+	struct crypto_ec_key *csign;
 	char *kid;
 	const struct dpp_curve_params *curve;
 };
@@ -330,7 +345,7 @@ struct dpp_introduction {
 	size_t pmk_len;
 };
 
-#ifdef CONFIG_WPA_TESTING_OPTIONS
+#ifdef CONFIG_TESTING_OPTIONS
 enum dpp_test_behavior {
 	DPP_TEST_DISABLED = 0,
 	DPP_TEST_AFTER_WRAPPED_DATA_AUTH_REQ = 1,
@@ -435,17 +450,14 @@ extern u8 dpp_protocol_key_override[600];
 extern size_t dpp_protocol_key_override_len;
 extern u8 dpp_nonce_override[DPP_MAX_NONCE_LEN];
 extern size_t dpp_nonce_override_len;
-#endif /* CONFIG_WPA_TESTING_OPTIONS */
+#endif /* CONFIG_TESTING_OPTIONS */
 
 void dpp_bootstrap_info_free(struct dpp_bootstrap_info *info);
 const char * dpp_bootstrap_type_txt(enum dpp_bootstrap_type type);
-int dpp_bootstrap_key_hash(struct dpp_bootstrap_info *bi);
 int dpp_parse_uri_chan_list(struct dpp_bootstrap_info *bi,
 			    const char *chan_list);
 int dpp_parse_uri_mac(struct dpp_bootstrap_info *bi, const char *mac);
 int dpp_parse_uri_info(struct dpp_bootstrap_info *bi, const char *info);
-char * dpp_keygen(struct dpp_bootstrap_info *bi, const char *curve,
-		  u8 *privkey, size_t privkey_len);
 struct hostapd_hw_modes;
 struct dpp_authentication * dpp_auth_init(void *msg_ctx,
 					  struct dpp_bootstrap_info *peer_bi,
@@ -488,8 +500,8 @@ void dpp_auth_deinit(struct dpp_authentication *auth);
 struct wpabuf *
 dpp_conf_req_rx(struct dpp_authentication *auth, const u8 *attr_start,
 		size_t attr_len);
-int dpp_conf_resp_rx(struct dpp_authentication *auth,
-		     const struct wpabuf *resp);
+int dpp_conf_resp_rx(struct dpp_authentication *auth, const u8 *resp,
+		             u32 resp_len);
 enum dpp_status_error dpp_conf_result_rx(struct dpp_authentication *auth,
 					 const u8 *hdr,
 					 const u8 *attr_start, size_t attr_len);
@@ -505,8 +517,10 @@ struct wpabuf * dpp_build_conn_status_result(struct dpp_authentication *auth,
 					     enum dpp_status_error result,
 					     const u8 *ssid, size_t ssid_len,
 					     const char *channel_list);
+struct wpabuf * dpp_build_peer_disc_req(struct dpp_config_store *dc, struct dpp_conf *conf);
 struct wpabuf * dpp_alloc_msg(enum dpp_public_action_frame_type type,
 			      size_t len);
+struct wpabuf * gas_build_comeback_req(u8 dialog_token);
 const u8 * dpp_get_attr(const u8 *buf, size_t len, u16 req_id, u16 *ret_len);
 int dpp_check_attrs(const u8 *buf, size_t len);
 int dpp_key_expired(const char *timestamp, os_time_t *expiry);
@@ -586,9 +600,14 @@ struct dpp_global_config {
 	int (*process_conf_obj)(void *ctx, struct dpp_authentication *auth);
 };
 
+struct dpp_config_store * dpp_config_store_init(void);
+void dpp_clear_confs(struct dpp_conf *conf);
+void dpp_config_store_deinit(struct dpp_config_store *dc);
 struct dpp_global * dpp_global_init(struct dpp_global_config *config);
 void dpp_global_clear(struct dpp_global *dpp);
 void dpp_global_deinit(struct dpp_global *dpp);
+int dpp_connect(uint8_t *bssid, bool pdr_done);
+esp_err_t esp_dpp_start_net_intro_protocol(uint8_t *bssid);
 
 #endif /* CONFIG_DPP */
 #endif /* DPP_H */

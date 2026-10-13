@@ -1,16 +1,8 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
@@ -20,7 +12,6 @@ extern "C" {
 
 #include <stdint.h>
 #include <stddef.h>
-#include <stdbool.h>
 #include <stdio.h>
 
 /* HID Report Map Values */
@@ -94,6 +85,19 @@ extern "C" {
 #define ESP_HID_CCC_NOTIFICATIONS_ENABLED   0x01      // Notifications enabled
 #define ESP_HID_CCC_INDICATIONS_ENABLED     0x02      // Indications enabled
 
+/* HID Task Size configuration */
+#ifdef  CONFIG_ESPHID_TASK_SIZE_BT
+#define BT_HID_DEVICE_TASK_SIZE_BT         CONFIG_ESPHID_TASK_SIZE_BT
+#else
+#define BT_HID_DEVICE_TASK_SIZE_BT         2048
+#endif
+
+#ifdef  CONFIG_ESPHID_TASK_SIZE_BLE
+#define BT_HID_DEVICE_TASK_SIZE_BLE         CONFIG_ESPHID_TASK_SIZE_BLE
+#else
+#define BT_HID_DEVICE_TASK_SIZE_BLE         4096
+#endif
+
 /* HID Transports */
 typedef enum {
     ESP_HID_TRANSPORT_BT,
@@ -125,6 +129,21 @@ typedef enum {
     ESP_HID_COD_MIN_CARD_READER,
     ESP_HID_COD_MIN_MAX
 } esp_hid_cod_min_t;
+
+/* HID transaction Types */
+typedef enum {
+    ESP_HID_TRANS_HANDSHAKE = 0,
+    ESP_HID_TRANS_CONTROL = 1,
+    ESP_HID_TRANS_GET_REPORT = 4,
+    ESP_HID_TRANS_SET_REPORT = 5,
+    ESP_HID_TRANS_GET_PROTOCOL = 6,
+    ESP_HID_TRANS_SET_PROTOCOL = 7,
+    ESP_HID_TRANS_GET_IDLE = 8,
+    ESP_HID_TRANS_SET_IDLE = 9,
+    ESP_HID_TRANS_DATA = 10,
+    ESP_HID_TRANS_DATAC = 11,
+    ESP_HID_TRANS_MAX
+} esp_hid_trans_type_t;
 
 /**
  * @brief HID report item structure
@@ -170,6 +189,14 @@ typedef struct {
     uint8_t report_maps_len;                /*!< number of raw report maps in the array */
 } esp_hid_device_config_t;
 
+/**
+ * @brief HID device address
+ */
+typedef union {
+    uint8_t bda[6];   /*!< Bluetooth device address */
+    uint8_t usb_addr; /*!< USB address */
+} esp_hid_address_t;
+
 /*
  * @brief Parse RAW HID report map
  *        It is a responsibility of the user to free the parsed report map,
@@ -188,8 +215,8 @@ esp_hid_report_map_t *esp_hid_parse_report_map(const uint8_t *hid_rm, size_t hid
 void esp_hid_free_report_map(esp_hid_report_map_t *map);
 
 /**
- * @brief Calculate the HID Device usage type from the BLE Apperance
- * @param appearance : BLE Apperance value
+ * @brief Calculate the HID Device usage type from the BLE Appearance
+ * @param appearance : BLE Appearance value
  *
  * @return: the hid usage type
  */
@@ -246,9 +273,14 @@ void esp_hid_cod_minor_print(uint8_t cod_min, FILE *fp);
 
 /**
  * @brief Convert BLE disconnect reason to string
- * @param reason : The value of the reason
  *
- * @return: a pointer to the string or NULL
+ * Accepts Bluedroid `esp_gatt_conn_reason_t` values (raw HCI for most
+ * cases) and NimBLE `BLE_HS_HCI_ERR()` values (`0x200 + HCI status`).
+ *
+ * @param transport : HID transport (string map is BLE-only)
+ * @param reason    : Disconnect reason from the host stack
+ *
+ * @return: a pointer to the string (never NULL)
  */
 const char *esp_hid_disconnect_reason_str(esp_hid_transport_t transport, int reason);
 

@@ -1,8 +1,8 @@
-/* This example code is in the Public Domain (or CC0 licensed, at your option.)
-   Unless required by applicable law or agreed to in writing, this software is 
-   distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR  
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
+/*
+ * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,12 +35,12 @@
  * BLE HID profile inheritance and USB HID class.
  */
 
-/** 
+/**
  * Note:
  * 1. Win10 does not support vendor report , So SUPPORT_REPORT_VENDOR is always set to FALSE, it defines in hidd_le_prf_int.h
- * 2. Update connection parameters are not allowed during iPhone HID encryption, slave turns 
+ * 2. Update connection parameters are not allowed during iPhone HID encryption, slave turns
  * off the ability to automatically update connection parameters during encryption.
- * 3. After our HID device is connected, the iPhones write 1 to the Report Characteristic Configuration Descriptor, 
+ * 3. After our HID device is connected, the iPhones write 1 to the Report Characteristic Configuration Descriptor,
  * even if the HID encryption is not completed. This should actually be written 1 after the HID encryption is completed.
  * we modify the permissions of the Report Characteristic Configuration Descriptor to `ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE_ENCRYPTED`.
  * if you got `GATT_INSUF_ENCRYPTION` error, please ignore.
@@ -67,8 +67,8 @@ static esp_ble_adv_data_t hidd_adv_data = {
     .set_scan_rsp = false,
     .include_name = true,
     .include_txpower = true,
-    .min_interval = 0x0006, //slave connection min interval, Time = min_interval * 1.25 msec
-    .max_interval = 0x0010, //slave connection max interval, Time = max_interval * 1.25 msec
+    .min_interval = ESP_BLE_GAP_CONN_ITVL_MS(7.5), //slave connection min interval
+    .max_interval = ESP_BLE_GAP_CONN_ITVL_MS(20), //slave connection max interval
     .appearance = 0x03c0,       //HID Generic,
     .manufacturer_len = 0,
     .p_manufacturer_data =  NULL,
@@ -80,8 +80,8 @@ static esp_ble_adv_data_t hidd_adv_data = {
 };
 
 static esp_ble_adv_params_t hidd_adv_params = {
-    .adv_int_min        = 0x20,
-    .adv_int_max        = 0x30,
+    .adv_int_min        = ESP_BLE_GAP_ADV_ITVL_MS(20),
+    .adv_int_max        = ESP_BLE_GAP_ADV_ITVL_MS(30),
     .adv_type           = ADV_TYPE_IND,
     .own_addr_type      = BLE_ADDR_TYPE_PUBLIC,
     //.peer_addr            =
@@ -99,7 +99,7 @@ static void hidd_event_callback(esp_hidd_cb_event_t event, esp_hidd_cb_param_t *
                 //esp_bd_addr_t rand_addr = {0x04,0x11,0x11,0x11,0x11,0x05};
                 esp_ble_gap_set_device_name(HIDD_DEVICE_NAME);
                 esp_ble_gap_config_adv_data(&hidd_adv_data);
-                
+
             }
             break;
         }
@@ -122,7 +122,13 @@ static void hidd_event_callback(esp_hidd_cb_event_t event, esp_hidd_cb_param_t *
         case ESP_HIDD_EVENT_BLE_VENDOR_REPORT_WRITE_EVT: {
             ESP_LOGI(HID_DEMO_TAG, "%s, ESP_HIDD_EVENT_BLE_VENDOR_REPORT_WRITE_EVT", __func__);
             ESP_LOG_BUFFER_HEX(HID_DEMO_TAG, param->vendor_write.data, param->vendor_write.length);
-        }    
+            break;
+        }
+        case ESP_HIDD_EVENT_BLE_LED_REPORT_WRITE_EVT: {
+            ESP_LOGI(HID_DEMO_TAG, "ESP_HIDD_EVENT_BLE_LED_REPORT_WRITE_EVT");
+            ESP_LOG_BUFFER_HEX(HID_DEMO_TAG, param->led_write.data, param->led_write.length);
+            break;
+        }
         default:
             break;
     }
@@ -142,7 +148,6 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
         esp_ble_gap_security_rsp(param->ble_security.ble_req.bd_addr, true);
 	 break;
      case ESP_GAP_BLE_AUTH_CMPL_EVT:
-        sec_conn = true;
         esp_bd_addr_t bd_addr;
         memcpy(bd_addr, param->ble_security.auth_cmpl.bd_addr, sizeof(esp_bd_addr_t));
         ESP_LOGI(HID_DEMO_TAG, "remote BD_ADDR: %08x%04x",\
@@ -150,8 +155,12 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
                 (bd_addr[4] << 8) + bd_addr[5]);
         ESP_LOGI(HID_DEMO_TAG, "address type = %d", param->ble_security.auth_cmpl.addr_type);
         ESP_LOGI(HID_DEMO_TAG, "pair status = %s",param->ble_security.auth_cmpl.success ? "success" : "fail");
-        if(!param->ble_security.auth_cmpl.success) {
-            ESP_LOGE(HID_DEMO_TAG, "fail reason = 0x%x",param->ble_security.auth_cmpl.fail_reason);
+        if (param->ble_security.auth_cmpl.success) {
+            sec_conn = true;
+            ESP_LOGI(HID_DEMO_TAG, "secure connection established.");
+        } else {
+            ESP_LOGE(HID_DEMO_TAG, "pairing failed, reason = 0x%x",
+                     param->ble_security.auth_cmpl.fail_reason);
         }
         break;
     default:
@@ -200,30 +209,31 @@ void app_main(void)
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     ret = esp_bt_controller_init(&bt_cfg);
     if (ret) {
-        ESP_LOGE(HID_DEMO_TAG, "%s initialize controller failed\n", __func__);
+        ESP_LOGE(HID_DEMO_TAG, "%s initialize controller failed", __func__);
         return;
     }
 
     ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
     if (ret) {
-        ESP_LOGE(HID_DEMO_TAG, "%s enable controller failed\n", __func__);
+        ESP_LOGE(HID_DEMO_TAG, "%s enable controller failed", __func__);
         return;
     }
 
-    ret = esp_bluedroid_init();
+    esp_bluedroid_config_t cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
+    ret = esp_bluedroid_init_with_cfg(&cfg);
     if (ret) {
-        ESP_LOGE(HID_DEMO_TAG, "%s init bluedroid failed\n", __func__);
+        ESP_LOGE(HID_DEMO_TAG, "%s init bluedroid failed", __func__);
         return;
     }
 
     ret = esp_bluedroid_enable();
     if (ret) {
-        ESP_LOGE(HID_DEMO_TAG, "%s init bluedroid failed\n", __func__);
+        ESP_LOGE(HID_DEMO_TAG, "%s init bluedroid failed", __func__);
         return;
     }
 
     if((ret = esp_hidd_profile_init()) != ESP_OK) {
-        ESP_LOGE(HID_DEMO_TAG, "%s init bluedroid failed\n", __func__);
+        ESP_LOGE(HID_DEMO_TAG, "%s init bluedroid failed", __func__);
     }
 
     ///register the callback function to the gap module
@@ -241,11 +251,10 @@ void app_main(void)
     esp_ble_gap_set_security_param(ESP_BLE_SM_MAX_KEY_SIZE, &key_size, sizeof(uint8_t));
     /* If your BLE device act as a Slave, the init_key means you hope which types of key of the master should distribute to you,
     and the response key means which key you can distribute to the Master;
-    If your BLE device act as a master, the response key means you hope which types of key of the slave should distribute to you, 
+    If your BLE device act as a master, the response key means you hope which types of key of the slave should distribute to you,
     and the init key means which key you can distribute to the slave. */
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(uint8_t));
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(uint8_t));
 
     xTaskCreate(&hid_demo_task, "hid_task", 2048, NULL, 5, NULL);
 }
-

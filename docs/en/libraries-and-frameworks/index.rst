@@ -5,4 +5,5 @@ Libraries and Frameworks
 .. toctree::
    :maxdepth: 1
 
-   Cloud Frameworks <cloud-frameworks>
+   cloud-frameworks
+   libs-frameworks

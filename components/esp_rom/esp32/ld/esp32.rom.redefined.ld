@@ -1,4 +1,4 @@
-/* 
+/*
    ROM Functions defined in this file are not used in ESP-IDF as is,
    and different definitions for functions with the same names are provided.
    This file is not used when linking ESP-IDF and is intended for reference only
@@ -19,8 +19,6 @@ PROVIDE ( ets_timer_done = 0x40008428 );
 PROVIDE ( ets_timer_init = 0x400084e8 );
 PROVIDE ( ets_timer_handler_isr = 0x40008454 );
 PROVIDE ( ets_timer_setfn = 0x40008350 );
-PROVIDE ( hmac_md5 = 0x4005d264 );
-PROVIDE ( hmac_md5_vector = 0x4005d17c );
 PROVIDE ( hmac_sha1 = 0x40060acc );
 PROVIDE ( hmac_sha1_vector = 0x400609e4 );
 PROVIDE ( hmac_sha256 = 0x40060d58 );
@@ -36,4 +34,3 @@ PROVIDE ( sha1_vector = 0x40060b64 );
 PROVIDE ( sha256_prf = 0x40060d70 );
 PROVIDE ( sha256_vector = 0x40060e08 );
 PROVIDE ( uart_tx_wait_idle = 0x40009278 );
-

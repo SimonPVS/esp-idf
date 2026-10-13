@@ -2,28 +2,36 @@
 
 * [中文版](./README_CN.md)
 
-ESP-IDF is the official development framework for the **ESP32** and **ESP32-S** Series SoCs provided for Windows, Linux and macOS.
+ESP-IDF is the development framework for Espressif SoCs supported on Windows, Linux and macOS.
+
+# ESP-IDF Release Support Schedule
+
+![Support Schedule](https://dl.espressif.com/dl/esp-idf/support-periods.svg?v=1)
+
+- Please read [the support policy](SUPPORT_POLICY.md) and [the documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/versions.html) for more information about ESP-IDF versions.
+- Please see the [End-of-Life Advisories](https://documentation.espressif.com/en/documentList?qr=End-of-Life&eol=true) for information about ESP-IDF releases with discontinued support.
+
+# ESP-IDF Release and SoC Compatibility
+
+![Chip support](https://dl.espressif.com/dl/esp-idf/chip-support.svg?v=1)
+
+See [Compatibility Between ESP-IDF Releases and Revisions of Espressif SoCs](https://github.com/espressif/esp-idf/blob/master/COMPATIBILITY.md) for the details of the compatibility between ESP-IDF and chip revisions.
+
+Espressif SoCs released before 2016 (ESP8266 and ESP8285) are supported by [RTOS SDK](https://github.com/espressif/ESP8266_RTOS_SDK) instead.
 
 # Developing With ESP-IDF
 
 ## Setting Up ESP-IDF
 
-See setup guides for detailed instructions to set up the ESP-IDF:
+See https://idf.espressif.com/ for links to detailed instructions on how to set up the ESP-IDF depending on chip you use.
 
-| Chip | Getting Started Guides for ESP-IDF |
-|:----:|:----|
-| <img src="docs/_static/chip-esp32.svg" height="85" alt="ESP32"> |  <ul><li>[stable](https://docs.espressif.com/projects/esp-idf/en/stable/get-started/) version</li><li>[latest (master branch)](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/) version</li></ul> |
-| <img src="docs/_static/chip-esp32-s2.svg" height="100" alt="ESP32-S2"> | <ul><li>[latest (master branch)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/) version</li></ul> |
-
-**Note:** Each ESP-IDF release has its own documentation. Please see Section [Versions](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/versions.html) how to find documentation and how to checkout specific release of ESP-IDF.
+**Note:** Each SoC series and each ESP-IDF release has its own documentation. Please see Section [Versions](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/versions.html) on how to find documentation and how to checkout specific release of ESP-IDF.
 
 ### Non-GitHub forks
 
-ESP-IDF uses relative locations as its submodules URLs ([.gitmodules](.gitmodules)). So they link to GitHub.
-If ESP-IDF is forked to a Git repository which is not on GitHub, you will need to run the script
-[tools/set-submodules-to-github.sh](tools/set-submodules-to-github.sh) after git clone.
-The script sets absolute URLs for all submodules, allowing `git submodule update --init --recursive` to complete.
-If cloning ESP-IDF from GitHub, this step is not needed.
+ESP-IDF uses relative locations as its submodules URLs ([.gitmodules](.gitmodules)). So they link to GitHub. If ESP-IDF is forked to a Git repository which is not on GitHub, you will need to run the script [tools/set-submodules-to-github.sh](tools/set-submodules-to-github.sh) after git clone.
+
+The script sets absolute URLs for all submodules, allowing `git submodule update --init --recursive` to complete. If cloning ESP-IDF from GitHub, this step is not needed.
 
 ## Finding a Project
 
@@ -58,7 +66,7 @@ See the Getting Started guide links above for a detailed setup guide. This is a 
 
 ## Flashing the Project
 
-When the build finishes, it will print a command line to use esptool.py to flash the chip. However you can also do this automatically by running:
+When the build finishes, it will print a command line to use `esptool` to flash the chip. However you can also do this automatically by running:
 
 `idf.py -p PORT flash`
 
@@ -70,7 +78,7 @@ You don't need to run `idf.py build` before running `idf.py flash`, `idf.py flas
 
 ## Viewing Serial Output
 
-The `idf.py monitor` target uses the [idf_monitor tool](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/idf-monitor.html) to display serial output from ESP32 or ESP32-S Series SoCs. idf_monitor also has a range of features to decode crash output and interact with the device. [Check the documentation page for details](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/idf-monitor.html).
+The `idf.py monitor` target uses the [esp-idf-monitor tool](https://github.com/espressif/esp-idf-monitor) to display serial output from Espressif SoCs. esp-idf-monitor also has a range of features to decode crash output and interact with the device. [Check the documentation page for details](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/idf-monitor.html).
 
 Exit the monitor by typing Ctrl-].
 
@@ -91,18 +99,18 @@ After the initial flash, you may just want to build and flash just your app, not
 
 ## Erasing Flash
 
-The `idf.py flash` target does not erase the entire flash contents. However it is sometimes useful to set the device back to a totally erased state, particularly when making partition table changes or OTA app updates. To erase the entire flash, run `idf.py erase_flash`.
+The `idf.py flash` target does not erase the entire flash contents. However it is sometimes useful to set the device back to a totally erased state, particularly when making partition table changes or OTA app updates. To erase the entire flash, run `idf.py erase-flash`.
 
-This can be combined with other targets, ie `idf.py -p PORT erase_flash flash` will erase everything and then re-flash the new app, bootloader and partition table.
+This can be combined with other targets, ie `idf.py -p PORT erase-flash flash` will erase everything and then re-flash the new app, bootloader and partition table.
 
 # Resources
 
 * Documentation for the latest version: https://docs.espressif.com/projects/esp-idf/. This documentation is built from the [docs directory](docs) of this repository.
+
+* [Beginner's Guide to Key Concepts and Resources of ESP-IDF](https://youtu.be/J8zc8mMNKtc?feature=shared)
 
 * The [esp32.com forum](https://esp32.com/) is a place to ask questions and find community resources.
 
 * [Check the Issues section on github](https://github.com/espressif/esp-idf/issues) if you find a bug or have a feature request. Please check existing Issues before opening a new one.
 
 * If you're interested in contributing to ESP-IDF, please check the [Contributions Guide](https://docs.espressif.com/projects/esp-idf/en/latest/contribute/index.html).
-
-

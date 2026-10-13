@@ -179,8 +179,17 @@ void rfc_send_buf_uih (tRFC_MCB *p_mcb, UINT8 dlci, BT_HDR *p_buf)
     UINT8   cr = RFCOMM_CR(p_mcb->is_initiator, TRUE);
     UINT8   credits;
 
+    if (p_buf->offset < RFCOMM_CTRL_FRAME_LEN) {
+        osi_free(p_buf);
+        return;
+    }
+
     p_buf->offset -= RFCOMM_CTRL_FRAME_LEN;
     if (p_buf->len > 127) {
+        if (p_buf->offset < 1) {
+            osi_free(p_buf);
+            return;
+        }
         p_buf->offset--;
     }
 
@@ -191,6 +200,10 @@ void rfc_send_buf_uih (tRFC_MCB *p_mcb, UINT8 dlci, BT_HDR *p_buf)
     }
 
     if (credits) {
+        if (p_buf->offset < 1) {
+            osi_free(p_buf);
+            return;
+        }
         p_buf->offset--;
     }
 
@@ -500,6 +513,45 @@ void rfc_send_rpn (tRFC_MCB *p_mcb, UINT8 dlci, BOOLEAN is_command,
     rfc_send_buf_uih (p_mcb, RFCOMM_MX_DLCI, p_buf);
 }
 
+#if BT_RFCOMM_BQB_INCLUDED
+/*******************************************************************************
+**
+** Function         rfc_bqb_send_msc_cmd
+**
+** Description      This function sends msc command for BQB test.
+**
+*******************************************************************************/
+void rfc_bqb_send_msc_cmd(BD_ADDR cert_pts_addr)
+{
+    UINT8       i;
+    UINT8       dlci;
+    BOOLEAN     get_dlci = FALSE;
+    tPORT       *p_port;
+    tPORT_CTRL  pars;
+    tRFC_MCB    *p_mcb;
+
+    pars.modem_signal = 0;
+    pars.break_signal = 0;
+    pars.fc = TRUE;
+
+    p_mcb = port_find_mcb (cert_pts_addr);
+
+    for (i = 0; i < MAX_RFC_PORTS; i++) {
+        p_port = &rfc_cb.port.port[i];
+        if (p_port->in_use && !memcmp (p_port->bd_addr, cert_pts_addr, BD_ADDR_LEN)) {
+            dlci = p_port->dlci;
+            get_dlci = TRUE;
+            break;
+        }
+    }
+
+    if (get_dlci && p_mcb) {
+        rfc_send_msc(p_mcb, dlci, TRUE, &pars);
+    } else {
+        RFCOMM_TRACE_ERROR ("Get dlci fail");
+    }
+}
+#endif /* BT_RFCOMM_BQB_INCLUDED */
 
 /*******************************************************************************
 **
@@ -514,8 +566,26 @@ void rfc_send_test (tRFC_MCB *p_mcb, BOOLEAN is_command, BT_HDR *p_buf)
     UINT16   xx;
     UINT8    *p_src, *p_dest;
 
+    if (p_buf->offset + sizeof(BT_HDR) >= RFCOMM_CMD_BUF_SIZE) {
+        osi_free(p_buf);
+        return;
+    }
+
+    UINT16 max_len = RFCOMM_CMD_BUF_SIZE - sizeof(BT_HDR) - p_buf->offset;
+    if (p_buf->offset < (L2CAP_MIN_OFFSET + RFCOMM_MIN_OFFSET + 2)) {
+        if (max_len < (L2CAP_MIN_OFFSET + RFCOMM_MIN_OFFSET + 2 - p_buf->offset)) {
+            osi_free(p_buf);
+            return;
+        }
+        max_len -= (L2CAP_MIN_OFFSET + RFCOMM_MIN_OFFSET + 2 - p_buf->offset);
+    }
+    if (p_buf->len > max_len) {
+        p_buf->len = max_len;
+    }
+
     BT_HDR *p_buf_new;
     if ((p_buf_new = (BT_HDR *)osi_malloc(RFCOMM_CMD_BUF_SIZE)) == NULL) {
+        osi_free(p_buf);
         return;
     }
     memcpy(p_buf_new, p_buf, sizeof(BT_HDR) + p_buf->offset + p_buf->len);
@@ -591,10 +661,7 @@ UINT8 rfc_parse_data (tRFC_MCB *p_mcb, MX_FRAME *p_frame, BT_HDR *p_buf)
     UINT8     *p_start = p_data;
     UINT16    len;
 
-    if (p_buf->len < RFCOMM_CTRL_FRAME_LEN) {
-        RFCOMM_TRACE_ERROR ("Bad Length1: %d", p_buf->len);
-        return (RFC_EVENT_BAD_FRAME);
-    }
+
 
     RFCOMM_PARSE_CTRL_FIELD (ead, p_frame->cr, p_frame->dlci, p_data);
     if ( !ead ) {
@@ -602,7 +669,22 @@ UINT8 rfc_parse_data (tRFC_MCB *p_mcb, MX_FRAME *p_frame, BT_HDR *p_buf)
         return (RFC_EVENT_BAD_FRAME);
     }
     RFCOMM_PARSE_TYPE_FIELD (p_frame->type, p_frame->pf, p_data);
-    RFCOMM_PARSE_LEN_FIELD (eal, len, p_data);
+
+    eal = *(p_data) & RFCOMM_EA;
+    if (p_buf->len < (RFCOMM_CTRL_FRAME_LEN + !ead + !eal + 1)) {
+        RFCOMM_TRACE_ERROR ("Bad Length1: %d", p_buf->len);
+        return (RFC_EVENT_BAD_FRAME);
+    }
+
+    len = *(p_data)++ >> RFCOMM_SHIFT_LENGTH1;
+    if (eal == 0) {
+        if (p_buf->len > RFCOMM_CTRL_FRAME_LEN) {
+            len += (*(p_data)++ << RFCOMM_SHIFT_LENGTH2);
+        } else {
+            RFCOMM_TRACE_ERROR("Bad Length when EAL = 0: %d", p_buf->len);
+            return RFC_EVENT_BAD_FRAME;
+        }
+    }
 
     p_buf->len      -= (3 + !ead + !eal + 1);  /* Additional 1 for FCS */
     p_buf->offset   += (3 + !ead + !eal);
@@ -626,7 +708,7 @@ UINT8 rfc_parse_data (tRFC_MCB *p_mcb, MX_FRAME *p_frame, BT_HDR *p_buf)
 
     /* All control frames that we are sending are sent with P=1, expect */
     /* reply with F=1 */
-    /* According to TS 07.10 spec ivalid frames are discarded without */
+    /* According to TS 07.10 spec invalid frames are discarded without */
     /* notification to the sender */
     switch (p_frame->type) {
     case RFCOMM_SABME:
@@ -702,8 +784,15 @@ void rfc_process_mx_message (tRFC_MCB *p_mcb, BT_HDR *p_buf)
     UINT8       *p_data = (UINT8 *)(p_buf + 1) + p_buf->offset;
     MX_FRAME    *p_rx_frame = &rfc_cb.rfc.rx_frame;
     UINT16       length  = p_buf->len;
-    UINT8        ea, cr, mx_len;
+    UINT8        ea, cr, hdr;
+    UINT16       mx_len;
     BOOLEAN      is_command;
+
+    if (length < 2) {
+        RFCOMM_TRACE_ERROR("Illegal MX Frame len:%d < 2", length);
+        osi_free(p_buf);
+        return;
+    }
 
     p_rx_frame->ea   = *p_data & RFCOMM_EA;
     p_rx_frame->cr   = (*p_data & RFCOMM_CR_MASK) >> RFCOMM_SHIFT_CR;
@@ -725,6 +814,11 @@ void rfc_process_mx_message (tRFC_MCB *p_mcb, BT_HDR *p_buf)
     length--;
 
     if (!ea) {
+        if (length < 1) {
+            RFCOMM_TRACE_ERROR("Illegal MX Frame len:%d < 1 when ea = 0", length);
+            osi_free(p_buf);
+            return;
+        }
         mx_len += *p_data++ << RFCOMM_SHIFT_LENGTH2;
         length --;
     }
@@ -772,8 +866,10 @@ void rfc_process_mx_message (tRFC_MCB *p_mcb, BT_HDR *p_buf)
         p_rx_frame->u.test.p_data   = p_data;
         p_rx_frame->u.test.data_len = length;
 
-        p_buf->offset += 2;
-        p_buf->len    -= 2;
+        hdr = ea ? 2 : 3;
+
+        p_buf->offset += hdr;
+        p_buf->len    -= hdr;
 
         if (is_command) {
             rfc_send_test (p_mcb, FALSE, p_buf);
@@ -803,6 +899,12 @@ void rfc_process_mx_message (tRFC_MCB *p_mcb, BT_HDR *p_buf)
         return;
 
     case RFCOMM_MX_MSC:
+        if (length != RFCOMM_MX_MSC_LEN_WITH_BREAK &&
+            length != RFCOMM_MX_MSC_LEN_NO_BREAK) {
+            RFCOMM_TRACE_ERROR("Illegal MX MSC Frame len:%d", length);
+            osi_free(p_buf);
+            return;
+        }
 
         ea                   = *p_data & RFCOMM_EA;
         cr                   = (*p_data & RFCOMM_CR_MASK) >> RFCOMM_SHIFT_CR;
@@ -889,7 +991,7 @@ void rfc_process_mx_message (tRFC_MCB *p_mcb, BT_HDR *p_buf)
 
         if (!ea || !cr || !p_rx_frame->dlci
                 || !RFCOMM_VALID_DLCI (p_rx_frame->dlci)) {
-            RFCOMM_TRACE_ERROR ("Bad RPN frame");
+            RFCOMM_TRACE_ERROR ("Bad RLS frame");
             break;
         }
 

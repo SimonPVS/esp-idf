@@ -1,10 +1,10 @@
-.. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+.. include:: {IDF_TARGET_PATH_NAME}.inc
    :start-after: devkit-defs
    :end-before: ---
 
-
 Configure |devkit-name| JTAG Interface
 ======================================
+
 :link_to_translation:`zh_CN:[中文]`
 
 All versions of |devkit-name| boards have built-in JTAG functionality. Putting it to work requires setting jumpers or DIP switches to enable JTAG functionality, and configuring USB drivers. Please refer to step by step instructions below.
@@ -12,13 +12,13 @@ All versions of |devkit-name| boards have built-in JTAG functionality. Putting i
 Configure Hardware
 ^^^^^^^^^^^^^^^^^^
 
-.. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+.. include:: {IDF_TARGET_PATH_NAME}.inc
     :start-after: devkit-hw-config
     :end-before: ---
 
 * Verify if {IDF_TARGET_NAME} pins used for JTAG communication are not connected to some other h/w that may disturb JTAG operation:
 
-    .. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+    .. include:: {IDF_TARGET_PATH_NAME}.inc
         :start-after: jtag-pins
         :end-before: ---
 
@@ -33,15 +33,25 @@ Install and configure USB drivers, so OpenOCD is able to communicate with JTAG i
 Windows
 """""""
 
-1.  Using standard USB A / micro USB B cable connect |devkit-name| to the computer. Switch the |devkit-name| on.
+1.  Using standard USB A/micro USB B cable connect |devkit-name| to the computer. Switch the |devkit-name| on.
 
-2.  Wait until USB ports of |devkit-name| are recognized by Windows and drives are installed. If they do not install automatically, then download them from https://www.ftdichip.com/Drivers/D2XX.htm and install manually.
+2.  Wait until USB ports of |devkit-name| are recognized by Windows and drives are installed. If they do not install automatically, then download them from https://ftdichip.com/drivers/d2xx-drivers/ and install manually.
 
-3.  Download Zadig tool (Zadig_X.X.exe) from https://zadig.akeo.ie/ and run it.
+3. Download |devkit-name| driver from https://github.com/espressif/esp-win-usb-drivers/releases. Extract the driver files and `install the driver <https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/using-an-inf-file-to-install-a-file-system-filter-driver#right-click-install>`_. This should change the driver for Dual RS232-HS (Interface 0).
 
-4.  In Zadig tool go to "Options" and check "List All Devices".
+4. Now |devkit-name|'s JTAG interface should be available to the OpenOCD. To carry on with the debugging environment setup, proceed to section :ref:`jtag-debugging-run-openocd`.
 
-5.  Check the list of devices that should contain two |devkit-name| specific USB entries: "Dual RS232-HS (Interface 0)" and "Dual RS232-HS (Interface 1)". The driver name would be "FTDIBUS (vxxxx)" and USB ID: 0403 6010.
+.. note::
+    If the driver installation fails or OpenOCD is not working try the following manual driver change. Otherwise, this can be skipped.
+
+Windows - manual driver change
+""""""""""""""""""""""""""""""
+
+1.  Download Zadig tool (Zadig_X.X.exe) from https://zadig.akeo.ie/ and run it.
+
+2.  In Zadig tool go to `Options` and check `List All Devices`.
+
+3.  Check the list of devices that should contain two |devkit-name| specific USB entries: `Dual RS232-HS (Interface 0)` and `Dual RS232-HS (Interface 1)`. The driver name would be `FTDIBUS (vxxxx)` and USB ID: 0403 6010.
 
     .. figure:: ../../../_static/jtag-usb-configuration-zadig.jpg
         :align: center
@@ -50,19 +60,17 @@ Windows
 
         Configuration of JTAG USB driver in Zadig tool
 
-6.  The first device (Dual RS232-HS (Interface 0)) is connected to the JTAG port of the {IDF_TARGET_NAME}. Original "FTDIBUS (vxxxx)" driver of this device should be replaced with "WinUSB (v6xxxxx)". To do so, select "Dual RS232-HS (Interface 0) and reinstall attached driver to the "WinUSB (v6xxxxx)", see picture above.
+4.  The first device (Dual RS232-HS (Interface 0)) is connected to the JTAG port of the {IDF_TARGET_NAME}. Original `FTDIBUS (vxxxx)` driver of this device should be replaced with `WinUSB (v6xxxxx)`. To do so, select "Dual RS232-HS (Interface 0) and reinstall attached driver to the "WinUSB (v6xxxxx)", see picture above.
 
 .. note::
 
-    Do not change the second device "Dual RS232-HS (Interface 1)". It is routed to {IDF_TARGET_NAME}'s serial port (UART) used for upload of application to {IDF_TARGET_NAME}'s flash.
-
-Now |devkit-name|'s JTAG interface should be available to the OpenOCD. To carry on with debugging environment setup, proceed to section :ref:`jtag-debugging-run-openocd`.
+    Do not change the second device `Dual RS232-HS (Interface 1)`. It is routed to {IDF_TARGET_NAME}'s serial port (UART) used for upload of application to {IDF_TARGET_NAME}'s flash.
 
 
 Linux
 """""
 
-1.  Using standard USB A / micro USB B cable connect |devkit-name| board to the computer. Power on the board.
+1.  Using standard USB A/micro USB B cable connect |devkit-name| board to the computer. Power on the board.
 
 .. highlight:: none
 
@@ -75,7 +83,7 @@ Linux
         crw-rw---- 1 root dialout 188, 1 Jul 10 19:04 /dev/ttyUSB1
 
 
-3.  Following section "Permissions delegation" in `OpenOCD's README <https://sourceforge.net/p/openocd/code/ci/master/tree/README>`_, set up the access permissions to both USB ports.
+3.  To set up access permissions to USB devices supported by OpenOCD, copy the `udev rules file <https://github.com/espressif/openocd-esp32/blob/master/contrib/60-openocd.rules>`_ into the ``/etc/udev/rules.d`` directory.
 
 4.  Log off and login, then cycle the power to the board to make the changes effective. In terminal enter again ``ls -l /dev/ttyUSB*`` command to verify, if group-owner has changed from ``dialout`` to ``plugdev``:
 
@@ -99,12 +107,12 @@ On macOS, using FT2232 for JTAG and serial port at the same time needs some addi
 
 1. Manually unload the FTDI serial port driver before starting OpenOCD, start OpenOCD, then load the serial port driver.
 
-2. Modify FTDI driver configuration so that it doesn't load itself for channel B of FT2232 chip, which is the channel used for JTAG on |devkit-name|.
+2. Modify FTDI driver configuration so that it does not load itself for channel A of FT2232 chip, which is the channel used for JTAG on |devkit-name|.
 
 Manually unloading the driver
 .............................
 
-1. Install FTDI driver from https://www.ftdichip.com/Drivers/VCP.htm
+1. Install FTDI driver from `FTDI official website <https://ftdichip.com/drivers/vcp-drivers/>`_.
 
 2. Connect USB cable to the |devkit-name|.
 
@@ -112,13 +120,23 @@ Manually unloading the driver
 
     sudo kextunload -b com.FTDI.driver.FTDIUSBSerialDriver
 
-   In some cases you may need to unload Apple's FTDI driver as well::
+   In some cases you may need to unload Apple's FTDI driver as well:
 
-    sudo kextunload -b com.apple.driver.AppleUSBFTDI
+   * macOS < 10.15::
+
+        sudo kextunload -b com.apple.driver.AppleUSBFTDI
+
+   * macOS 10.15::
+
+        sudo kextunload -b com.apple.DriverKit-AppleUSBFTDI
+
+   .. warning::
+
+      Attempting to use serial over the wrong channel with the FTDI driver will cause a kernel panic. The ESP-WROVER-KIT uses channel A for JTAG and channel B for serial.
 
 4. Run OpenOCD:
 
-   .. include:: {IDF_TARGET_TOOLCHAIN_NAME}.inc
+   .. include:: {IDF_TARGET_PATH_NAME}.inc
        :start-after: run-openocd
        :end-before: ---
 
@@ -137,9 +155,13 @@ Modifying FTDI driver
 
 In a nutshell, this approach requires modification to FTDI driver configuration file, which prevents the driver from being loaded for channel B of FT2232H.
 
-.. note:: Other boards may use channel A for JTAG, so use this option with caution.
+.. note::
 
-.. warning:: This approach also needs signature verification of drivers to be disabled, so may not be acceptable for all users.
+    Other boards may use channel A for JTAG, so use this option with caution.
+
+.. warning::
+
+    This approach also needs signature verification of drivers to be disabled, so may not be acceptable for all users.
 
 
 1. Open FTDI driver configuration file using a text editor (note ``sudo``)::

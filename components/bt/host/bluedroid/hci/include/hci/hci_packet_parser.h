@@ -55,6 +55,11 @@ typedef struct {
         size_t supported_commands_length
     );
 
+    void (*parse_read_local_supported_features_response)(
+        BT_HDR *response,
+        bt_device_features_t *feature_pages
+    );
+
     void (*parse_read_local_extended_features_response)(
         BT_HDR *response,
         uint8_t *page_number_ptr,
@@ -74,6 +79,16 @@ typedef struct {
         uint8_t *acl_buffer_count_ptr
     );
 
+#if (BLE_FEAT_ISO_EN == TRUE)
+    void (*parse_ble_read_buffer_size_response_v2) (
+        BT_HDR *response,
+        uint16_t *data_size_ptr,
+        uint8_t *acl_buffer_count_ptr,
+        uint16_t *iso_pkt_len_ptr,
+        uint8_t *iso_pkt_num_ptr
+    );
+#endif // #if (BLE_FEAT_ISO_EN == TRUE)
+
     void (*parse_ble_read_supported_states_response)(
         BT_HDR *response,
         uint8_t *supported_states,
@@ -89,7 +104,20 @@ typedef struct {
         BT_HDR *response,
         uint8_t *resolving_list_size_ptr
     );
-
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+#if (BLE_50_EXTEND_ADV_EN == TRUE)
+    void (*parse_ble_read_adv_max_len_response) (
+        BT_HDR *response,
+        uint16_t *ble_ext_adv_data_max_len_ptr
+    );
+#endif // #if (BLE_50_EXTEND_ADV_EN == TRUE)
+#if (BLE_50_EXTEND_SYNC_EN == TRUE)
+    void (*parse_ble_read_periodic_adv_list_size_response) (
+        BT_HDR *response,
+        uint8_t *periodic_advertiser_list_size
+    );
+#endif // #if (BLE_50_EXTEND_SYNC_EN == TRUE)
+#endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
     void (*parse_ble_read_suggested_default_data_length_response)(
         BT_HDR *response,
         uint16_t *ble_default_packet_length_ptr,

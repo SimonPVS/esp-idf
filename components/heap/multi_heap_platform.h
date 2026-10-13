@@ -1,28 +1,16 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #pragma once
 
 #ifdef MULTI_HEAP_FREERTOS
 
-#include <freertos/FreeRTOS.h>
+#include "freertos/FreeRTOS.h"
+
 #include "sdkconfig.h"
 #include "esp_rom_sys.h"
-#if CONFIG_IDF_TARGET_ESP32
-#include "esp32/rom/ets_sys.h" // will be removed in idf v5.0
-#elif CONFIG_IDF_TARGET_ESP32S2
-#include "esp32s2/rom/ets_sys.h"
-#endif
 #include <assert.h>
 
 typedef portMUX_TYPE multi_heap_lock_t;
@@ -31,19 +19,19 @@ typedef portMUX_TYPE multi_heap_lock_t;
    we need to use portmux spinlocks here not RTOS mutexes */
 #define MULTI_HEAP_LOCK(PLOCK) do {                         \
         if((PLOCK) != NULL) {                               \
-            portENTER_CRITICAL((PLOCK));                    \
+            portENTER_CRITICAL_SAFE((PLOCK));               \
         }                                                   \
     } while(0)
 
 
 #define MULTI_HEAP_UNLOCK(PLOCK) do {                       \
         if ((PLOCK) != NULL) {                              \
-            portEXIT_CRITICAL((PLOCK));                     \
+            portEXIT_CRITICAL_SAFE((PLOCK));                \
         }                                                   \
     } while(0)
 
 #define MULTI_HEAP_LOCK_INIT(PLOCK) do {                    \
-        vPortCPUInitializeMutex((PLOCK));                   \
+        portMUX_INITIALIZE((PLOCK));                        \
     } while(0)
 
 #define MULTI_HEAP_LOCK_STATIC_INITIALIZER     portMUX_INITIALIZER_UNLOCKED
@@ -78,20 +66,26 @@ inline static void multi_heap_assert(bool condition, const char *format, int lin
 
 #ifdef CONFIG_HEAP_TASK_TRACKING
 #include <freertos/task.h>
-#define MULTI_HEAP_BLOCK_OWNER TaskHandle_t task;
-#define MULTI_HEAP_SET_BLOCK_OWNER(HEAD) (HEAD)->task = xTaskGetCurrentTaskHandle()
-#define MULTI_HEAP_GET_BLOCK_OWNER(HEAD) ((HEAD)->task)
+#define MULTI_HEAP_SET_BLOCK_OWNER(HEAD) *((TaskHandle_t*)HEAD) = xTaskGetCurrentTaskHandle()
+#define MULTI_HEAP_GET_BLOCK_OWNER(HEAD) *((TaskHandle_t*)HEAD)
+#define MULTI_HEAP_ADD_BLOCK_OWNER_OFFSET(HEAD) ((TaskHandle_t*)(HEAD) + 1)
+#define MULTI_HEAP_REMOVE_BLOCK_OWNER_OFFSET(HEAD) ((TaskHandle_t*)(HEAD) - 1)
+#define MULTI_HEAP_ADD_BLOCK_OWNER_SIZE(SIZE) ((SIZE) + sizeof(TaskHandle_t))
+#define MULTI_HEAP_REMOVE_BLOCK_OWNER_SIZE(SIZE) ((SIZE) - sizeof(TaskHandle_t))
+#define MULTI_HEAP_BLOCK_OWNER_SIZE() sizeof(TaskHandle_t)
 #else
-#define MULTI_HEAP_BLOCK_OWNER
 #define MULTI_HEAP_SET_BLOCK_OWNER(HEAD)
 #define MULTI_HEAP_GET_BLOCK_OWNER(HEAD) (NULL)
-#endif
+#define MULTI_HEAP_ADD_BLOCK_OWNER_OFFSET(HEAD) (HEAD)
+#define MULTI_HEAP_REMOVE_BLOCK_OWNER_OFFSET(HEAD) (HEAD)
+#define MULTI_HEAP_ADD_BLOCK_OWNER_SIZE(SIZE) (SIZE)
+#define MULTI_HEAP_REMOVE_BLOCK_OWNER_SIZE(SIZE) (SIZE)
+#define MULTI_HEAP_BLOCK_OWNER_SIZE() 0
+#endif // CONFIG_HEAP_TASK_TRACKING
 
 #else // MULTI_HEAP_FREERTOS
 
 #include <assert.h>
-
-typedef int multi_heap_lock_t;
 
 #define MULTI_HEAP_PRINTF printf
 #define MULTI_HEAP_STDERR_PRINTF(MSG, ...) fprintf(stderr, MSG, __VA_ARGS__)

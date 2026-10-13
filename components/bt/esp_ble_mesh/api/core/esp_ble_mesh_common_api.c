@@ -1,16 +1,8 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdint.h>
 
@@ -43,6 +35,7 @@ esp_err_t esp_ble_mesh_init(esp_ble_mesh_prov_t *prov, esp_ble_mesh_comp_t *comp
     // Create a semaphore
     if ((semaphore = xSemaphoreCreateCounting(1, 0)) == NULL) {
         BT_ERR("Failed to create semaphore");
+        bt_mesh_host_deinit();
         return ESP_ERR_NO_MEM;
     }
 
@@ -55,9 +48,10 @@ esp_err_t esp_ble_mesh_init(esp_ble_mesh_prov_t *prov, esp_ble_mesh_comp_t *comp
     msg.pid = BTC_PID_PROV;
     msg.act = BTC_BLE_MESH_ACT_MESH_INIT;
 
-    if (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL) != BT_STATUS_SUCCESS) {
+    if (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL, NULL) != BT_STATUS_SUCCESS) {
         vSemaphoreDelete(semaphore);
         BT_ERR("Failed to start mesh init");
+        bt_mesh_host_deinit();
         return ESP_FAIL;
     }
 
@@ -69,10 +63,13 @@ esp_err_t esp_ble_mesh_init(esp_ble_mesh_prov_t *prov, esp_ble_mesh_comp_t *comp
     return ESP_OK;
 }
 
+#if CONFIG_BLE_MESH_DEINIT
 esp_err_t esp_ble_mesh_deinit(esp_ble_mesh_deinit_param_t *param)
 {
     btc_ble_mesh_prov_args_t arg = {0};
+    SemaphoreHandle_t semaphore = NULL;
     btc_msg_t msg = {0};
+    esp_err_t ret = ESP_OK;
 
     if (param == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -80,13 +77,36 @@ esp_err_t esp_ble_mesh_deinit(esp_ble_mesh_deinit_param_t *param)
 
     ESP_BLE_HOST_STATUS_CHECK(ESP_BLE_HOST_STATUS_ENABLED);
 
+    // Create a semaphore
+    if ((semaphore = xSemaphoreCreateCounting(1, 0)) == NULL) {
+        BT_ERR("Failed to create semaphore");
+        return ESP_ERR_NO_MEM;
+    }
+
     arg.mesh_deinit.param.erase_flash = param->erase_flash;
+    /* Transport semaphore pointer to BTC layer, and will give the semaphore in the BTC task */
+    arg.mesh_deinit.semaphore = semaphore;
 
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_PROV;
     msg.act = BTC_BLE_MESH_ACT_DEINIT_MESH;
 
-    return (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL)
-            == BT_STATUS_SUCCESS ? ESP_OK : ESP_FAIL);
-}
+    if (btc_transfer_context(&msg, &arg, sizeof(btc_ble_mesh_prov_args_t), NULL, NULL) != BT_STATUS_SUCCESS) {
+        vSemaphoreDelete(semaphore);
+        BT_ERR("Failed to start mesh deinit");
+        return ESP_FAIL;
+    }
 
+    /* Take the Semaphore, wait BLE Mesh de-initialization to finish. */
+    __ASSERT(xSemaphoreTake(semaphore, 3000 / portTICK_PERIOD_MS) == pdTRUE, "BLE Mesh deinit take semaphore failed");
+    /* Don't forget to delete the semaphore at the end. */
+    vSemaphoreDelete(semaphore);
+
+    ret = bt_mesh_host_deinit();
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    return ESP_OK;
+}
+#endif /* CONFIG_BLE_MESH_DEINIT */

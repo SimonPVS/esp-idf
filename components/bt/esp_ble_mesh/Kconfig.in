@@ -6,17 +6,198 @@ if BLE_MESH
         help
             It is a temporary solution and needs further modifications.
 
+    config BLE_MESH_V11_SUPPORT
+        bool "Support ESP BLE Mesh v1.1 features (Preview)"
+        default y
+        help
+            Support BLE Mesh v1.1 features
+
+    config BLE_MESH_RANDOM_ADV_INTERVAL
+        bool "Support using random adv interval for mesh packets"
+        select BT_BLE_HIGH_DUTY_ADV_INTERVAL if BT_BLUEDROID_ENABLED
+        select BT_NIMBLE_HIGH_DUTY_ADV_ITVL if BT_NIMBLE_ENABLED
+        default n
+        help
+            Enable this option to allow using random advertising interval
+            for mesh packets. And this could help avoid collision of
+            advertising packets.
+
+    config BLE_MESH_USE_UNIFIED_CRYPTO
+        bool "Use the unified BLE tinycrypt implementation(Deprecated)"
+        default n
+        help
+            This configuration path is deprecated and will be removed
+            in a future version. Please use the corresponding Kconfig
+            options under $IDF_PATH/components/bt/common/Kconfig.
+
+    menuconfig BLE_MESH_USE_BLE_50
+        bool "Support using BLE 5.0 APIs for BLE Mesh"
+        depends on BLE_MESH_EXPERIMENTAL
+        select BT_NIMBLE_50_FEATURE_SUPPORT if BT_NIMBLE_ENABLED
+        select BT_NIMBLE_EXT_ADV if BT_NIMBLE_ENABLED
+        select BT_BLE_50_FEATURES_SUPPORTED if BT_BLUEDROID_ENABLED
+        select BT_LE_50_FEATURE_SUPPORT if SOC_ESP_NIMBLE_CONTROLLER
+        default n
+        help
+            This option to enable BLE Mesh using some BLE 5.0 APIs.
+
+    menuconfig BLE_MESH_EXT_ADV
+        bool "Enable extended advertising for BLE Mesh"
+        depends on BLE_MESH_USE_BLE_50
+        default n
+        help
+            Enable broadcasting of BLE Mesh messages using BLE 5.0 extended advertising.
+            This allows control of extended advertising parameters (e.g., PHY selection)
+            while maintaining standard BLE Mesh packet length.
+
+    config BLE_MESH_EXT_ADV_BUF_COUNT
+        int "Number of extended advertising buffers"
+        depends on BLE_MESH_EXT_ADV
+        range 6 256
+        default 60
+        help
+            Number of buffer slots allocated for extended advertising packets.
+
+    config BLE_MESH_EXT_RELAY_ADV_BUF_COUNT
+        int "Number of extended relay advertising buffers"
+        depends on BLE_MESH_EXT_ADV
+        depends on BLE_MESH_RELAY
+        range 0 256
+        default 60
+        help
+            Number of buffer slots allocated for extended advertising packets used in message relay.
+
+    menuconfig BLE_MESH_LONG_PACKET
+        bool "Enable non-standard long packet mode for BLE Mesh"
+        depends on BLE_MESH_EXT_ADV
+        default n
+        help
+            Enable extended-length advertising packets for BLE Mesh using BLE 5.0 extended advertising.
+            This overrides the standard BLE Mesh packet length limitations.
+
+    config BLE_MESH_LONG_PACKET_ADV_LEN
+        int "Maximum advertising payload length"
+        depends on BLE_MESH_LONG_PACKET
+        range 30 249
+        default 105
+        help
+            Maximum payload length for extended advertising packets (bytes).
+            Range: 30-249 bytes.
+            Default: 105.
+            Note: Maximum access payload = (LENGTH - 17) × SEGMENT_COUNT
+            - Transmission: Uses BLE_MESH_LONG_PACKET_TX_SEG_CNT
+            - Reception: Uses BLE_MESH_LONG_PACKET_RX_SEG_CNT
+
+    config BLE_MESH_LONG_PACKET_ADV_BUF_COUNT
+        int "Long packet advertising buffer count"
+        depends on BLE_MESH_LONG_PACKET
+        default 20
+        help
+            Number of advertising buffers allocated for long packet transmissions.
+
+    config BLE_MESH_LONG_PACKET_RELAY_ADV_BUF_COUNT
+        int "Long packet relay buffer count"
+        depends on BLE_MESH_LONG_PACKET
+        depends on BLE_MESH_RELAY
+        default 20
+        help
+            Number of advertising buffers allocated for relay long packets.
+
+    config BLE_MESH_LONG_PACKET_TX_SEG_CNT
+        int "Maximum transmission segments per message"
+        depends on BLE_MESH_LONG_PACKET
+        range 1 BLE_MESH_TX_SEG_MAX if BLE_MESH_TX_SEG_MAX < BLE_MESH_LONG_PACKET_ADV_BUF_COUNT
+        range 1 BLE_MESH_LONG_PACKET_ADV_BUF_COUNT if BLE_MESH_TX_SEG_MAX >= BLE_MESH_LONG_PACKET_ADV_BUF_COUNT
+        default 20
+        help
+            Maximum number of segments for outgoing long packet messages.
+            Upper bound: min(BLE_MESH_TX_SEG_MAX, BLE_MESH_LONG_PACKET_ADV_BUF_COUNT)
+
+    config BLE_MESH_LONG_PACKET_RX_SEG_CNT
+        int "Maximum reception segments per message"
+        depends on BLE_MESH_LONG_PACKET
+        range 1 BLE_MESH_LONG_PACKET_ADV_BUF_COUNT
+        default 20
+        help
+            Maximum number of segments supported for receiving long packet messages.
+
+    config BLE_MESH_ADV_INST_ID
+        depends on BLE_MESH_USE_BLE_50
+        int "Extended adv instance for Mesh normal packets"
+        default 0
+        range 0 3
+        help
+            Extended ADV instance used by Mesh normal advertising packets.
+
+    menuconfig BLE_MESH_SUPPORT_MULTI_ADV
+        bool "Support using multiple adv instance for BLE Mesh"
+        depends on BLE_MESH_USE_BLE_50
+        default n
+        help
+            Enable this option to support using multiple adv instance while running BLE Mesh.
+
+    config BLE_MESH_PROXY_ADV_INST_ID
+        int "Extended adv instance for Mesh proxy packets"
+        depends on BLE_MESH_PROXY
+        depends on (BLE_MESH_PB_GATT || BLE_MESH_GATT_PROXY_SERVER)
+        depends on BLE_MESH_SUPPORT_MULTI_ADV
+        default 1
+        range 0 3
+        help
+            Extended ADV instance used by Mesh proxy advertising packets.
+
+    menuconfig BLE_MESH_SEPARATE_RELAY_ADV_INSTANCE
+        bool "Use separate extended adv instance for Mesh relay packets"
+        depends on BLE_MESH_SUPPORT_MULTI_ADV
+        depends on BLE_MESH_RELAY_ADV_BUF
+        default n
+        help
+            Enable this option to support using a separate extended ADV instance for Mesh relay packets.
+
+    config BLE_MESH_RELAY_ADV_INST_ID
+        int "Extended adv instance for Mesh relay packets"
+        depends on BLE_MESH_SEPARATE_RELAY_ADV_INSTANCE
+        default 2
+        range 0 3
+        help
+            Extended ADV instance used by Mesh relay advertising packets.
+
+    menuconfig BLE_MESH_SEPARATE_BLE_ADV_INSTANCE
+        bool "Use separate extended adv instance for BLE normal packets"
+        depends on BLE_MESH_SUPPORT_MULTI_ADV
+        depends on BLE_MESH_SUPPORT_BLE_ADV
+        default n
+        help
+            Enable this option to support using a separate extended ADV instance for normal BLE advertising packets.
+
+    config BLE_MESH_BLE_ADV_INST_ID
+        int "Extended adv instance for normal BLE packets"
+        depends on BLE_MESH_SEPARATE_BLE_ADV_INSTANCE
+        default 3
+        range 0 3
+        help
+            Extended ADV instance used by normal BLE advertising packets.
+
     config BLE_MESH_USE_DUPLICATE_SCAN
         bool "Support Duplicate Scan in BLE Mesh"
-        depends on BT_BLUEDROID_ENABLED
-        select BTDM_BLE_SCAN_DUPL
-        select BTDM_BLE_MESH_SCAN_DUPL_EN
+        select BTDM_BLE_SCAN_DUPL if IDF_TARGET_ESP32
+        select BTDM_BLE_MESH_SCAN_DUPL_EN if IDF_TARGET_ESP32
+        select BT_CTRL_BLE_SCAN_DUPL if IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32S3
+        select BT_CTRL_BLE_MESH_SCAN_DUPL_EN if IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32S3
+        select BT_LE_SCAN_DUPL if SOC_ESP_NIMBLE_CONTROLLER
+        select BT_NIMBLE_VS_SUPPORT if BT_NIMBLE_ENABLED
         default y
         help
             Enable this option to allow using specific duplicate scan filter
             in BLE Mesh, and Scan Duplicate Type must be set by choosing the
             option in the Bluetooth Controller section in menuconfig, which is
             "Scan Duplicate By Device Address and Advertising Data".
+
+    config BLE_MESH_ACTIVE_SCAN
+        bool "Support Active Scan in BLE Mesh"
+        depends on BLE_MESH_V11_SUPPORT
+        help
+            Enable this option to allow using BLE Active Scan for BLE Mesh.
 
     choice BLE_MESH_MEM_ALLOC_MODE
         prompt "Memory allocation strategy"
@@ -31,20 +212,25 @@ if BLE_MESH
               behavior in ESP-IDF
             - Internal IRAM memory wherever applicable else internal DRAM
 
-            Recommended mode here is always internal, since that is most preferred
-            from security perspective. But if application requirement does not allow
-            sufficient free internal memory then alternate mode can be selected.
+            Recommended mode here is always internal (*), since that is most preferred
+            from security perspective. But if application requirement does not
+            allow sufficient free internal memory then alternate mode can be
+            selected.
+
+            (*) In case of ESP32-S2/ESP32-S3, hardware allows encryption of external
+            SPIRAM contents provided hardware flash encryption feature is enabled.
+            In that case, using external SPIRAM allocation strategy is also safe choice
+            from security perspective.
 
         config BLE_MESH_MEM_ALLOC_MODE_INTERNAL
             bool "Internal DRAM"
 
         config BLE_MESH_MEM_ALLOC_MODE_EXTERNAL
             bool "External SPIRAM"
-            depends on ESP32_SPIRAM_SUPPORT
+            depends on SPIRAM_USE_CAPS_ALLOC || SPIRAM_USE_MALLOC
 
         config BLE_MESH_MEM_ALLOC_MODE_DEFAULT
             bool "Default alloc mode"
-            depends on ESP32_SPIRAM_SUPPORT
             help
                 Enable this option to use the default memory allocation strategy when
                 external SPIRAM is enabled. See the SPIRAM options for more details.
@@ -61,7 +247,7 @@ if BLE_MESH
 
     config BLE_MESH_FREERTOS_STATIC_ALLOC
         bool "Enable FreeRTOS static allocation"
-        depends on FREERTOS_SUPPORT_STATIC_ALLOCATION && (ESP32_SPIRAM_SUPPORT || ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY)
+        depends on FREERTOS_SUPPORT_STATIC_ALLOCATION && ((IDF_TARGET_ESP32 && SPIRAM) || ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY) # NOERROR
         default n
         help
             Enable this option to use FreeRTOS static allocation APIs for BLE Mesh,
@@ -78,7 +264,7 @@ if BLE_MESH
 
         config BLE_MESH_FREERTOS_STATIC_ALLOC_EXTERNAL
             bool "External SPIRAM"
-            depends on ESP32_SPIRAM_SUPPORT
+            depends on IDF_TARGET_ESP32 && SPIRAM
             help
                 If enabled, BLE Mesh allocates dynamic memory from external SPIRAM for
                 FreeRTOS objects, i.e. mutex, queue, and task stack. External SPIRAM
@@ -94,6 +280,42 @@ if BLE_MESH
                 as task stack.
 
     endchoice # BLE_MESH_FREERTOS_STATIC_ALLOC_MODE
+
+    config BLE_MESH_DEINIT
+        bool "Support de-initialize BLE Mesh stack"
+        default y
+        help
+            If enabled, users can use the function esp_ble_mesh_deinit() to de-initialize
+            the whole BLE Mesh stack.
+
+    menu "BLE Mesh and BLE coexistence support"
+
+        config BLE_MESH_SUPPORT_BLE_ADV
+            bool "Support sending normal BLE advertising packets"
+            default n
+            help
+                When selected, users can send normal BLE advertising packets
+                with specific API.
+
+        if BLE_MESH_SUPPORT_BLE_ADV
+
+            config BLE_MESH_BLE_ADV_BUF_COUNT
+                int "Number of advertising buffers for BLE advertising packets"
+                default 3
+                range 1 255
+                help
+                    Number of advertising buffers for BLE packets available.
+
+        endif # BLE_MESH_SUPPORT_BLE_ADV
+
+        config BLE_MESH_SUPPORT_BLE_SCAN
+            bool "Support scanning normal BLE advertising packets"
+            default n
+            help
+                When selected, users can register a callback and receive normal BLE
+                advertising packets in the application layer.
+
+    endmenu # BLE Mesh and BLE coexistence support
 
     config BLE_MESH_FAST_PROV
         bool "Enable BLE Mesh Fast Provisioning"
@@ -188,6 +410,28 @@ if BLE_MESH
                 This option specifies how many application keys the Provisioner can have.
                 Indeed, this value decides the number of the application keys which can be added by a Provisioner.
 
+        config BLE_MESH_PROVISIONER_RECV_HB
+            bool "Support receiving Heartbeat messages"
+            default n
+            help
+                When this option is enabled, Provisioner can call specific functions to enable
+                or disable receiving Heartbeat messages and notify them to the application layer.
+
+        if BLE_MESH_PROVISIONER_RECV_HB
+
+            config BLE_MESH_PROVISIONER_RECV_HB_FILTER_SIZE
+                int "Maximum number of filter entries for receiving Heartbeat messages"
+                default 3
+                range 1 1000
+                help
+                    This option specifies how many heartbeat filter entries Provisioner supports.
+                    The heartbeat filter (acceptlist or rejectlist) entries are used to store a
+                    list of SRC and DST which can be used to decide if a heartbeat message will
+                    be processed and notified to the application layer by Provisioner.
+                    Note: The filter is an empty rejectlist by default.
+
+        endif # BLE_MESH_PROVISIONER_RECV_HB
+
     endif # BLE_MESH_PROVISIONER
 
     # Virtual option enabled whenever Generic Provisioning layer is needed
@@ -198,6 +442,33 @@ if BLE_MESH
             Enable this option to support BLE Mesh Provisioning functionality. For
             BLE Mesh, this option should be always enabled.
 
+    config BLE_MESH_PROV_EPA
+        bool "BLE Mesh enhanced provisioning authentication"
+        depends on BLE_MESH_PROV
+        depends on BLE_MESH_V11_SUPPORT
+        default y
+        help
+            Enable this option to support BLE Mesh enhanced provisioning authentication
+            functionality. This option can increase the security level of provisioning.
+            It is recommended to enable this option.
+
+    config BLE_MESH_CERT_BASED_PROV
+        bool "Support Certificate-based provisioning"
+        depends on BLE_MESH_PROV
+        depends on BLE_MESH_V11_SUPPORT
+        default n
+        help
+            Enable this option to support BLE Mesh Certificate-Based Provisioning.
+
+    config BLE_MESH_RECORD_FRAG_MAX_SIZE
+        int "Maximum size of the provisioning record fragment that Provisioner can receive"
+        depends on BLE_MESH_CERT_BASED_PROV
+        default 56
+        range 1 57
+        help
+            This option sets the maximum size of the provisioning record fragment that the
+            Provisioner can receive. The range depends on provisioning bearer.
+
     config BLE_MESH_PB_ADV
         bool "Provisioning support using the advertising bearer (PB-ADV)"
         select BLE_MESH_PROV
@@ -206,6 +477,19 @@ if BLE_MESH
             Enable this option to allow the device to be provisioned over the
             advertising bearer. This option should be enabled if PB-ADV is
             going to be used during provisioning procedure.
+
+    config BLE_MESH_UNPROVISIONED_BEACON_INTERVAL
+        int "Interval between two consecutive Unprovisioned Device Beacon"
+        depends on BLE_MESH_NODE && BLE_MESH_PB_ADV
+        default 5
+        default 3 if BLE_MESH_FAST_PROV
+        range 1 100
+        help
+            This option specifies the interval of sending two consecutive unprovisioned
+            device beacon, users can use this option to change the frequency of sending
+            unprovisioned device beacon. For example, if the value is 5, it means the
+            unprovisioned device beacon will send every 5 seconds. When the option of
+            BLE_MESH_FAST_PROV is selected, the value is better to be 3 seconds, or less.
 
     config BLE_MESH_PB_GATT
         bool "Provisioning support using GATT (PB-GATT)"
@@ -259,6 +543,42 @@ if BLE_MESH
             list of addresses which can be used to decide which messages will be forwarded
             to the Proxy Client by the Proxy Server.
 
+    config BLE_MESH_PROXY_PRIVACY
+        bool "Support Proxy Privacy"
+        depends on BLE_MESH_PRB_SRV && BLE_MESH_GATT_PROXY_SERVER
+        default y
+        help
+            The Proxy Privacy parameter controls the privacy of the Proxy Server
+            over the connection. The value of the Proxy Privacy parameter is
+            controlled by the type of proxy connection, which is dependent on the
+            bearer used by the proxy connection.
+
+    config BLE_MESH_PROXY_SOLIC_PDU_RX
+        bool "Support receiving Proxy Solicitation PDU"
+        depends on BLE_MESH_GATT_PROXY_SERVER
+        depends on BLE_MESH_V11_SUPPORT
+        help
+            Enable this option to support receiving Proxy Solicitation PDU.
+
+    config BLE_MESH_PROXY_SOLIC_RX_CRPL
+        int "Maximum capacity of solicitation replay protection list"
+        depends on BLE_MESH_PROXY_SOLIC_PDU_RX
+        default 2
+        range 1 65536
+        help
+            This option specifies the maximum capacity of the solicitation replay
+            protection list. The solicitation replay protection list is used to
+            reject Solicitation PDUs that were already processed by a node, which
+            will store the solicitation src and solicitation sequence number of
+            the received Solicitation PDU message.
+
+    config BLE_MESH_PROXY_CLI_SRV_COEXIST
+        bool "Support Proxy Client and Proxy Server coexistence"
+        depends on BLE_MESH_EXPERIMENTAL
+        default n
+        help
+            Enable this option to support the coexistence of proxy client and proxy server.
+
     config BLE_MESH_GATT_PROXY_CLIENT
         bool "BLE Mesh GATT Proxy Client"
         select BLE_MESH_PROXY
@@ -267,6 +587,26 @@ if BLE_MESH
             This option enables support for Mesh GATT Proxy Client. The Proxy Client
             can use the GATT bearer to send mesh messages to a node that supports the
             advertising bearer.
+
+    config BLE_MESH_PROXY_SOLIC_PDU_TX
+        bool "Support sending Proxy Solicitation PDU"
+        depends on BLE_MESH_GATT_PROXY_CLIENT
+        depends on BLE_MESH_V11_SUPPORT
+        help
+            Enable this option to support sending Proxy Solicitation PDU.
+
+    config BLE_MESH_PROXY_SOLIC_TX_SRC_COUNT
+        int "Maximum number of SSRC that can be used by Proxy Client"
+        depends on BLE_MESH_PROXY_SOLIC_PDU_TX
+        default 2
+        range 1 16
+        help
+            This option specifies the maximum number of Solicitation Source (SSRC)
+            that can be used by Proxy Client for sending a Solicitation PDU.
+            A Proxy Client may use the primary address or any of the secondary
+            addresses as the SSRC for a Solicitation PDU.
+            So for a Proxy Client, it's better to choose the value based on its
+            own element count.
 
     config BLE_MESH_NET_BUF_POOL_USAGE
         bool
@@ -290,28 +630,6 @@ if BLE_MESH
             AppKey, etc.
 
     if BLE_MESH_SETTINGS
-
-        config BLE_MESH_SPECIFIC_PARTITION
-            bool "Use a specific NVS partition for BLE Mesh"
-            default n
-            help
-                When selected, the mesh stack will use a specified NVS partition instead of
-                default NVS partition. Note that the specified partition must be registered
-                with NVS using nvs_flash_init_partition() API, and the partition must exists
-                in the csv file.
-                When Provisioner needs to store a large amount of nodes' information in the
-                flash (e.g. more than 20), this option is recommended to be enabled.
-
-        if BLE_MESH_SPECIFIC_PARTITION
-
-            config BLE_MESH_PARTITION_NAME
-                string "Name of the NVS partition for BLE Mesh"
-                default "ble_mesh"
-                help
-                    This value defines the name of the specified NVS partition used by the
-                    mesh stack.
-
-        endif # BLE_MESH_SPECIFIC_PARTITION
 
         config BLE_MESH_STORE_TIMEOUT
             int "Delay (in seconds) before storing anything persistently"
@@ -378,6 +696,50 @@ if BLE_MESH
                 in advance before recovering node information and make sure the node
                 information recovering could work as expected.
 
+        config BLE_MESH_SPECIFIC_PARTITION
+            bool "Use a specific NVS partition for BLE Mesh"
+            default n
+            help
+                When selected, the mesh stack will use a specified NVS partition instead of
+                default NVS partition. Note that the specified partition must be registered
+                with NVS using nvs_flash_init_partition() API, and the partition must exists
+                in the csv file.
+                When Provisioner needs to store a large amount of nodes' information in the
+                flash (e.g. more than 20), this option is recommended to be enabled.
+
+        config BLE_MESH_PARTITION_NAME
+            string "Name of the NVS partition for BLE Mesh"
+            depends on BLE_MESH_SPECIFIC_PARTITION
+            default "ble_mesh"
+            help
+                This value defines the name of the specified NVS partition used by the
+                mesh stack.
+
+        config BLE_MESH_USE_MULTIPLE_NAMESPACE
+            bool "Support using multiple NVS namespaces by Provisioner"
+            depends on BLE_MESH_PROVISIONER
+            default n
+            help
+                When selected, Provisioner can use different NVS namespaces to store
+                different instances of mesh information.
+                For example, if in the first room, Provisioner uses NetKey A, AppKey
+                A and provisions three devices, these information will be treated as
+                mesh information instance A. When the Provisioner moves to the second
+                room, it uses NetKey B, AppKey B and provisions two devices, then the
+                information will be treated as mesh information instance B.
+                Here instance A and instance B will be stored in different namespaces.
+                With this option enabled, Provisioner needs to use specific functions
+                to open the corresponding NVS namespace, restore the mesh information,
+                release the mesh information or erase the mesh information.
+
+        config BLE_MESH_MAX_NVS_NAMESPACE
+            int "Maximum number of NVS namespaces"
+            depends on BLE_MESH_USE_MULTIPLE_NAMESPACE
+            default 2
+            range 1 255
+            help
+                This option specifies the maximum NVS namespaces supported by Provisioner.
+
     endif  # if BLE_MESH_SETTINGS
 
     config BLE_MESH_SUBNET_COUNT
@@ -436,6 +798,21 @@ if BLE_MESH
             Provisioner can provision up to 20 nodes and each node contains two elements,
             then the replay protection list size of Provisioner should be at least 40.
 
+    config BLE_MESH_NOT_RELAY_REPLAY_MSG
+        bool "Not relay replayed messages in a mesh network"
+        depends on BLE_MESH_EXPERIMENTAL
+        default n
+        help
+            There may be many expired messages in a complex mesh network that would be
+            considered replayed messages.
+            Enable this option will refuse to relay such messages, which could help to
+            reduce invalid packets in the mesh network.
+            However, it should be noted that enabling this option may result in packet
+            loss in certain environments.
+            Therefore, users need to decide whether to enable this option according to
+            the actual usage situation.
+
+
     config BLE_MESH_MSG_CACHE_SIZE
         int "Network message cache size"
         default 10
@@ -458,24 +835,6 @@ if BLE_MESH
             for the Transport Layer MIC). For example, 5 segments means the maximum
             SDU size is 60 bytes, which leaves 56 bytes for application layer data
             using a 4-byte MIC, or 52 bytes using an 8-byte MIC.
-
-    config BLE_MESH_SUPPORT_BLE_ADV
-        bool "Support sending normal BLE advertising packets"
-        default n
-        help
-            When selected, users can send normal BLE advertising packets
-            with specific API.
-
-    if BLE_MESH_SUPPORT_BLE_ADV
-
-        config BLE_MESH_BLE_ADV_BUF_COUNT
-            int "Number of advertising buffers for BLE advertising packets"
-            default 3
-            range 1 255
-            help
-                Number of advertising buffers for BLE packets available.
-
-    endif # BLE_MESH_SUPPORT_BLE_ADV
 
     config BLE_MESH_IVU_DIVIDER
         int "Divider for IV Update state refresh timer"
@@ -502,6 +861,29 @@ if BLE_MESH
             duration that the node has been in the current state gets
             stored to flash. E.g. the default value of 4 means that the
             state is saved every 24 hours (96 / 4).
+
+    config BLE_MESH_IVU_RECOVERY_IVI
+        bool "Recovery the IV index when the latest whole IV update procedure is missed"
+        default y
+        help
+            According to Section 3.10.5 of Mesh Specification v1.0.1.
+            If a node in Normal Operation receives a Secure Network beacon with an IV index
+            equal to the last known IV index+1 and the IV Update Flag set to 0, the node may
+            update its IV without going to the IV Update in Progress state, or it may initiate
+            an IV Index Recovery procedure (Section 3.10.6), or it may ignore the Secure
+            Network beacon. The node makes the choice depending on the time since last IV
+            update and the likelihood that the node has missed the Secure Network beacons
+            with the IV update Flag.
+            When the above situation is encountered, this option can be used to decide whether
+            to perform the IV index recovery procedure.
+
+    config BLE_MESH_SAR_ENHANCEMENT
+        depends on BLE_MESH_V11_SUPPORT
+        bool "Segmentation and reassembly enhancement"
+        default n
+        help
+            Enable this option to use the enhanced segmentation and reassembly
+            mechanism introduced in Bluetooth Mesh Protocol 1.1.
 
     config BLE_MESH_TX_SEG_MSG_COUNT
         int "Maximum number of simultaneous outgoing segmented messages"
@@ -721,6 +1103,13 @@ if BLE_MESH
             help
                 Maximum number of groups to which the LPN can subscribe.
 
+        config BLE_MESH_LPN_SUB_ALL_NODES_ADDR
+            bool "Automatically subscribe all nodes address"
+            default n
+            help
+                Automatically subscribe all nodes address when friendship
+                established.
+
     endif # BLE_MESH_LOW_POWER
 
     config BLE_MESH_FRIEND
@@ -871,104 +1260,675 @@ if BLE_MESH
             uses 0 as the timeout value when sending acknowledged messages, then
             the default value will be used which is four seconds.
 
-    menu "Support for BLE Mesh Client Models"
+    menu "Support for BLE Mesh Foundation models"
 
         config BLE_MESH_CFG_CLI
-            bool "Configuration Client Model"
+            bool "Configuration Client model"
             help
-                Enable support for Configuration client model.
+                Enable support for Configuration Client model.
 
         config BLE_MESH_HEALTH_CLI
-            bool "Health Client Model"
+            bool "Health Client model"
             help
-                Enable support for Health client model.
+                Enable support for Health Client model.
+
+        config BLE_MESH_HEALTH_SRV
+            bool "Health Server model"
+            default y
+            help
+                Enable support for Health Server model.
+
+        if BLE_MESH_V11_SUPPORT
+
+            config BLE_MESH_BRC_CLI
+                bool "Bridge Configuration Client model"
+                help
+                    Enable support for Bridge Configuration Client model.
+
+            config BLE_MESH_BRC_SRV
+                bool "Bridge Configuration Server model"
+                default n
+                help
+                    Enable support for Bridge Configuration Server model.
+
+            if BLE_MESH_BRC_SRV
+
+                config BLE_MESH_MAX_BRIDGING_TABLE_ENTRY_COUNT
+                    int "Maximum number of Bridging Table entries"
+                    range 16 65535
+                    default 16
+                    help
+                        Maximum number of Bridging Table entries that the Bridge Configuration Server can support.
+
+                config BLE_MESH_BRIDGE_CRPL
+                    int "Maximum capacity of bridge replay protection list"
+                    default 5
+                    range 1 255
+                    help
+                        This option specifies the maximum capacity of the bridge replay
+                        protection list. The bridge replay protection list is used to
+                        prevent a bridged subnet from replay attack, which will store the
+                        source address and sequence number of the received bridge messages.
+
+            endif #BLE_MESH_BRC_SRV
+
+            config BLE_MESH_PRB_CLI
+                bool "Mesh Private Beacon Client model"
+                help
+                    Enable support for Mesh Private Beacon Client model.
+
+            config BLE_MESH_PRB_SRV
+                bool "Mesh Private Beacon Server model"
+                help
+                    Enable support for Mesh Private Beacon Server model.
+
+            config BLE_MESH_ODP_CLI
+                bool "On-Demand Private Proxy Client model"
+                help
+                    Enable support for On-Demand Private Proxy Client model.
+
+            config BLE_MESH_ODP_SRV
+                bool "On-Demand Private Proxy Server model"
+                depends on BLE_MESH_PROXY_SOLIC_PDU_RX
+                select BLE_MESH_SRPL_SRV
+                help
+                    Enable support for On-Demand Private Proxy Server model.
+
+            config BLE_MESH_SRPL_CLI
+                bool "Solicitation PDU RPL Configuration Client model"
+                help
+                    Enable support for Solicitation PDU RPL Configuration Client model.
+
+            config BLE_MESH_SRPL_SRV
+                bool "Solicitation PDU RPL Configuration Server model"
+                depends on BLE_MESH_PROXY_SOLIC_PDU_RX
+                help
+                    Enable support for Solicitation PDU RPL Configuration Server model.
+                    Note:
+                    This option depends on the functionality of receiving Solicitation
+                    PDU. If the device doesn't support receiving Solicitation PDU, then
+                    there is no need to enable this server model.
+
+            config BLE_MESH_AGG_CLI
+                bool "Opcodes Aggregator Client model"
+                help
+                    Enable support for Opcodes Aggregator Client model.
+
+            config BLE_MESH_AGG_SRV
+                bool "Opcodes Aggregator Server model"
+                help
+                    Enable support for Opcodes Aggregator Server model.
+
+            config BLE_MESH_SAR_CLI
+                bool "SAR Configuration Client model"
+                help
+                    Enable support for SAR Configuration Client model.
+
+            config BLE_MESH_SAR_SRV
+                bool "SAR Configuration Server model"
+                help
+                    Enable support for SAR Configuration Server model.
+
+            config BLE_MESH_COMP_DATA_1
+                bool "Support Composition Data Page 1"
+                help
+                    Composition Data Page 1 contains information about the relationships
+                    among models.
+                    Each model either can be a root model or can extend other models.
+
+            config BLE_MESH_COMP_DATA_128
+                bool "Support Composition Data Page 128"
+                help
+                    Composition Data Page 128 is used to indicate the structure of
+                    elements, features, and models of a node after the successful
+                    execution of the Node Address Refresh procedure or the Node
+                    Composition Refresh procedure, or after the execution of the
+                    Node Removal procedure followed by the provisioning process.
+                    Composition Data Page 128 shall be present if the node supports
+                    the Remote Provisioning Server model; otherwise it is optional.
+
+            config BLE_MESH_MODELS_METADATA_0
+                bool "Support Models Metadata Page 0"
+                help
+                    The Models Metadata state contains metadata of a node’s models.
+                    The Models Metadata state is composed of a number of pages of
+                    information.
+                    Models Metadata Page 0 shall be present if the node supports
+                    the Large Composition Data Server model.
+
+            config BLE_MESH_MODELS_METADATA_128
+                bool "Support Models Metadata Page 128"
+                depends on BLE_MESH_MODELS_METADATA_0
+                help
+                    The Models Metadata state contains metadata of a node’s models.
+                    The Models Metadata state is composed of a number of pages of
+                    information.
+                    Models Metadata Page 128 contains metadata for the node’s models
+                    after the successful execution of the Node Address Refresh
+                    procedure or the Node Composition Refresh procedure, or after
+                    the execution of the Node Removal procedure followed by the
+                    provisioning process.
+                    Models Metadata Page 128 shall be present if the node supports
+                    the Remote Provisioning Server model and the node supports the
+                    Large Composition Data Server model.
+
+            config BLE_MESH_LCD_CLI
+                bool "Large Composition Data Client model"
+                help
+                    Enable support for Large Composition Data Client model.
+
+            config BLE_MESH_LCD_SRV
+                bool "Large Composition Data Server model"
+                select BLE_MESH_MODELS_METADATA_0
+                help
+                    Enable support for Large Composition Data Server model.
+
+            config BLE_MESH_RPR_CLI
+                bool "Remote Provisioning Client model"
+                depends on BLE_MESH_PROVISIONER
+                select BLE_MESH_PROV
+                help
+                    Enable support for Remote Provisioning Client model
+
+            if BLE_MESH_RPR_CLI
+
+                config BLE_MESH_RPR_CLI_PROV_SAME_TIME
+                    int "Maximum number of PB-Remote running at the same time by Provisioner"
+                    range 1 5
+                    default 2
+                    help
+                        This option specifies how many devices can be provisioned at the same time
+                        using PB-REMOTE. For example, if the value is 2, it means a Provisioner can
+                        provision two unprovisioned devices with PB-REMOTE at the same time.
+
+            endif # BLE_MESH_RPR_CLI
+
+            config BLE_MESH_RPR_SRV
+                bool "Remote Provisioning Server model"
+                depends on BLE_MESH_NODE
+                select BLE_MESH_PB_ADV
+                help
+                    Enable support for Remote Provisioning Server model
+
+            if BLE_MESH_RPR_SRV
+
+                config BLE_MESH_RPR_SRV_MAX_SCANNED_ITEMS
+                    int "Maximum number of device information can be scanned"
+                    range 4 255
+                    default 10
+                    help
+                        This option specifies how many device information can a Remote
+                        Provisioning Server store each time while scanning.
+
+                config BLE_MESH_RPR_SRV_ACTIVE_SCAN
+                    bool "Support Active Scan for remote provisioning"
+                    select BLE_MESH_ACTIVE_SCAN
+                    help
+                        Enable this option to support Active Scan for remote provisioning.
+
+                config BLE_MESH_RPR_SRV_MAX_EXT_SCAN
+                    int "Maximum number of extended scan procedures"
+                    range 1 10
+                    default 1
+                    help
+                        This option specifies how many extended scan procedures can be
+                        started by the Remote Provisioning Server.
+
+            endif # BLE_MESH_RPR_SRV
+
+            config BLE_MESH_DF_CLI
+                bool "Directed Forwarding Configuration Client model"
+                help
+                    Enable support for Directed Forwarding Configuration Client model.
+
+            config BLE_MESH_DF_SRV
+                bool "Directed Forwarding Configuration Server model"
+                help
+                    Enable support for Directed Forwarding Configuration Server model.
+
+            if BLE_MESH_DF_SRV
+
+                config BLE_MESH_MAX_DISC_TABLE_ENTRY_COUNT
+                    int "Maximum number of discovery table entries in a given subnet"
+                    range 2 255
+                    default 2
+                    help
+                        Maximum number of Discovery Table entries supported by the node in a given subnet.
+
+                config BLE_MESH_MAX_FORWARD_TABLE_ENTRY_COUNT
+                    int "Maximum number of forward table entries in a given subnet"
+                    range 2 64
+                    default 2
+                    help
+                        Maximum number of Forward Table entries supported by the node in a given subnet.
+
+                config BLE_MESH_MAX_DEPS_NODES_PER_PATH
+                    int "Maximum number of dependent nodes per path"
+                    range 2 64
+                    default 2
+                    help
+                        Maximum size of dependent nodes list supported by each forward table entry.
+
+                config BLE_MESH_PATH_MONITOR_TEST
+                    bool "Enable Path Monitoring test mode"
+                    default n
+                    help
+                        The option only removes the Path Use timer; all other behavior of the
+                        device is not changed.
+                        If Path Monitoring test mode is going to be used, this option should
+                        be enabled.
+
+                if BLE_MESH_GATT_PROXY_SERVER
+                    config BLE_MESH_SUPPORT_DIRECTED_PROXY
+                        bool "Enable Directed Proxy functionality"
+                        default y
+                        help
+                            Support Directed Proxy functionality.
+                endif
+
+            endif # BLE_MESH_DF_SRV
+
+        endif # BLE_MESH_V11_SUPPORT
+
+    endmenu #Support for BLE Mesh Foundation models
+
+    menu "Support for BLE Mesh Client/Server models"
 
         config BLE_MESH_GENERIC_ONOFF_CLI
-            bool "Generic OnOff Client Model"
+            bool "Generic OnOff Client model"
             help
-                Enable support for Generic OnOff client model.
+                Enable support for Generic OnOff Client model.
 
         config BLE_MESH_GENERIC_LEVEL_CLI
-            bool "Generic Level Client Model"
+            bool "Generic Level Client model"
             help
-                Enable support for Generic Level client model.
+                Enable support for Generic Level Client model.
 
         config BLE_MESH_GENERIC_DEF_TRANS_TIME_CLI
-            bool "Generic Default Transition Time Client Model"
+            bool "Generic Default Transition Time Client model"
             help
-                Enable support for Generic Default Transition Time client model.
+                Enable support for Generic Default Transition Time Client model.
 
         config BLE_MESH_GENERIC_POWER_ONOFF_CLI
-            bool "Generic Power OnOff Client Model"
+            bool "Generic Power OnOff Client model"
             help
-                Enable support for Generic Power OnOff client model.
+                Enable support for Generic Power OnOff Client model.
 
         config BLE_MESH_GENERIC_POWER_LEVEL_CLI
-            bool "Generic Power Level Client Model"
+            bool "Generic Power Level Client model"
             help
-                Enable support for Generic Power Level client model.
+                Enable support for Generic Power Level Client model.
 
         config BLE_MESH_GENERIC_BATTERY_CLI
-            bool "Generic Battery Client Model"
+            bool "Generic Battery Client model"
             help
-                Enable support for Generic Battery client model.
+                Enable support for Generic Battery Client model.
 
         config BLE_MESH_GENERIC_LOCATION_CLI
-            bool "Generic Location Client Model"
+            bool "Generic Location Client model"
             help
-                Enable support for Generic Location client model.
+                Enable support for Generic Location Client model.
 
         config BLE_MESH_GENERIC_PROPERTY_CLI
-            bool "Generic Property Client Model"
+            bool "Generic Property Client model"
             help
-                Enable support for Generic Property client model.
+                Enable support for Generic Property Client model.
 
         config BLE_MESH_SENSOR_CLI
-            bool "Sensor Client Model"
+            bool "Sensor Client model"
             help
-                Enable support for Sensor client model.
+                Enable support for Sensor Client model.
 
         config BLE_MESH_TIME_CLI
-            bool "Time Client Model"
+            bool "Time Client model"
             help
-                Enable support for Time client model.
+                Enable support for Time Client model.
 
         config BLE_MESH_SCENE_CLI
-            bool "Scene Client Model"
+            bool "Scene Client model"
             help
-                Enable support for Scene client model.
+                Enable support for Scene Client model.
 
         config BLE_MESH_SCHEDULER_CLI
-            bool "Scheduler Client Model"
+            bool "Scheduler Client model"
             help
-                Enable support for Scheduler client model.
+                Enable support for Scheduler Client model.
 
         config BLE_MESH_LIGHT_LIGHTNESS_CLI
-            bool "Light Lightness Client Model"
+            bool "Light Lightness Client model"
             help
-                Enable support for Light Lightness client model.
+                Enable support for Light Lightness Client model.
 
         config BLE_MESH_LIGHT_CTL_CLI
-            bool "Light CTL Client Model"
+            bool "Light CTL Client model"
             help
-                Enable support for Light CTL client model.
+                Enable support for Light CTL Client model.
 
         config BLE_MESH_LIGHT_HSL_CLI
-            bool "Light HSL Client Model"
+            bool "Light HSL Client model"
             help
-                Enable support for Light HSL client model.
+                Enable support for Light HSL Client model.
 
         config BLE_MESH_LIGHT_XYL_CLI
-            bool "Light XYL Client Model"
+            bool "Light XYL Client model"
             help
-                Enable support for Light XYL client model.
+                Enable support for Light XYL Client model.
 
         config BLE_MESH_LIGHT_LC_CLI
-            bool "Light LC Client Model"
+            bool "Light LC Client model"
             help
-                Enable support for Light LC client model.
+                Enable support for Light LC Client model.
 
-    endmenu
+        config BLE_MESH_GENERIC_SERVER
+            bool "Generic server models"
+            default n
+            help
+                Enable support for Generic server models.
+
+        config BLE_MESH_SENSOR_SERVER
+            bool "Sensor server models"
+            default n
+            help
+                Enable support for Sensor server models.
+
+        config BLE_MESH_TIME_SCENE_SERVER
+            bool "Time and Scenes server models"
+            default n
+            help
+                Enable support for Time and Scenes server models.
+
+        config BLE_MESH_LIGHTING_SERVER
+            bool "Lighting server models"
+            default n
+            help
+                Enable support for Lighting server models.
+
+        config BLE_MESH_MBT_CLI
+            bool "BLOB Transfer Client model(Deprecated)"
+            depends on BLE_MESH_V11_SUPPORT
+            default n
+            help
+                Enable support for BLOB Transfer Client model.
+                Warn: This version of the Mesh Binary Large Object Transfer Model will be deprecated,
+                and a new version will be released in the future.
+
+        if BLE_MESH_MBT_CLI
+
+            config BLE_MESH_MAX_BLOB_RECEIVERS
+                int "Maximum number of simultaneous blob receivers"
+                default 2
+                range 1 255
+                help
+                    Maximum number of BLOB Transfer Server models that can participating
+                    in the BLOB transfer with a BLOB Transfer Client model.
+
+        endif # BLE_MESH_MBT_CLI
+
+        config BLE_MESH_MBT_SRV
+            bool "BLOB Transfer Server model(Deprecated)"
+            depends on BLE_MESH_V11_SUPPORT
+            default n
+            help
+                Enable support for BLOB Transfer Server model.
+                Warn: This version of the Mesh Binary Large Object Transfer Model will be deprecated,
+                and a new version will be released in the future.
+
+        menu "Binary Larger Object Transfer model"
+
+            config BLE_MESH_BLOB_SRV
+                bool "Support for BLOB Transfer Server model"
+                depends on BLE_MESH_V11_SUPPORT
+                help
+                    Enable the Binary Large Object (BLOB) Transfer Server model.
+
+            if BLE_MESH_BLOB_SRV
+
+                config BLE_MESH_BLOB_SRV_PULL_REQ_COUNT
+                    int "Number of chunks to request for each pull"
+                    default 4
+                    range 1 16
+                    help
+                        In Pull mode (Pull BLOB Transfer Mode), the BLOB Transfer Server
+                        requests a fixed number of chunks from the Client. Use this option to
+                        control the chunk count in the request. If the BLOB Transfer Server
+                        is instantiated on a Low Power node, the pull request count will be
+                        trimmed to not overflow the Friend queue.
+
+                config BLE_MESH_BLOB_SIZE_MAX
+                    int "Largest BLOB size in bytes"
+                    default 524288
+                    range 1 3257617792
+                    help
+                        The maximum object size a BLOB Transfer Server can receive.
+
+                config BLE_MESH_BLOB_BLOCK_SIZE_MIN
+                    int "Minimum block size"
+                    default 4096
+                    range 64 1048576 # 2^6 - 2^20
+                    help
+                        Minimum acceptable block size in a BLOB transfer. The transfer block
+                        size will be some number that is a power of two, and is between block
+                        size min and block size max. If no such number exists, a compile
+                        time warning will be issued.
+
+                config BLE_MESH_BLOB_BLOCK_SIZE_MAX
+                    int "Maximum block size"
+                    default 4096
+                    range BLE_MESH_BLOB_BLOCK_SIZE_MIN 1048576
+                    help
+                        Maximum acceptable block size in a BLOB transfer. The transfer block
+                        size will be some number that is a power of two, and is between block
+                        size min and block size max. If no such number exists, a compile
+                        time warning will be issued.
+
+                config BLE_MESH_BLOB_REPORT_TIMEOUT
+                    int "Partial Block Report interval in Pull mode"
+                    default 10
+                    range 1 31
+                    help
+                        The timer value that Pull BLOB Transfer Server uses to report missed chunks.
+
+                config BLE_MESH_RX_BLOB_CHUNK_SIZE
+                    depends on !BLE_MESH_ALIGN_CHUNK_SIZE_TO_MAX_SEGMENT
+                    int "BLOB Server chunk size"
+                    default 8
+                    range 8 377
+                    help
+                        Set the chunk size for the BLOB Server.
+                        The actual maximum chunk size depends on how many segments are
+                        possible and will be clamped to the max possible if set above.
+                        see also: BLE_MESH_RX_SEG_MAX,
+                        and the maximum SDU a node can receive.
+
+            endif # BLE_MESH_BLOB_SRV
+
+            config BLE_MESH_BLOB_CLI
+                bool "Support for BLOB Transfer Client model"
+                depends on BLE_MESH_V11_SUPPORT
+                help
+                    Enable the Binary Large Object (BLOB) Transfer Client model.
+
+            if BLE_MESH_BLOB_CLI
+
+                config BLE_MESH_BLOB_CLI_BLOCK_RETRIES
+                    int "Number of retries per block"
+                    default 5
+                    help
+                        Controls the number of times the client will attempt to resend missing
+                        chunks to the BLOB receivers for every block.
+
+                config BLE_MESH_TX_BLOB_CHUNK_SIZE
+                    depends on !BLE_MESH_ALIGN_CHUNK_SIZE_TO_MAX_SEGMENT
+                    int "BLOB Client chunk size"
+                    default 8
+                    range 1 377
+                    help
+                        Set the chunk size for the BLOB Client.
+                        The actual maximum chunk size depends on how many segments are
+                        possible and will be clamped to the max possible if set above.
+                        see also: BLE_MESH_TX_SEG_MAX,
+                        and the maximum SDU a node can receive.
+
+                config BLE_MESH_TX_BLOB_CHUNK_SEND_INTERVAL
+                    int "BLOB Client chunk send interval"
+                    default 0
+                    range 0 2147483647
+                    help
+                        Set the interval in milliseconds in which chunks are sent during the BLOB transfer.
+                        Note: Without a delay between each sent chunk, the network might become too busy with the
+                        BLOB transfer for other communications to succeed.
+                        Note: Timing restrictions, like the timeout base, should be considered or changed
+                        accordingly when setting this interval. Otherwise, the interval might be too big for the
+                        timeout settings and cause timeouts.
+
+            endif # BLE_MESH_BLOB_CLI
+
+            menu "BLOB models common configuration"
+                visible if BLE_MESH_BLOB_SRV || BLE_MESH_BLOB_CLI
+
+                config BLE_MESH_BLOB_CHUNK_COUNT_MAX
+                    int "Maximum chunk count per block"
+                    default 256
+                    range 1 2992
+                    help
+                        A BLOB transfer contains several blocks. Each block is made up of
+                        several chunks. This option controls the maximum chunk count per
+                        block.
+
+                config BLE_MESH_ALIGN_CHUNK_SIZE_TO_MAX_SEGMENT
+                    bool "Align chunk size to max segmented message size"
+                    default y
+
+            endmenu #BLOB models common configuration
+
+        endmenu # Binary Larger Object Transfer model
+
+        menu "Device Firmware Update model"
+
+            config BLE_MESH_DFU_SRV
+                bool "Support for Firmware Update Server model"
+                depends on BLE_MESH_BLOB_SRV
+                help
+                    Enable the Firmware Update Server model.
+
+            config BLE_MESH_DFU_CLI
+                bool "Support for Firmware Update Client model"
+                depends on BLE_MESH_BLOB_CLI
+                help
+                    Enable the Firmware Update Client model.
+
+            menu "Firmware Update model configuration"
+                visible if BLE_MESH_DFU_SRV || BLE_MESH_DFU_CLI
+
+                config BLE_MESH_DFU_FWID_MAXLEN
+                    int "DFU FWID max length"
+                    default 16
+                    range 0 106
+                    help
+                        This value defines the maximum length of an image's firmware ID.
+
+                config BLE_MESH_DFU_METADATA_MAXLEN
+                    int "DFU metadata max length"
+                    default 32
+                    range 18 255 if BLE_MESH_DFU_METADATA
+                    range 0 255
+                    help
+                        This value defines the maximum length of an image's metadata.
+
+                config BLE_MESH_DFU_METADATA
+                    bool "Support for the default metadata format"
+                    help
+                        This option adds a set of functions that can be used to encode and decode a firmware
+                        metadata using the format defined in the Bluetooth mesh DFU subsystem.
+
+                config BLE_MESH_DFU_URI_MAXLEN
+                    int "DFU URI max length"
+                    default 32
+                    range 0 255
+                    help
+                        This value defines the maximum length of an image's URI, not including
+                        a string terminator.
+
+            endmenu #Firmware Update model configuration
+
+            config BLE_MESH_DFU_SLOTS
+                bool "Firmware image slot manager"
+                default y if BLE_MESH_DFU_CLI
+                help
+                    Enable the DFU image slot manager, for managing firmware distribution slots
+                    for the Firmware Update Client model.
+
+            if BLE_MESH_DFU_SLOTS
+
+                config BLE_MESH_DFU_SLOT_CNT
+                    int "Number of firmware image slots"
+                    default 1
+                    range 1 32767
+                    help
+                        This value defines the number of firmware slots the DFU image slot manager
+                        can keep simultaneously.
+
+            endif #BLE_MESH_DFU_SLOTS
+
+            config BLE_MESH_DFD_CLI
+                bool "Support for Device Distribution Client model"
+                help
+                    Enable the Device Distribution Client model
+
+            if BLE_MESH_DFD_CLI
+                config BLE_MESH_DFD_CLI_SRV_TARGETS_MAX
+                    int "Number of DFD SRVs can be accepted"
+                    default 3
+                    range 1 100
+                    help
+                        The maximum number of DFD SRVs that can be accepted.
+            endif
+
+            config BLE_MESH_DFD_SRV
+                bool "Support for Firmware Distribution Server model"
+                depends on BLE_MESH_BLOB_SRV
+                depends on BLE_MESH_DFU_CLI
+                help
+                    Enable the Firmware Distribution Server model.
+
+            if BLE_MESH_DFD_SRV
+
+                config BLE_MESH_DFD_SRV_SLOT_MAX_SIZE
+                    int "Largest DFU image that can be stored"
+                    default BLE_MESH_BLOB_SIZE_MAX
+                    range 0 BLE_MESH_BLOB_SIZE_MAX
+                    help
+                        This value defines the largest DFU image a single slot can store.
+
+                config BLE_MESH_DFD_SRV_SLOT_SPACE
+                    int "Total DFU image storage space"
+                    default BLE_MESH_DFD_SRV_SLOT_MAX_SIZE
+                    range 0 4294967295
+                    help
+                        This value defines the total storage space dedicated to storing DFU
+                        images on the Firmware Distribution Server.
+
+                config BLE_MESH_DFD_SRV_TARGETS_MAX
+                    int "Maximum Target node count"
+                    default 8
+                    range 1 65535
+                    help
+                        This value defines the maximum number of Target nodes the Firmware
+                        Distribution Server can target simultaneously.
+
+                config BLE_MESH_DFD_SRV_OOB_UPLOAD
+                    bool "Support for DFU image OOB upload"
+                    help
+                        This enables support for OOB upload of firmware images for
+                        distribution. This makes several callbacks and use of the init
+                        macro BLE_MESH_DFD_SRV_INIT_OOB mandatory. See the API documentation
+                        for bt_mesh_dfd_srv_cb for details about the mandatory callbacks.
+
+            endif #BLE_MESH_DFD_SRV
+
+        endmenu # Device Firmware Update model
+
+    endmenu #Support for BLE Mesh Client/Server models
 
     config BLE_MESH_IV_UPDATE_TEST
         bool "Test the IV Update Procedure"
@@ -978,6 +1938,13 @@ if BLE_MESH
             lets the state to be changed at any time.
             If IV Update test mode is going to be used, this option should be enabled.
 
+    config BLE_MESH_DISCARD_OLD_SEQ_AUTH
+        bool
+        default y
+        help
+            This option is used to decide whether discarding the old SeqAuth when
+            receiving a segmented message.
+
     menu "BLE Mesh specific test option"
 
         config BLE_MESH_SELF_TEST
@@ -986,6 +1953,20 @@ if BLE_MESH
             help
                 This option adds extra self-tests which are run every time BLE Mesh
                 networking is initialized.
+
+        config BLE_MESH_BQB_TEST
+            bool "Enable BLE Mesh specific internal test"
+            select BLE_MESH_IV_UPDATE_TEST
+            default n
+            help
+                This option is used to enable some internal functions for auto-pts test.
+
+        config BLE_MESH_BQB_TEST_LOG
+            bool
+            depends on BLE_MESH_BQB_TEST
+            default y
+            help
+                This option is used to enable the log of auto-pts test.
 
         if BLE_MESH_SELF_TEST
 
@@ -1081,5 +2062,14 @@ if BLE_MESH
 
     endmenu
 
-endif # BLE_MESH
+    config BLE_MESH_EXPERIMENTAL
+        bool "Make BLE Mesh experimental features visible"
+        default n
+        help
+            Make BLE Mesh Experimental features visible.
+            Experimental features list:
+            - CONFIG_BLE_MESH_NOT_RELAY_REPLAY_MSG
+            - CONFIG_BLE_MESH_USE_BLE_50
+            - CONFIG_BLE_MESH_PROXY_CLI_SRV_COEXIST
 
+endif # BLE_MESH

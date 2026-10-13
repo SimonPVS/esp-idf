@@ -7,12 +7,14 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 #include <string.h>
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_app_format.h"
 #include "esp_http_client.h"
 #include "esp_flash_partitions.h"
 #include "esp_partition.h"
@@ -80,23 +82,24 @@ static void ota_example_task(void *pvParameter)
     esp_ota_handle_t update_handle = 0 ;
     const esp_partition_t *update_partition = NULL;
 
-    ESP_LOGI(TAG, "Starting OTA example");
+    ESP_LOGI(TAG, "Starting OTA example task");
 
     const esp_partition_t *configured = esp_ota_get_boot_partition();
     const esp_partition_t *running = esp_ota_get_running_partition();
 
     if (configured != running) {
-        ESP_LOGW(TAG, "Configured OTA boot partition at offset 0x%08x, but running from offset 0x%08x",
+        ESP_LOGW(TAG, "Configured OTA boot partition at offset 0x%08"PRIx32", but running from offset 0x%08"PRIx32,
                  configured->address, running->address);
         ESP_LOGW(TAG, "(This can happen if either the OTA boot data or preferred boot image become corrupted somehow.)");
     }
-    ESP_LOGI(TAG, "Running partition type %d subtype %d (offset 0x%08x)",
+    ESP_LOGI(TAG, "Running partition type %d subtype %d (offset 0x%08"PRIx32")",
              running->type, running->subtype, running->address);
 
     esp_http_client_config_t config = {
         .url = CONFIG_EXAMPLE_FIRMWARE_UPG_URL,
         .cert_pem = (char *)server_cert_pem_start,
         .timeout_ms = CONFIG_EXAMPLE_OTA_RECV_TIMEOUT,
+        .keep_alive_enable = true,
     };
 
 #ifdef CONFIG_EXAMPLE_FIRMWARE_UPGRADE_URL_FROM_STDIN
@@ -131,9 +134,9 @@ static void ota_example_task(void *pvParameter)
     esp_http_client_fetch_headers(client);
 
     update_partition = esp_ota_get_next_update_partition(NULL);
-    ESP_LOGI(TAG, "Writing to partition subtype %d at offset 0x%x",
-             update_partition->subtype, update_partition->address);
     assert(update_partition != NULL);
+    ESP_LOGI(TAG, "Writing to partition subtype %d at offset 0x%"PRIx32,
+             update_partition->subtype, update_partition->address);
 
     int binary_file_length = 0;
     /*deal with all receive packet*/
@@ -187,18 +190,21 @@ static void ota_example_task(void *pvParameter)
                     if (err != ESP_OK) {
                         ESP_LOGE(TAG, "esp_ota_begin failed (%s)", esp_err_to_name(err));
                         http_cleanup(client);
+                        esp_ota_abort(update_handle);
                         task_fatal_error();
                     }
                     ESP_LOGI(TAG, "esp_ota_begin succeeded");
                 } else {
                     ESP_LOGE(TAG, "received package is not fit len");
                     http_cleanup(client);
+                    esp_ota_abort(update_handle);
                     task_fatal_error();
                 }
             }
             err = esp_ota_write( update_handle, (const void *)ota_write_data, data_read);
             if (err != ESP_OK) {
                 http_cleanup(client);
+                esp_ota_abort(update_handle);
                 task_fatal_error();
             }
             binary_file_length += data_read;
@@ -222,6 +228,7 @@ static void ota_example_task(void *pvParameter)
     if (esp_http_client_is_complete_data_received(client) != true) {
         ESP_LOGE(TAG, "Error in receiving complete file");
         http_cleanup(client);
+        esp_ota_abort(update_handle);
         task_fatal_error();
     }
 
@@ -229,8 +236,9 @@ static void ota_example_task(void *pvParameter)
     if (err != ESP_OK) {
         if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
             ESP_LOGE(TAG, "Image validation failed, image is corrupted");
+        } else {
+            ESP_LOGE(TAG, "esp_ota_end failed (%s)!", esp_err_to_name(err));
         }
-        ESP_LOGE(TAG, "esp_ota_end failed (%s)!", esp_err_to_name(err));
         http_cleanup(client);
         task_fatal_error();
     }
@@ -267,6 +275,8 @@ static bool diagnostic(void)
 
 void app_main(void)
 {
+    ESP_LOGI(TAG, "OTA example app_main start");
+
     uint8_t sha_256[HASH_LEN] = { 0 };
     esp_partition_t partition;
 

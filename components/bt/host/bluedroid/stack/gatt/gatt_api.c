@@ -31,6 +31,9 @@
 #include "stack/gatt_api.h"
 #include "gatt_int.h"
 #include "stack/l2c_api.h"
+#if (BLE_EATT_INCLUDED == TRUE)
+#include "gatt_eatt_int.h"
+#endif
 #include "btm_int.h"
 #include "stack/sdpdefs.h"
 #include "stack/sdp_api.h"
@@ -75,7 +78,7 @@ UINT8 GATT_SetTraceLevel (UINT8 new_level)
 **
 ** Function         GATTS_AddHandleRange
 **
-** Description      This function add the allocated handles range for the specifed
+** Description      This function add the allocated handles range for the specified
 **                  application UUID, service UUID and service instance
 **
 ** Parameter        p_hndl_range:   pointer to allocated handles information
@@ -105,7 +108,7 @@ BOOLEAN GATTS_AddHandleRange(tGATTS_HNDL_RANGE *p_hndl_range)
 **                  NV save callback function.  There can be one and only one
 **                  NV save callback function.
 **
-** Parameter        p_cb_info : callback informaiton
+** Parameter        p_cb_info : callback information
 **
 ** Returns          TRUE if registered OK, else FALSE
 **
@@ -122,6 +125,21 @@ BOOLEAN  GATTS_NVRegister (const tGATT_APPL_INFO *p_cb_info)
     return status;
 }
 
+#if GATTS_ROBUST_CACHING_ENABLED
+static void gatt_update_for_database_change(void)
+{
+    UINT8 i;
+
+    gatts_calculate_datebase_hash(gatt_cb.database_hash);
+
+    for (i = 0; i < GATT_MAX_PHY_CHANNEL; i++) {
+        tGATT_TCB *p_tcb = gatt_get_tcb_by_idx(i);
+        if (p_tcb && p_tcb->in_use) {
+            gatt_sr_update_cl_status(p_tcb, false);
+        }
+    }
+}
+#endif /* GATTS_ROBUST_CACHING_ENABLED */
 /*******************************************************************************
 **
 ** Function         GATTS_CreateService
@@ -136,7 +154,7 @@ BOOLEAN  GATTS_NVRegister (const tGATT_APPL_INFO *p_cb_info)
 **                  num_handles   : number of handles needed by the service.
 **                  is_pri        : is a primary service or not.
 **
-** Returns          service handle if sucessful, otherwise 0.
+** Returns          service handle if successful, otherwise 0.
 **
 *******************************************************************************/
 UINT16 GATTS_CreateService (tGATT_IF gatt_if, tBT_UUID *p_svc_uuid,
@@ -155,20 +173,22 @@ UINT16 GATTS_CreateService (tGATT_IF gatt_if, tBT_UUID *p_svc_uuid,
     GATT_TRACE_API ("GATTS_CreateService\n" );
 
     if (p_reg == NULL) {
-        GATT_TRACE_ERROR ("Inavlid gatt_if=%d\n", gatt_if);
+        GATT_TRACE_ERROR ("Invalid gatt_if=%d\n", gatt_if);
         return (0);
     }
 
     p_app_uuid128 = &p_reg->app_uuid128;
 
     if ((p_list = gatt_find_hdl_buffer_by_app_id(p_app_uuid128, p_svc_uuid, svc_inst)) != NULL) {
-        s_hdl = p_list->asgn_range.s_handle;
         GATT_TRACE_DEBUG ("Service already been created!!\n");
+        return p_list->asgn_range.s_handle;
     } else {
         if ( (p_svc_uuid->len == LEN_UUID_16) && (p_svc_uuid->uu.uuid16 == UUID_SERVCLASS_GATT_SERVER)) {
             s_hdl =  gatt_cb.hdl_cfg.gatt_start_hdl;
+            save_hdl = TRUE;
         } else if ((p_svc_uuid->len == LEN_UUID_16) && (p_svc_uuid->uu.uuid16 == UUID_SERVCLASS_GAP_SERVER)) {
             s_hdl = gatt_cb.hdl_cfg.gap_start_hdl;
+            save_hdl = TRUE;
         } else {
             p_list = p_list_info->p_first;
 
@@ -215,6 +235,7 @@ UINT16 GATTS_CreateService (tGATT_IF gatt_if, tBT_UUID *p_svc_uuid,
 
                 if (p_list) {
                     gatt_remove_an_item_from_list(p_list_info, p_list);
+                    gatt_purge_prepare_write_before_free_db(&p_list->svc_db);
                     gatt_free_attr_value_buffer(p_list);
                     gatt_free_hdl_buffer(p_list);
                 }
@@ -229,6 +250,7 @@ UINT16 GATTS_CreateService (tGATT_IF gatt_if, tBT_UUID *p_svc_uuid,
         GATT_TRACE_ERROR ("GATTS_ReserveHandles: service DB initialization failed\n");
         if (p_list) {
             gatt_remove_an_item_from_list(p_list_info, p_list);
+            gatt_purge_prepare_write_before_free_db(&p_list->svc_db);
             gatt_free_attr_value_buffer(p_list);
             gatt_free_hdl_buffer(p_list);
         }
@@ -378,6 +400,7 @@ BOOLEAN GATTS_DeleteService (tGATT_IF gatt_if, tBT_UUID *p_svc_uuid, UINT16 svc_
     tGATTS_PENDING_NEW_SRV_START    *p_buf;
     tGATT_REG       *p_reg = gatt_get_regcb(gatt_if);
     tBT_UUID *p_app_uuid128;
+    BOOLEAN         notify_db_change = FALSE;
 
     GATT_TRACE_DEBUG ("GATTS_DeleteService");
 
@@ -398,9 +421,8 @@ BOOLEAN GATTS_DeleteService (tGATT_IF gatt_if, tBT_UUID *p_svc_uuid, UINT16 svc_
         GATT_TRACE_DEBUG ("Delete a new service changed item - the service has not yet started");
         osi_free(fixed_queue_try_remove_from_queue(gatt_cb.pending_new_srv_start_q, p_buf));
     } else {
-        if (GATTS_SEND_SERVICE_CHANGE_MODE == GATTS_SEND_SERVICE_CHANGE_AUTO) {
-            gatt_proc_srv_chg();
-        }
+        /* Service was started; notify clients after it is removed from sr_reg. */
+        notify_db_change = TRUE;
     }
 
     if ((i_sreg = gatt_sr_find_i_rcb_by_app_id (p_app_uuid128,
@@ -418,8 +440,18 @@ BOOLEAN GATTS_DeleteService (tGATT_IF gatt_if, tBT_UUID *p_svc_uuid, UINT16 svc_
     }
 
     gatt_remove_an_item_from_list(p_list_info, p_list);
+    gatt_purge_prepare_write_before_free_db(&p_list->svc_db);
     gatt_free_attr_value_buffer(p_list);
     gatt_free_hdl_buffer(p_list);
+
+    if (notify_db_change) {
+#if GATTS_ROBUST_CACHING_ENABLED
+        gatt_update_for_database_change();
+#endif /* GATTS_ROBUST_CACHING_ENABLED */
+        if (gatt_cb.srv_chg_mode == GATTS_SEND_SERVICE_CHANGE_AUTO) {
+            gatt_proc_srv_chg();
+        }
+    }
 
     return (TRUE);
 }
@@ -471,7 +503,7 @@ tGATT_STATUS GATTS_StartService (tGATT_IF gatt_if, UINT16 service_handle,
         return GATT_SERVICE_STARTED;
     }
 
-    /*this is a new application servoce start */
+    /*this is a new application service start */
     if ((i_sreg = gatt_sr_alloc_rcb(p_list)) ==  GATT_MAX_SR_PROFILES) {
         GATT_TRACE_ERROR ("GATTS_StartService: no free server registration block");
         return GATT_NO_RESOURCES;
@@ -510,7 +542,12 @@ tGATT_STATUS GATTS_StartService (tGATT_IF gatt_if, UINT16 service_handle,
     if ( (p_buf = gatt_sr_is_new_srv_chg(&p_list->asgn_range.app_uuid128,
                                          &p_list->asgn_range.svc_uuid,
                                          p_list->asgn_range.svc_inst)) != NULL) {
-        if (GATTS_SEND_SERVICE_CHANGE_MODE == GATTS_SEND_SERVICE_CHANGE_AUTO) {
+
+        #if GATTS_ROBUST_CACHING_ENABLED
+        gatt_update_for_database_change();
+        #endif /* GATTS_ROBUST_CACHING_ENABLED */
+
+        if (gatt_cb.srv_chg_mode == GATTS_SEND_SERVICE_CHANGE_AUTO) {
             gatt_proc_srv_chg();
         }
         /* remove the new service element after the srv changed processing is completed*/
@@ -583,6 +620,11 @@ tGATT_STATUS GATTS_HandleValueIndication (UINT16 conn_id,  UINT16 attr_handle, U
         return (tGATT_STATUS) GATT_INVALID_CONN_ID;
     }
 
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
+        return GATT_WRONG_STATE;
+    }
+
     if (! GATT_HANDLE_IS_VALID (attr_handle)) {
         return GATT_ILLEGAL_PARAMETER;
     }
@@ -606,6 +648,13 @@ tGATT_STATUS GATTS_HandleValueIndication (UINT16 conn_id,  UINT16 attr_handle, U
         return GATT_BUSY;
     } else {
 
+#if (BLE_EATT_SERVER_INCLUDED == TRUE)
+        /* Route the indication over an EATT bearer (if any) so it uses the EATT
+         * MTU instead of the legacy 23-byte ATT MTU. Set transiently and cleared
+         * after the send; all GATT TX runs on the single BTU task. */
+        UINT16 ind_bearer = gatt_eatt_get_server_tx_bearer(p_tcb->peer_bda);
+        p_tcb->eatt_tx_bearer = (ind_bearer != L2CAP_ATT_CID) ? ind_bearer : 0;
+#endif
         if ( (p_msg = attp_build_sr_msg (p_tcb, GATT_HANDLE_VALUE_IND, (tGATT_SR_MSG *)&indication)) != NULL) {
             cmd_status = attp_send_sr_msg (p_tcb, p_msg);
 
@@ -614,6 +663,9 @@ tGATT_STATUS GATTS_HandleValueIndication (UINT16 conn_id,  UINT16 attr_handle, U
                 gatt_start_conf_timer(p_tcb);
             }
         }
+#if (BLE_EATT_SERVER_INCLUDED == TRUE)
+        p_tcb->eatt_tx_bearer = 0;
+#endif
     }
     return cmd_status;
 }
@@ -650,18 +702,33 @@ tGATT_STATUS GATTS_HandleValueNotification (UINT16 conn_id, UINT16 attr_handle,
         return (tGATT_STATUS) GATT_INVALID_CONN_ID;
     }
 
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
+        return GATT_WRONG_STATE;
+    }
+
     if (GATT_HANDLE_IS_VALID (attr_handle)) {
         notif.handle    = attr_handle;
         notif.len       = val_len;
         memcpy (notif.value, p_val, val_len);
         notif.auth_req = GATT_AUTH_REQ_NONE;
 
+#if (BLE_EATT_SERVER_INCLUDED == TRUE)
+        /* Route the notification over an EATT bearer (if any) so it uses the EATT
+         * MTU instead of the legacy 23-byte ATT MTU. Set transiently and cleared
+         * after the send; all GATT TX runs on the single BTU task. */
+        UINT16 notif_bearer = gatt_eatt_get_server_tx_bearer(p_tcb->peer_bda);
+        p_tcb->eatt_tx_bearer = (notif_bearer != L2CAP_ATT_CID) ? notif_bearer : 0;
+#endif
         if ((p_buf = attp_build_sr_msg (p_tcb, GATT_HANDLE_VALUE_NOTIF, (tGATT_SR_MSG *)&notif))
                 != NULL) {
             cmd_sent = attp_send_sr_msg (p_tcb, p_buf);
         } else {
             cmd_sent = GATT_NO_RESOURCES;
         }
+#if (BLE_EATT_SERVER_INCLUDED == TRUE)
+        p_tcb->eatt_tx_bearer = 0;
+#endif
     }
     return cmd_sent;
 }
@@ -695,6 +762,11 @@ tGATT_STATUS GATTS_SendRsp (UINT16 conn_id,  UINT32 trans_id,
     if ( (p_reg == NULL) || (p_tcb == NULL)) {
         GATT_TRACE_ERROR ("GATTS_SendRsp Unknown  conn_id: %u\n", conn_id);
         return (tGATT_STATUS) GATT_INVALID_CONN_ID;
+    }
+
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
+        return GATT_WRONG_STATE;
     }
 
     if (p_tcb->sr_cmd.trans_id != trans_id) {
@@ -748,7 +820,7 @@ tGATT_STATUS GATTS_SetAttributeValue(UINT16 attr_handle, UINT16 length, UINT8 *v
 **
 ** Function         GATTS_GetAttributeValue
 **
-** Description      This function sends to set the attribute value .
+** Description      This function sends to get the attribute value .
 **
 ** Parameter        attr_handle: the attribute handle
 **                  length:the attribute value length in the database
@@ -773,6 +845,26 @@ tGATT_STATUS GATTS_GetAttributeValue(UINT16 attr_handle, UINT16 *length, UINT8 *
 
      status =  gatts_get_attribute_value(&p_decl->svc_db, attr_handle, length, value);
      return status;
+}
+
+/*******************************************************************************
+**
+** Function         GATTS_GetAttributeValueInternal
+**
+** Description      This function sends to get the attribute value of internal gatt and gap service.
+**
+** Parameter        attr_handle: the attribute handle
+**                  length:the attribute value length in the database
+**                  value: the attribute value out put
+*
+**
+** Returns          tGATT_STATUS - GATT status indicating success or failure in
+**                  retrieving the attribute value.
+**
+*******************************************************************************/
+tGATT_STATUS GATTS_GetAttributeValueInternal(UINT16 attr_handle, UINT16 *length, UINT8 **value)
+{
+    return gatts_get_attr_value_internal(attr_handle, length, value);
 }
 #endif  ///GATTS_INCLUDED == TRUE
 
@@ -814,13 +906,18 @@ tGATT_STATUS GATTC_ConfigureMTU (UINT16 conn_id)
 
     GATT_TRACE_API ("GATTC_ConfigureMTU conn_id=%d mtu=%d", conn_id, mtu );
 
-    /* Validate that the link is BLE, not BR/EDR */
-    if (p_tcb->transport != BT_TRANSPORT_LE) {
+    if ( (p_tcb == NULL) || (p_reg == NULL) || (mtu < GATT_DEF_BLE_MTU_SIZE) || (mtu > GATT_MAX_MTU_SIZE)) {
+        return GATT_ILLEGAL_PARAMETER;
+    }
+
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
         return GATT_ERROR;
     }
 
-    if ( (p_tcb == NULL) || (p_reg == NULL) || (mtu < GATT_DEF_BLE_MTU_SIZE) || (mtu > GATT_MAX_MTU_SIZE)) {
-        return GATT_ILLEGAL_PARAMETER;
+    /* Validate that the link is BLE, not BR/EDR */
+    if (p_tcb->transport != BT_TRANSPORT_LE) {
+        return GATT_ERROR;
     }
 
     if (gatt_is_clcb_allocated(conn_id)) {
@@ -870,6 +967,10 @@ tGATT_STATUS GATTC_Discover (UINT16 conn_id, tGATT_DISC_TYPE disc_type,
         return GATT_ILLEGAL_PARAMETER;
     }
 
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
+        return GATT_ERROR;
+    }
 
     if (gatt_is_clcb_allocated(conn_id)) {
         GATT_TRACE_ERROR("GATTC_Discover GATT_BUSY conn_id = %d", conn_id);
@@ -932,6 +1033,11 @@ tGATT_STATUS GATTC_Read (UINT16 conn_id, tGATT_READ_TYPE type, tGATT_READ_PARAM 
         return GATT_ILLEGAL_PARAMETER;
     }
 
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
+        return GATT_ERROR;
+    }
+
     if (gatt_is_clcb_allocated(conn_id)) {
         GATT_TRACE_ERROR("GATTC_Read GATT_BUSY conn_id = %d", conn_id);
         return GATT_BUSY;
@@ -951,9 +1057,16 @@ tGATT_STATUS GATTC_Read (UINT16 conn_id, tGATT_READ_TYPE type, tGATT_READ_PARAM 
             memcpy(&p_clcb->uuid, &p_read->service.uuid, sizeof(tBT_UUID));
             break;
         case GATT_READ_MULTIPLE:
+        case GATT_READ_MULTIPLE_VAR:
             p_clcb->s_handle = 0;
             /* copy multiple handles in CB */
             p_read_multi = (tGATT_READ_MULTI *)osi_malloc(sizeof(tGATT_READ_MULTI));
+            if (p_read_multi == NULL) {
+                GATT_TRACE_ERROR("GATTC_Read no resources for multiple read");
+                status = GATT_NO_RESOURCES;
+                gatt_clcb_dealloc(p_clcb);
+                return status;
+            }
             p_clcb->p_attr_buf = (UINT8 *)p_read_multi;
             memcpy (p_read_multi, &p_read->read_multiple, sizeof(tGATT_READ_MULTI));
         case GATT_READ_BY_HANDLE:
@@ -1010,6 +1123,11 @@ tGATT_STATUS GATTC_Write (UINT16 conn_id, tGATT_WRITE_TYPE type, tGATT_VALUE *p_
         return GATT_ILLEGAL_PARAMETER;
     }
 
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
+        return GATT_ERROR;
+    }
+
     if (gatt_is_clcb_allocated(conn_id)) {
         GATT_TRACE_ERROR("GATTC_Write GATT_BUSY conn_id = %d", conn_id);
         return GATT_BUSY;
@@ -1028,7 +1146,6 @@ tGATT_STATUS GATTC_Write (UINT16 conn_id, tGATT_WRITE_TYPE type, tGATT_VALUE *p_
                 p_clcb->start_offset = p_write->offset;
                 p->offset = 0;
             }
-
             if (gatt_security_check_start(p_clcb) == FALSE) {
                 status = GATT_NO_RESOURCES;
             }
@@ -1076,6 +1193,11 @@ tGATT_STATUS GATTC_ExecuteWrite (UINT16 conn_id, BOOLEAN is_execute)
         return GATT_ILLEGAL_PARAMETER;
     }
 
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
+        return GATT_ERROR;
+    }
+
     if (gatt_is_clcb_allocated(conn_id)) {
         GATT_TRACE_ERROR("GATTC_Write GATT_BUSY conn_id = %d", conn_id);
         return GATT_BUSY;
@@ -1118,7 +1240,17 @@ tGATT_STATUS GATTC_SendHandleValueConfirm (UINT16 conn_id, UINT16 handle)
 
             GATT_TRACE_DEBUG ("notif_count=%d ", p_tcb->ind_count);
             /* send confirmation now */
+#if (BLE_EATT_INCLUDED == TRUE)
+            /* Route the confirmation back on the EATT bearer the indication came
+             * in on (0 == legacy ATT). eatt_rx_bearer was cleared after the
+             * indication was delivered, so use the saved eatt_ind_bearer. */
+            p_tcb->eatt_tx_bearer = p_tcb->eatt_ind_bearer;
             ret = attp_send_cl_msg(p_tcb, 0, GATT_HANDLE_VALUE_CONF, (tGATT_CL_MSG *)&handle);
+            p_tcb->eatt_tx_bearer = 0;
+            p_tcb->eatt_ind_bearer = 0;
+#else
+            ret = attp_send_cl_msg(p_tcb, 0, GATT_HANDLE_VALUE_CONF, (tGATT_CL_MSG *)&handle);
+#endif
 
             p_tcb->ind_count = 0;
 
@@ -1130,6 +1262,12 @@ tGATT_STATUS GATTC_SendHandleValueConfirm (UINT16 conn_id, UINT16 handle)
         GATT_TRACE_ERROR ("GATTC_SendHandleValueConfirm - Unknown conn_id: %u", conn_id);
     }
     return ret;
+}
+
+tGATT_STATUS GATTC_AutoDiscoverEnable(UINT8 enable)
+{
+    gatt_cb.auto_disc = (enable > 0) ? TRUE : FALSE;
+    return GATT_SUCCESS;
 }
 
 #endif  ///GATTC_INCLUDED == TRUE
@@ -1265,6 +1403,15 @@ void GATT_Deregister (tGATT_IF gatt_if)
             GATTS_StopService(p_sreg->s_hdl);
         }
     }
+    if (gatt_if > 0 && gatt_if <= GATT_MAX_APPS) {
+        UINT8 prep_idx = (UINT8)(gatt_if - 1);
+        for (p_node = list_begin(gatt_cb.p_tcb_list); p_node; p_node = list_next(p_node)) {
+            p_tcb = list_node(p_node);
+            if (p_tcb->in_use) {
+                p_tcb->prep_cnt[prep_idx] = 0;
+            }
+        }
+    }
     /* free all services db buffers if owned by this application */
     gatt_free_srvc_db_buffer_app_id(&p_reg->app_uuid128);
 #endif  ///GATTS_INCLUDED == TRUE
@@ -1292,21 +1439,23 @@ void GATT_Deregister (tGATT_IF gatt_if)
                         (p_clcb->p_tcb->tcb_idx == p_tcb->tcb_idx)) {
                     btu_stop_timer(&p_clcb->rsp_timer_ent);
                     gatt_clcb_dealloc (p_clcb);
-                    break;
+                    // Removed break to ensure all CLCBs are cleaned up
+                    // break;
                 }
             }
         }
     }
-
+#if (GATT_BG_CONN_DEV == TRUE)
     gatt_deregister_bgdev_list(gatt_if);
-    /* update the listen mode */
-#if (defined(BLE_PERIPHERAL_MODE_SUPPORT) && (BLE_PERIPHERAL_MODE_SUPPORT == TRUE))
-    GATT_Listen(gatt_if, FALSE, NULL);
-#endif
+#endif // #if (GATT_BG_CONN_DEV == TRUE)
 
     memset (p_reg, 0, sizeof(tGATT_REG));
 }
 
+void gatt_start_if_conn_cb(UINT8 tcb_idx, tBT_TRANSPORT transport, BD_ADDR bda)
+{
+
+}
 
 /*******************************************************************************
 **
@@ -1325,21 +1474,19 @@ void GATT_StartIf (tGATT_IF gatt_if)
 {
     tGATT_REG   *p_reg;
     tGATT_TCB   *p_tcb;
-    BD_ADDR     bda;
-    UINT8       start_idx, found_idx;
     UINT16      conn_id;
-    tGATT_TRANSPORT transport ;
+    list_node_t *p_node = NULL;
 
     GATT_TRACE_API ("GATT_StartIf gatt_if=%d", gatt_if);
     if ((p_reg = gatt_get_regcb(gatt_if)) != NULL) {
-        start_idx = 0;
-        while (gatt_find_the_connected_bda(start_idx, bda, &found_idx, &transport)) {
-            p_tcb = gatt_find_tcb_by_addr(bda, transport);
-            if (p_reg->app_cb.p_conn_cb && p_tcb) {
-                conn_id = GATT_CREATE_CONN_ID(p_tcb->tcb_idx, gatt_if);
-                (*p_reg->app_cb.p_conn_cb)(gatt_if, bda, conn_id, TRUE, 0, transport);
+        for (p_node = list_begin(gatt_cb.p_tcb_list); p_node; p_node = list_next(p_node)) {
+            p_tcb = list_node(p_node);
+            if (p_tcb->in_use && p_tcb->ch_state == GATT_CH_OPEN) {
+                if (p_reg->app_cb.p_conn_cb && p_tcb) {
+                    conn_id = GATT_CREATE_CONN_ID(p_tcb->tcb_idx, gatt_if);
+                    (*p_reg->app_cb.p_conn_cb)(gatt_if, p_tcb->peer_bda, conn_id, TRUE, 0, p_tcb->transport);
+                }
             }
-            start_idx = ++found_idx;
         }
     }
 }
@@ -1360,7 +1507,9 @@ void GATT_StartIf (tGATT_IF gatt_if)
 ** Returns          TRUE if connection started; FALSE if connection start failure.
 **
 *******************************************************************************/
-BOOLEAN GATT_Connect (tGATT_IF gatt_if, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_type, BOOLEAN is_direct, tBT_TRANSPORT transport)
+BOOLEAN GATT_Connect (tGATT_IF gatt_if, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_type,
+                              BOOLEAN is_direct, tBT_TRANSPORT transport, BOOLEAN is_aux,
+                              BOOLEAN is_pawr_synced, UINT8 adv_handle, UINT8 subevent)
 {
     tGATT_REG    *p_reg;
     BOOLEAN status = FALSE;
@@ -1374,11 +1523,14 @@ BOOLEAN GATT_Connect (tGATT_IF gatt_if, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_
     }
 
     if (is_direct) {
-        status = gatt_act_connect (p_reg, bd_addr, bd_addr_type, transport);
+        status = gatt_act_connect (p_reg, bd_addr, bd_addr_type, transport, is_aux, is_pawr_synced, adv_handle, subevent);
     } else {
+#if (GATT_BG_CONN_DEV == TRUE)
         if (transport == BT_TRANSPORT_LE) {
             status = gatt_update_auto_connect_dev(gatt_if, TRUE, bd_addr, TRUE);
-        } else {
+        } else
+#endif // #if (GATT_BG_CONN_DEV == TRUE)
+        {
             GATT_TRACE_ERROR("Unsupported transport for background connection");
         }
     }
@@ -1391,7 +1543,7 @@ BOOLEAN GATT_Connect (tGATT_IF gatt_if, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_
 **
 ** Function         GATT_CancelConnect
 **
-** Description      This function terminate the connection initaition to a remote
+** Description      This function terminate the connection initiation to a remote
 **                  device on GATT channel.
 **
 ** Parameters       gatt_if: client interface. If 0 used as unconditionally disconnect,
@@ -1435,6 +1587,7 @@ BOOLEAN GATT_CancelConnect (tGATT_IF gatt_if, BD_ADDR bd_addr, BOOLEAN is_direct
             status = gatt_cancel_open(gatt_if, bd_addr);
         }
     } else {
+#if (GATT_BG_CONN_DEV == TRUE)
         if (!gatt_if) {
             if (gatt_get_num_apps_for_bg_dev(bd_addr)) {
                 while (gatt_find_app_for_bg_dev(bd_addr, &temp_gatt_if)) {
@@ -1447,6 +1600,7 @@ BOOLEAN GATT_CancelConnect (tGATT_IF gatt_if, BD_ADDR bd_addr, BOOLEAN is_direct
         } else {
             status = gatt_remove_bg_dev_for_app(gatt_if, bd_addr);
         }
+#endif // #if (GATT_BG_CONN_DEV == TRUE)
     }
 
     return status;
@@ -1485,6 +1639,7 @@ tGATT_STATUS GATT_Disconnect (UINT16 conn_id)
     return ret;
 }
 
+#if (GATTS_INCLUDED == TRUE)
 /*******************************************************************************
 **
 ** Function         GATT_SendServiceChangeIndication
@@ -1498,12 +1653,12 @@ tGATT_STATUS GATT_Disconnect (UINT16 conn_id)
 *******************************************************************************/
 tGATT_STATUS GATT_SendServiceChangeIndication (BD_ADDR bd_addr)
 {
-    UINT8               start_idx, found_idx;
     BOOLEAN             srv_chg_ind_pending = FALSE;
     tGATT_TCB           *p_tcb;
-    tBT_TRANSPORT      transport;
     tGATT_STATUS status = GATT_NOT_FOUND;
-    if (GATTS_SEND_SERVICE_CHANGE_MODE == GATTS_SEND_SERVICE_CHANGE_AUTO) {
+    list_node_t     *p_node = NULL;
+
+    if (gatt_cb.srv_chg_mode == GATTS_SEND_SERVICE_CHANGE_AUTO) {
         status = GATT_WRONG_STATE;
         GATT_TRACE_ERROR ("%s can't send service change indication manually, please configure the option through menuconfig", __func__);
         return status;
@@ -1512,30 +1667,29 @@ tGATT_STATUS GATT_SendServiceChangeIndication (BD_ADDR bd_addr)
     if(bd_addr) {
          status = gatt_send_srv_chg_ind(bd_addr);
     } else {
-        start_idx = 0;
-        BD_ADDR addr;
-        while (gatt_find_the_connected_bda(start_idx, addr, &found_idx, &transport)) {
-            p_tcb = gatt_get_tcb_by_idx(found_idx);
-            srv_chg_ind_pending = gatt_is_srv_chg_ind_pending(p_tcb);
-
-            if (!srv_chg_ind_pending) {
-                status = gatt_send_srv_chg_ind(addr);
-            } else {
-                status = GATT_BUSY;
-                GATT_TRACE_DEBUG("discard srv chg - already has one in the queue");
+        for (p_node = list_begin(gatt_cb.p_tcb_list); p_node; p_node = list_next(p_node)) {
+            p_tcb = list_node(p_node);
+            if (p_tcb->in_use && p_tcb->ch_state == GATT_CH_OPEN) {
+                srv_chg_ind_pending = gatt_is_srv_chg_ind_pending(p_tcb);
+                if (!srv_chg_ind_pending) {
+                    status = gatt_send_srv_chg_ind(p_tcb->peer_bda);
+                } else {
+                    status = GATT_BUSY;
+                    GATT_TRACE_DEBUG("discard srv chg - already has one in the queue");
+                }
             }
-            start_idx = ++found_idx;
         }
     }
 
     return status;
 }
+#endif // (GATTS_INCLUDED == TRUE)
 
 /*******************************************************************************
 **
 ** Function         GATT_GetConnectionInfor
 **
-** Description      This function use conn_id to find its associated BD address and applciation
+** Description      This function use conn_id to find its associated BD address and application
 **                  interface
 **
 ** Parameters        conn_id: connection id  (input)
@@ -1572,7 +1726,7 @@ BOOLEAN GATT_GetConnectionInfor(UINT16 conn_id, tGATT_IF *p_gatt_if, BD_ADDR bd_
 ** Function         GATT_GetConnIdIfConnected
 **
 ** Description      This function find the conn_id if the logical link for BD address
-**                  and applciation interface is connected
+**                  and application interface is connected
 **
 ** Parameters        gatt_if: application interface (input)
 **                   bd_addr: peer device address. (input)
@@ -1598,42 +1752,124 @@ BOOLEAN GATT_GetConnIdIfConnected(tGATT_IF gatt_if, BD_ADDR bd_addr, UINT16 *p_c
     return status;
 }
 
-
-/*******************************************************************************
-**
-** Function         GATT_Listen
-**
-** Description      This function start or stop LE advertisement and listen for
-**                  connection.
-**
-** Parameters       gatt_if: application interface
-**                  p_bd_addr: listen for specific address connection, or NULL for
-**                             listen to all device connection.
-**                  start: start or stop listening.
-**
-** Returns          TRUE if advertisement is started; FALSE if adv start failure.
-**
-*******************************************************************************/
-BOOLEAN GATT_Listen (tGATT_IF gatt_if, BOOLEAN start, BD_ADDR_PTR bd_addr)
+#if (GATTS_INCLUDED == TRUE)
+tGATT_STATUS GATTS_SetServiceChangeMode(UINT8 mode)
 {
-    tGATT_REG    *p_reg;
-
-    GATT_TRACE_API ("GATT_Listen gatt_if=%d", gatt_if);
-
-    /* Make sure app is registered */
-    if ((p_reg = gatt_get_regcb(gatt_if)) == NULL) {
-        GATT_TRACE_ERROR("GATT_Listen - gatt_if =%d is not registered", gatt_if);
-        return (FALSE);
+    if (mode > GATTS_SEND_SERVICE_CHANGE_MANUAL) {
+        GATT_TRACE_ERROR("%s invalid service change mode %u", __func__, mode);
+        return GATT_VALUE_NOT_ALLOWED;
     }
 
-    if (bd_addr != NULL) {
-        gatt_update_auto_connect_dev(gatt_if, start, bd_addr, FALSE);
-    } else {
-        p_reg->listening = start ? GATT_LISTEN_TO_ALL : GATT_LISTEN_TO_NONE;
-    }
-
-    return gatt_update_listen_mode();
+    gatt_cb.srv_chg_mode = mode;
+    return GATT_SUCCESS;
 }
 
+#endif // (GATTS_INCLUDED == TRUE)
+
+tGATT_STATUS GATTS_HandleMultiValueNotification (UINT16 conn_id, tGATT_HLV *tuples, UINT16 num_tuples)
+{
+    tGATT_STATUS    cmd_sent = GATT_ILLEGAL_PARAMETER;
+    BT_HDR          *p_buf;
+    tGATT_VALUE     notif;
+    tGATT_IF        gatt_if = GATT_GET_GATT_IF(conn_id);
+    UINT8           tcb_idx = GATT_GET_TCB_IDX(conn_id);
+    tGATT_REG       *p_reg = gatt_get_regcb(gatt_if);
+    tGATT_TCB       *p_tcb = gatt_get_tcb_by_idx(tcb_idx);
+    UINT8           *p = notif.value;
+    tGATT_HLV       *p_hlv = tuples;
+
+    GATT_TRACE_API ("GATTS_HandleMultiValueNotification");
+
+    if ( (p_reg == NULL) || (p_tcb == NULL)) {
+        GATT_TRACE_ERROR ("GATTS_HandleMultiValueNotification Unknown conn_id: %u \n", conn_id);
+        return (tGATT_STATUS) GATT_INVALID_CONN_ID;
+    }
+
+    if (!gatt_check_connection_state_by_tcb(p_tcb)) {
+        GATT_TRACE_ERROR("connection not established\n");
+        return GATT_WRONG_STATE;
+    }
+
+    if (tuples == NULL) {
+        return GATT_ILLEGAL_PARAMETER;
+    }
+
+    notif.len = 0;
+
+    while (num_tuples) {
+        if (!GATT_HANDLE_IS_VALID (p_hlv->handle)) {
+            return GATT_ILLEGAL_PARAMETER;
+        }
+
+        {
+            UINT32 new_len = (UINT32)notif.len + 4U + (UINT32)p_hlv->length;
+            if (new_len > (UINT32)GATT_MAX_ATTR_LEN) {
+                GATT_TRACE_ERROR("%s: len %u>MAX_ATTR_LEN", __func__, (unsigned)new_len);
+                return GATT_ILLEGAL_PARAMETER;
+            }
+        }
+
+        UINT16_TO_STREAM(p, p_hlv->handle);   //handle
+        UINT16_TO_STREAM(p, p_hlv->length);   //length
+        if (p_hlv->length > 0) {
+            if (p_hlv->value == NULL) {
+                return GATT_ILLEGAL_PARAMETER;
+            }
+            memcpy (p, p_hlv->value, p_hlv->length); //value
+        }
+        GATT_TRACE_DEBUG("%s handle %x, length %u", __func__, p_hlv->handle, p_hlv->length);
+        p += p_hlv->length;
+        notif.len += 4 + p_hlv->length;
+        num_tuples--;
+        p_hlv++;
+    }
+
+    notif.auth_req = GATT_AUTH_REQ_NONE;
+
+#if (BLE_EATT_SERVER_INCLUDED == TRUE)
+    /* Route the multi-value notification over an EATT bearer (if any) so it uses
+     * the EATT MTU instead of the legacy 23-byte ATT MTU, and so gatt_get_att_mtu()
+     * (used for buffer sizing in attp_build_sr_msg) matches the bearer it is sent
+     * on. Set transiently and cleared after the send; all GATT TX runs on the
+     * single BTU task. Mirrors GATTS_HandleValueNotification. */
+    UINT16 mv_bearer = gatt_eatt_get_server_tx_bearer(p_tcb->peer_bda);
+    p_tcb->eatt_tx_bearer = (mv_bearer != L2CAP_ATT_CID) ? mv_bearer : 0;
+#endif
+    p_buf = attp_build_sr_msg (p_tcb, GATT_HANDLE_MULTI_VALUE_NOTIF, (tGATT_SR_MSG *)&notif);
+    if (p_buf != NULL) {
+        cmd_sent = attp_send_sr_msg (p_tcb, p_buf);
+    } else {
+        cmd_sent = GATT_NO_RESOURCES;
+    }
+#if (BLE_EATT_SERVER_INCLUDED == TRUE)
+    p_tcb->eatt_tx_bearer = 0;
 #endif
 
+    return cmd_sent;
+}
+
+tGATT_STATUS GATTS_ShowLocalDatabase(void)
+{
+    gatts_show_local_database();
+    return GATT_SUCCESS;
+}
+
+#if (BLE_EATT_INCLUDED == TRUE)
+void GATT_EattSetChanNum(UINT8 num_chan)
+{
+    gatt_eatt_set_chan_num(num_chan);
+}
+
+BOOLEAN GATT_EattSetDefaultBearer(UINT16 conn_id, UINT16 lcid)
+{
+#if (BLE_EATT_CLIENT_INCLUDED == TRUE)
+    return gatt_eatt_set_default_bearer(conn_id, lcid);
+#else
+    UNUSED(conn_id);
+    UNUSED(lcid);
+    return FALSE;
+#endif
+}
+#endif
+
+#endif

@@ -10,6 +10,9 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @brief Calculate the effect for a bunch of lines.
@@ -21,10 +24,13 @@
  */
 void pretty_effect_calc_lines(uint16_t *dest, int line, int frame, int linect);
 
-
 /**
  * @brief Initialize the effect
  *
  * @return ESP_OK on success, an error from the jpeg decoder otherwise.
  */
 esp_err_t pretty_effect_init(void);
+
+#ifdef __cplusplus
+}
+#endif

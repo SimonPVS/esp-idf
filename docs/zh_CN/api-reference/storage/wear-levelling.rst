@@ -3,13 +3,13 @@
 另请参阅
 -----------
 
-- :doc:`FAT 文件系统 <./fatfs>`
-- :doc:`分区表 <../../api-guides/partition-tables>`
+- :doc:`./fatfs`
+- :doc:`../../api-guides/partition-tables`
 
-应用示例  
+应用示例
 -------------------
 
-:example:`storage/wear_levelling` 中提供了一款磨损均衡驱动与 FatFs 库结合使用的示例。该示例初始化磨损均衡驱动，挂载 FAT 文件系统分区，并使用 POSIX（可移植操作系统接口）和 C 库 API 从中写入和读取数据。如需了解更多信息，请参考 :example_file:`storage/wear_levelling/README.md`。
+:example:`storage/wear_levelling` 演示了如何使用磨损均衡库和 FatFS 库在分区中存储文件，并使用 POSIX 和 C 库 API 从中写入和读取数据。
 
 高级 API 参考
 ------------------------
@@ -19,16 +19,9 @@
 
 * :component_file:`fatfs/vfs/esp_vfs_fat.h`
 
-函数
-^^^^^^^^^
-
-.. doxygenfunction:: esp_vfs_fat_spiflash_mount
-.. doxygenstruct:: esp_vfs_fat_mount_config_t
-    :members:
-.. doxygenfunction:: esp_vfs_fat_spiflash_unmount
+有关高级磨损均衡函数 :cpp:func:`esp_vfs_fat_spiflash_mount_rw_wl`、 :cpp:func:`esp_vfs_fat_spiflash_unmount_rw_wl` 和结构体 :cpp:class:`esp_vfs_fat_mount_config_t` 的详细内容，请参见 :doc:`./fatfs`。
 
 中层 API 参考
 -----------------------
 
 .. include-build-file:: inc/wear_levelling.inc
-

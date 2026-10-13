@@ -1,16 +1,8 @@
-// Copyright 2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "esp_event.h"
 #include "esp_event_internal.h"
@@ -23,21 +15,21 @@ static esp_event_loop_handle_t s_default_loop = NULL;
 /* ---------------------------- Public API ---------------------------------- */
 
 esp_err_t esp_event_handler_register(esp_event_base_t event_base, int32_t event_id,
-        esp_event_handler_t event_handler, void* event_handler_arg)
+                                     esp_event_handler_t event_handler, void* event_handler_arg)
 {
     if (s_default_loop == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
     return esp_event_handler_register_with(s_default_loop, event_base, event_id,
-            event_handler, event_handler_arg);
+                                           event_handler, event_handler_arg);
 }
 
 esp_err_t esp_event_handler_instance_register(esp_event_base_t event_base,
                                               int32_t event_id,
                                               esp_event_handler_t event_handler,
                                               void *event_handler_arg,
-                                              esp_event_handler_instance_t *context) 
+                                              esp_event_handler_instance_t *context)
 {
     if (s_default_loop == NULL) {
         return ESP_ERR_INVALID_STATE;
@@ -52,14 +44,14 @@ esp_err_t esp_event_handler_instance_register(esp_event_base_t event_base,
 }
 
 esp_err_t esp_event_handler_unregister(esp_event_base_t event_base, int32_t event_id,
-        esp_event_handler_t event_handler)
+                                       esp_event_handler_t event_handler)
 {
     if (s_default_loop == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
     return esp_event_handler_unregister_with(s_default_loop, event_base, event_id,
-            event_handler);
+                                             event_handler);
 }
 
 esp_err_t esp_event_handler_instance_unregister(esp_event_base_t event_base,
@@ -69,35 +61,33 @@ esp_err_t esp_event_handler_instance_unregister(esp_event_base_t event_base,
     if (s_default_loop == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    
+
     return esp_event_handler_instance_unregister_with(s_default_loop, event_base, event_id, context);
 }
 
 esp_err_t esp_event_post(esp_event_base_t event_base, int32_t event_id,
-        void* event_data, size_t event_data_size, TickType_t ticks_to_wait)
+                         const void* event_data, size_t event_data_size, TickType_t ticks_to_wait)
 {
     if (s_default_loop == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
     return esp_event_post_to(s_default_loop, event_base, event_id,
-            event_data, event_data_size, ticks_to_wait);
+                             event_data, event_data_size, ticks_to_wait);
 }
-
 
 #if CONFIG_ESP_EVENT_POST_FROM_ISR
 esp_err_t esp_event_isr_post(esp_event_base_t event_base, int32_t event_id,
-        void* event_data, size_t event_data_size, BaseType_t* task_unblocked)
+                             const void* event_data, size_t event_data_size, BaseType_t* task_unblocked)
 {
     if (s_default_loop == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
 
     return esp_event_isr_post_to(s_default_loop, event_base, event_id,
-            event_data, event_data_size, task_unblocked);
+                                 event_data, event_data_size, task_unblocked);
 }
 #endif
-
 
 esp_err_t esp_event_loop_create_default(void)
 {
@@ -141,9 +131,3 @@ esp_err_t esp_event_loop_delete_default(void)
 
     return ESP_OK;
 }
-
-
-/* Include the code to forward legacy system_event_t events to the this default
- * event loop.
- */
-#include "event_send_compat.inc"

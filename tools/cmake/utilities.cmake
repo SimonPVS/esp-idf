@@ -1,3 +1,5 @@
+include(${CMAKE_CURRENT_LIST_DIR}/deduplicate_flags.cmake)
+
 # set_default
 #
 # Define a variable to a default value if otherwise unset.
@@ -22,8 +24,8 @@ endfunction()
 # Take a variable whose value was space-delimited values, convert to a cmake
 # list (semicolon-delimited)
 #
-# Note: if using this for directories, keeps the issue in place that
-# directories can't contain spaces...
+# Note: do not use this for directories or full paths, as they may contain
+# spaces.
 #
 # TODO: look at cmake separate_arguments, which is quote-aware
 function(spaces2list variable_name)
@@ -40,6 +42,32 @@ function(lines2list variable_name)
     string(REGEX REPLACE "\r?\n" ";" tmp "${${variable_name}}")
     string(REGEX REPLACE ";;" ";" tmp "${tmp}")
     set("${variable_name}" "${tmp}" PARENT_SCOPE)
+endfunction()
+
+
+# __check_python_package_min_version
+#
+# Check whether a Python package is installed with at least the given version.
+#
+# @param python_exe   Python interpreter to use (e.g. ${python} or ${PYTHON})
+# @param package_name Pip package name (e.g. esp-idf-kconfig)
+# @param min_version  Minimum version required (e.g. 3.4.2)
+# @param result_var   Output variable name; set to TRUE if package version >= min_version,
+#                     FALSE otherwise (package missing, older version, or pip unavailable)
+#
+function(__check_python_package_min_version python_exe package_name min_version result_var)
+    execute_process(
+        COMMAND ${python_exe} -c
+            "from importlib.metadata import version; print(version('${package_name}'))"
+        OUTPUT_VARIABLE _ver
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _rc
+        ERROR_QUIET
+    )
+    set(${result_var} FALSE PARENT_SCOPE)
+    if(_rc EQUAL 0 AND _ver VERSION_GREATER_EQUAL "${min_version}")
+        set(${result_var} TRUE PARENT_SCOPE)
+    endif()
 endfunction()
 
 
@@ -75,9 +103,10 @@ endfunction()
 
 # target_add_binary_data adds binary data into the built target,
 # by converting it to a generated source file which is then compiled
-# to a binary object as part of the build
+# to a binary object as part of the build. ALIGN optionally sets the
+# alignment of the embedded data's start symbol.
 function(target_add_binary_data target embed_file embed_type)
-    cmake_parse_arguments(_ "" "RENAME_TO" "DEPENDS" ${ARGN})
+    cmake_parse_arguments(_ "" "RENAME_TO;ALIGN" "DEPENDS" ${ARGN})
     idf_build_get_property(build_dir BUILD_DIR)
     idf_build_get_property(idf_path IDF_PATH)
 
@@ -91,11 +120,24 @@ function(target_add_binary_data target embed_file embed_type)
         set(rename_to_arg -D "VARIABLE_BASENAME=${__RENAME_TO}")
     endif()
 
+    set(align_arg)
+    if(DEFINED __ALIGN)
+        if(NOT __ALIGN MATCHES "^[1-9][0-9]*$")
+            message(FATAL_ERROR "ALIGN must be a positive integer")
+        endif()
+        math(EXPR alignment_mask "${__ALIGN} & (${__ALIGN} - 1)")
+        if(NOT alignment_mask EQUAL 0)
+            message(FATAL_ERROR "ALIGN must be a power of two")
+        endif()
+        set(align_arg -D "DATA_ALIGNMENT=${__ALIGN}")
+    endif()
+
     add_custom_command(OUTPUT "${embed_srcfile}"
         COMMAND "${CMAKE_COMMAND}"
         -D "DATA_FILE=${embed_file}"
         -D "SOURCE_FILE=${embed_srcfile}"
         ${rename_to_arg}
+        ${align_arg}
         -D "FILE_TYPE=${embed_type}"
         -P "${idf_path}/tools/cmake/scripts/data_file_embed_asm.cmake"
         MAIN_DEPENDENCY "${embed_file}"
@@ -103,7 +145,7 @@ function(target_add_binary_data target embed_file embed_type)
         WORKING_DIRECTORY "${build_dir}"
         VERBATIM)
 
-    set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES "${embed_srcfile}")
+    set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${embed_srcfile}")
 
     target_sources("${target}" PRIVATE "${embed_srcfile}")
 endfunction()
@@ -132,18 +174,125 @@ function(file_append_line file line)
     file(APPEND "${file}" "${line}${line_ending}")
 endfunction()
 
-# Add one or more linker scripts to the target, including a link-time dependency
+# Preprocess linker script using C preprocessor
 #
-# Automatically adds a -L search path for the containing directory (if found),
-# and then adds -T with the filename only. This allows INCLUDE directives to be
-# used to include other linker scripts in the same directory.
+# Processes .in linker script files through the C preprocessor to handle:
+# - #include directives for modular linker scripts
+# - #define macros and conditional compilation
+# - Config-dependent linker script generation
+#
+# This function creates a custom command to preprocess the input script,
+# determines the appropriate output path, and generates a CMake target for dependency tracking.
+#
+# Parameters:
+#   cmake_target    - CMake target to add dependencies to
+#   script_in       - Input .in file path (absolute)
+#   output_var      - Variable name to store the resulting output path
+#   preserve_suffix - Whether to keep .in suffix in output filename (optional)
+function(preprocess_linker_file cmake_target script_in output_var preserve_suffix)
+    set(output_dir "${CMAKE_CURRENT_BINARY_DIR}/ld")
+    # Ensure output directory exists
+    file(MAKE_DIRECTORY "${output_dir}")
+
+    # Determine output filename with conditional .in suffix removal
+    get_filename_component(script_name "${script_in}" NAME)
+    set(script_out "${output_dir}/${script_name}")
+
+    # Remove .in suffix if not preserving it
+    if(NOT preserve_suffix)
+        string(REGEX REPLACE "\\.in$" "" script_out "${script_out}")
+    endif()
+
+    # Return the output path to caller
+    set(${output_var} "${script_out}" PARENT_SCOPE)
+
+    # Get build properties
+    idf_build_get_property(sdkconfig_header SDKCONFIG_HEADER)
+    idf_build_get_property(config_dir CONFIG_DIR)
+    idf_build_get_property(idf_path IDF_PATH)
+    idf_build_get_property(idf_target IDF_TARGET)
+
+    # Reference the linker script generator
+    set(linker_script_generator "${idf_path}/tools/cmake/linker_script_preprocessor.cmake")
+
+    # check if the script_in parent directory is the name of the idf_target
+    get_filename_component(script_parent_dir "${script_in}" DIRECTORY)
+    get_filename_component(script_parent_name "${script_parent_dir}" NAME)
+
+    # Initialize extra_cflags to avoid undefined variable
+    set(extra_cflags "")
+
+    if(script_parent_name STREQUAL idf_target)
+        # Add "../.." directory to include path (e.g. for esp_system component)
+        get_filename_component(dir_to_include "${script_parent_dir}" DIRECTORY)
+        # Add esp_system/ld directory to include path for the shared linker
+        # script fragments (e.g. ld.elf.internal.sections)
+        idf_component_get_property(esp_system_dir esp_system COMPONENT_DIR)
+        set(extra_cflags "-I\"${dir_to_include}\" -I\"${esp_system_dir}/ld\"")
+    endif()
+
+    # Keep comments (-C): historical behavior for cmakev1 linker scripts. It was
+    # previously hardcoded in linker_script_preprocessor.cmake, which now leaves
+    # comment handling to the caller.
+    # Ask the preprocessor to emit all transitive #include dependencies. Without
+    # a depfile, CMake only knows about script_in and sdkconfig.h, so changes to
+    # files such as ld.common leave script_out stale.
+    set(depfile "${script_out}.d")
+    set(depfile_flags "-MD -MF \"${depfile}\" -MT \"${script_out}\"")
+
+    add_custom_command(
+        OUTPUT ${script_out}
+        COMMAND ${CMAKE_COMMAND}
+            "-DCC=${CMAKE_C_COMPILER}"
+            "-DSOURCE=${script_in}"
+            "-DTARGET=${script_out}"
+            "-DCFLAGS=-C -I\"${config_dir}\" ${depfile_flags} ${extra_cflags}"
+            -P "${linker_script_generator}"
+        MAIN_DEPENDENCY ${script_in}
+        DEPENDS ${sdkconfig_header}
+        DEPFILE "${depfile}"
+        COMMENT "Preprocessing linker script ${script_in} -> ${script_out}"
+        VERBATIM)
+
+    # Create target name based on script filename
+    string(MAKE_C_IDENTIFIER "${script_name}_preprocess" target_name)
+    add_custom_target("${target_name}" DEPENDS "${script_out}")
+
+    add_dependencies(${cmake_target} "${target_name}")
+endfunction()
+
+# Add one or more linker scripts to the target, including a link-time dependency.
+#
+# Core Features:
+# - Adds -L search path for the containing directory (enables INCLUDE directives)
+# - Adds -T with the filename only for linker command
+# - Automatically preprocesses .in files using C preprocessor
+# - Supports explicit PROCESS parameter to enable ldgen processing
+#
+# Parameters:
+#   target      - Target to add linker scripts to
+#   deptype     - Dependency type (PUBLIC, PRIVATE, INTERFACE)
+#   scriptfiles - List of linker script files (.ld, .ld.in, etc.)
+#   PROCESS     - Optional: enable ldgen processing
 function(target_linker_script target deptype scriptfiles)
     cmake_parse_arguments(_ "" "PROCESS" "" ${ARGN})
     foreach(scriptfile ${scriptfiles})
         get_filename_component(abs_script "${scriptfile}" ABSOLUTE)
         message(STATUS "Adding linker script ${abs_script}")
 
+        # === SCRIPT PROCESSING PIPELINE ===
+        # Stage 1: Auto-preprocess .in files (C preprocessor)
+        # Stage 2: Apply explicit template processing (ldgen templates)
+
+        # Stage 1: Handle .in files with C preprocessor
+        if(abs_script MATCHES "\\.in$")
+            message(STATUS "  -> Preprocessing .in script: ${abs_script}")
+            preprocess_linker_file("${target}" "${abs_script}" abs_script "${__PROCESS}")
+        endif()
+
+        # Stage 2: Apply explicit ldgen template processing (if requested)
         if(__PROCESS)
+            message(STATUS "  -> Applying ldgen processing: ${abs_script}")
             get_filename_component(output "${__PROCESS}" ABSOLUTE)
             __ldgen_process_template(${abs_script} ${output})
             set(abs_script ${output})
@@ -152,33 +301,32 @@ function(target_linker_script target deptype scriptfiles)
         get_filename_component(search_dir "${abs_script}" DIRECTORY)
         get_filename_component(scriptname "${abs_script}" NAME)
 
-        if(deptype STREQUAL INTERFACE OR deptype STREQUAL PUBLIC)
-            get_target_property(link_libraries "${target}" INTERFACE_LINK_LIBRARIES)
-        else()
-            get_target_property(link_libraries "${target}" LINK_LIBRARIES)
-        endif()
+        target_link_directories("${target}" "${deptype}" ${search_dir})
+        # Regarding the usage of SHELL, see
+        # https://cmake.org/cmake/help/latest/command/target_link_options.html#option-de-duplication
+        target_link_options("${target}" "${deptype}" "SHELL:-T ${scriptname}")
 
-        list(FIND "${link_libraries}" "-L ${search_dir}" found_search_dir)
-        if(found_search_dir EQUAL "-1")  # not already added as a search path
-            target_link_libraries("${target}" "${deptype}" "-L ${search_dir}")
-        endif()
-
-        target_link_libraries("${target}" "${deptype}" "-T ${scriptname}")
-
-        # Note: In ESP-IDF, most targets are libraries and libary LINK_DEPENDS don't propagate to
-        # executable(s) the library is linked to. Attach manually to executable once it is known.
-        #
-        # Property INTERFACE_LINK_DEPENDS is available in CMake 3.13 which should propagate link
-        # dependencies.
+        # Note: In ESP-IDF, most targets are libraries and library LINK_DEPENDS don't propagate to
+        # executable(s) the library is linked to. Since CMake 3.13, INTERFACE_LINK_DEPENDS is
+        # available to solve this. However, when GNU Make generator is used, this property also
+        # propagates INTERFACE_LINK_DEPENDS dependencies to other static libraries.
+        # TODO: see if this is an expected behavior and possibly report this as a bug to CMake.
+        # For the time being, record all linker scripts in __LINK_DEPENDS and attach manually to
+        # the executable target once it is known.
         if(NOT __PROCESS)
-            idf_build_set_property(__LINK_DEPENDS ${abs_script} APPEND)
+            idf_build_set_property(__LINK_DEPENDS "${abs_script}" APPEND)
         endif()
     endforeach()
 endfunction()
 
 # Convert a CMake list to a JSON list and store it in a variable
 function(make_json_list list variable)
-    string(REPLACE ";" "\", \"" result "[ \"${list}\" ]")
+    list(LENGTH list length)
+    if(${length})
+        string(REPLACE ";" "\", \"" result "[ \"${list}\" ]")
+    else()
+        set(result "[]")
+    endif()
     set("${variable}" "${result}" PARENT_SCOPE)
 endfunction()
 
@@ -226,7 +374,7 @@ endfunction()
 # fail_target
 #
 # Creates a phony target which fails when invoked. This is used when the necessary conditions
-# for a target are not met, such as configuration. Rather than ommitting the target altogether,
+# for a target are not met, such as configuration. Rather than omitting the target altogether,
 # we fail execution with a helpful message.
 function(fail_target target_name message_line0)
     idf_build_get_property(idf_path IDF_PATH)
@@ -283,6 +431,17 @@ function(add_c_compile_options)
     endforeach()
 endfunction()
 
+# add_compile_options variant for ASM code only
+#
+# This adds global options, set target properties for
+# component-specific flags
+function(add_asm_compile_options)
+    foreach(option ${ARGV})
+        # note: the Visual Studio Generator doesn't support this...
+        add_compile_options($<$<COMPILE_LANGUAGE:ASM>:${option}>)
+    endforeach()
+endfunction()
+
 
 # add_prebuild_library
 #
@@ -293,7 +452,7 @@ function(add_prebuilt_library target_name lib_path)
     get_filename_component(lib_path "${lib_path}"
                 ABSOLUTE BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 
-    add_library(${target_name} STATIC IMPORTED)
+    add_library(${target_name} STATIC IMPORTED GLOBAL)
     set_property(TARGET ${target_name} PROPERTY IMPORTED_LOCATION ${lib_path})
 
     foreach(req ${__REQUIRES})
@@ -325,7 +484,7 @@ function(file_generate output)
     endif()
 
     set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        APPEND PROPERTY ADDITIONAL_MAKE_CLEAN_FILES "${output}")
+        APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${output}")
 endfunction()
 
 # add_subdirectory_if_exists
@@ -340,3 +499,22 @@ function(add_subdirectory_if_exists source_dir)
         message(STATUS "Subdirectory '${abs_dir}' does not exist, skipped.")
     endif()
 endfunction()
+
+
+# add_deprecated_target_alias
+#
+# Creates an alias for existing target and shows deprecation warning
+function(add_deprecated_target_alias old_target new_target)
+    add_custom_target(${old_target}
+     # `COMMAND` is important to print the `COMMENT` message at the end of the target action.
+        COMMAND ${CMAKE_COMMAND} -E echo ""
+        COMMENT "Warning: command \"${old_target}\" is deprecated. Have you wanted to run \"${new_target}\" instead?"
+    )
+    add_dependencies(${old_target} ${new_target})
+endfunction()
+
+
+# __compiler_query is defined in a standalone module so it can also be included
+# by the cmakev2 utilities; the esp_common and xtensa project_include.cmake
+# files that call it are shared by both build systems.
+include(${CMAKE_CURRENT_LIST_DIR}/compiler_query.cmake)

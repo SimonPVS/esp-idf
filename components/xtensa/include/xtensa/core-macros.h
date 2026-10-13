@@ -369,7 +369,7 @@
 # define XTHAL_SET_CCOMPARE(n,v)	do {/*nothing*/} while(0)
 #endif
 
-/*  New functions added to accomodate XEA3 and allow deprecation of older
+/*  New functions added to accommodate XEA3 and allow deprecation of older
     functions. For this release they just map to the older ones.  */
 
 /*  Enables the specified interrupt.  */
@@ -433,7 +433,7 @@ static inline unsigned  XTHAL_COMPARE_AND_SET( int *addr, int testval, int setva
 	    : "=a"(result) : "0" (setval), "a" (testval), "a" (addr)
 	    : "memory");
 #elif XCHAL_HAVE_INTERRUPTS
-    int tmp;
+    int tmp = 0; // clang complains on uninitialized var
     __asm__ __volatile__ (
         "   rsil   %4, 15 \n"		// %4 == saved ps
         "   l32i   %0, %3, 0 \n"	// %0 == value to test, return val
@@ -503,4 +503,3 @@ static inline void xthal_mpu_set_entry_ (xthal_MPU_entry entry)
 #endif /* C code */
 
 #endif /*XTENSA_CACHE_H*/
-

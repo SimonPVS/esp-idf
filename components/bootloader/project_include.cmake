@@ -1,7 +1,9 @@
-set(BOOTLOADER_OFFSET CONFIG_BOOTLOADER_OFFSET_IN_FLASH)
+idf_build_get_property(esp_tee_build ESP_TEE_BUILD)
+
+set(BOOTLOADER_OFFSET ${CONFIG_BOOTLOADER_OFFSET_IN_FLASH})
 
 # Do not generate flash file when building bootloader
-if(BOOTLOADER_BUILD OR NOT CONFIG_APP_BUILD_BOOTLOADER)
+if(BOOTLOADER_BUILD OR esp_tee_build OR NOT CONFIG_APP_BUILD_BOOTLOADER)
     return()
 endif()
 
@@ -11,8 +13,9 @@ endif()
 #
 idf_build_get_property(build_dir BUILD_DIR)
 set(BOOTLOADER_BUILD_DIR "${build_dir}/bootloader")
+set(BOOTLOADER_ELF_FILE "${BOOTLOADER_BUILD_DIR}/bootloader.elf")
 set(bootloader_binary_files
-    "${BOOTLOADER_BUILD_DIR}/bootloader.elf"
+    "${BOOTLOADER_ELF_FILE}"
     "${BOOTLOADER_BUILD_DIR}/bootloader.bin"
     "${BOOTLOADER_BUILD_DIR}/bootloader.map"
     )
@@ -29,12 +32,6 @@ idf_build_get_property(project_dir PROJECT_DIR)
 if(CONFIG_SECURE_SIGNED_APPS)
     add_custom_target(gen_secure_boot_keys)
 
-    if(CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME)
-        set(secure_apps_signing_scheme "1")
-    elseif(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
-        set(secure_apps_signing_scheme "2")
-    endif()
-
     if(CONFIG_SECURE_BOOT_V1_ENABLED)
         # Check that the configuration is sane
         if((CONFIG_SECURE_BOOTLOADER_REFLASHABLE AND CONFIG_SECURE_BOOTLOADER_ONE_TIME_FLASH) OR
@@ -46,7 +43,6 @@ if(CONFIG_SECURE_SIGNED_APPS)
             set(bootloader_binary_files
                 ${bootloader_binary_files}
                 "${BOOTLOADER_BUILD_DIR}/bootloader-reflash-digest.bin"
-                "${BOOTLOADER_BUILD_DIR}/secure-bootloader-key-192.bin"
                 "${BOOTLOADER_BUILD_DIR}/secure-bootloader-key-256.bin"
                 )
         endif()
@@ -64,12 +60,54 @@ if(CONFIG_SECURE_SIGNED_APPS)
             # If the signing key is not found, create a phony gen_secure_boot_signing_key target that
             # fails the build. fail_at_build_time causes a cmake run next time
             # (to pick up a new signing key if one exists, etc.)
-            fail_at_build_time(gen_secure_boot_signing_key
-                "Secure Boot Signing Key ${CONFIG_SECURE_BOOT_SIGNING_KEY} does not exist. Generate using:"
-                "\tespsecure.py generate_signing_key --version ${secure_apps_signing_scheme} \
-                ${CONFIG_SECURE_BOOT_SIGNING_KEY}")
+            if(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME OR CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME)
+                fail_at_build_time(gen_secure_boot_signing_key
+                    "Secure Boot Signing Key ${CONFIG_SECURE_BOOT_SIGNING_KEY} does not exist. Generate using:"
+                    "\tidf.py secure-generate-signing-key ${CONFIG_SECURE_BOOT_SIGNING_KEY}")
+            else()
+                if(CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_256_BITS)
+                    set(scheme "ecdsa256")
+                elseif(CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_384_BITS)
+                    set(scheme "ecdsa384")
+                endif()
+                fail_at_build_time(gen_secure_boot_signing_key
+                    "Secure Boot Signing Key ${CONFIG_SECURE_BOOT_SIGNING_KEY} does not exist. Generate using:"
+                    "\tidf.py secure-generate-signing-key --scheme ${scheme} ${CONFIG_SECURE_BOOT_SIGNING_KEY}")
+            endif()
         else()
             add_custom_target(gen_secure_boot_signing_key)
+
+            # Re-run CMake if the signing key file changes, so the key type check below is re-evaluated
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${secure_boot_signing_key}")
+
+            # Check that the signing key type matches the selected app signing scheme,
+            # as the signing step derives the signature type from the key itself.
+            if(CONFIG_SECURE_SIGNED_APPS_RSA_SCHEME)
+                set(key_check_args --scheme rsa)
+            elseif(CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME)
+                set(key_check_args --scheme ecdsa_v1)
+            elseif(CONFIG_SECURE_SIGNED_APPS_ECDSA_V2_SCHEME)
+                if(CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_256_BITS)
+                    set(key_check_args --scheme ecdsa_v2 --ecdsa-key-size 256)
+                elseif(CONFIG_SECURE_BOOT_ECDSA_KEY_LEN_384_BITS)
+                    set(key_check_args --scheme ecdsa_v2 --ecdsa-key-size 384)
+                else()
+                    set(key_check_args --scheme ecdsa_v2)
+                endif()
+            endif()
+
+            if(key_check_args)
+                idf_build_get_property(python PYTHON)
+                execute_process(
+                    COMMAND ${python} "${CMAKE_CURRENT_LIST_DIR}/scripts/check_secure_boot_signing_key.py"
+                            ${key_check_args} "${secure_boot_signing_key}"
+                    RESULT_VARIABLE key_check_result
+                    ERROR_VARIABLE key_check_error
+                    OUTPUT_QUIET)
+                if(NOT key_check_result EQUAL 0)
+                    message(FATAL_ERROR "CONFIG_SECURE_BOOT_SIGNING_KEY check failed: ${key_check_error}")
+                endif()
+            endif()
         endif()
 
         set(SECURE_BOOT_SIGNING_KEY ${secure_boot_signing_key}) # needed by some other components
@@ -111,17 +149,26 @@ idf_build_get_property(sdkconfig SDKCONFIG)
 idf_build_get_property(python PYTHON)
 idf_build_get_property(extra_cmake_args EXTRA_CMAKE_ARGS)
 
+# BOOTLOADER_EXTRA_COMPONENT_DIRS may have been set by the `main` component, do not overwrite it
+idf_build_get_property(bootloader_extra_component_dirs BOOTLOADER_EXTRA_COMPONENT_DIRS)
+
+# We cannot pass lists as a parameter to the external project without modifying the ';' separator
+string(REPLACE ";" "|" BOOTLOADER_IGNORE_EXTRA_COMPONENT "${BOOTLOADER_IGNORE_EXTRA_COMPONENT}")
+string(REPLACE ";" "|" bootloader_extra_component_dirs "${bootloader_extra_component_dirs}")
+
 externalproject_add(bootloader
     SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/subproject"
     BINARY_DIR "${BOOTLOADER_BUILD_DIR}"
+    # Modiying the list separator for the arguments, as such, we won't need to manually
+    # replace the new separator by the default ';' in the subproject
+    LIST_SEPARATOR |
     CMAKE_ARGS  -DSDKCONFIG=${sdkconfig} -DIDF_PATH=${idf_path} -DIDF_TARGET=${idf_target}
                 -DPYTHON_DEPS_CHECKED=1 -DPYTHON=${python}
-                -DEXTRA_COMPONENT_DIRS=${CMAKE_CURRENT_LIST_DIR}
+                -DEXTRA_COMPONENT_DIRS=${bootloader_extra_component_dirs}
+                -DPROJECT_SOURCE_DIR=${PROJECT_SOURCE_DIR}
+                -DIGNORE_EXTRA_COMPONENT=${BOOTLOADER_IGNORE_EXTRA_COMPONENT}
+                -DIDF_BUILD_V2=${IDF_BUILD_V2}
                 ${sign_key_arg} ${ver_key_arg}
-                # LEGACY_INCLUDE_COMMON_HEADERS has to be passed in via cache variable since
-                # the bootloader common component requirements depends on this and
-                # config variables are not available before project() call.
-                -DLEGACY_INCLUDE_COMMON_HEADERS=${CONFIG_LEGACY_INCLUDE_COMMON_HEADERS}
                 ${extra_cmake_args}
     INSTALL_COMMAND ""
     BUILD_ALWAYS 1  # no easy way around this...
@@ -138,5 +185,5 @@ endif()
 #
 # So for now we just have the top-level build remove the final build products...
 set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" APPEND PROPERTY
-    ADDITIONAL_MAKE_CLEAN_FILES
+    ADDITIONAL_CLEAN_FILES
     ${bootloader_binary_files})

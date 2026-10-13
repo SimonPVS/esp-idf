@@ -1,54 +1,52 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_BLE_MESH_DEFS_H_
 #define _ESP_BLE_MESH_DEFS_H_
 
 #include <stdint.h>
 
-#include "mesh_common.h"
+#include "mesh/config.h"
+#include "mesh/common.h"
 #include "proxy_server.h"
-#include "provisioner_main.h"
-
-#ifdef CONFIG_BT_BLUEDROID_ENABLED
-#include "esp_bt_defs.h"
-#include "esp_bt_main.h"
-#define ESP_BLE_HOST_STATUS_ENABLED ESP_BLUEDROID_STATUS_ENABLED
-#define ESP_BLE_HOST_STATUS_CHECK(status) ESP_BLUEDROID_STATUS_CHECK(status)
-#else
-#define ESP_BLE_HOST_STATUS_ENABLED 0
-#define ESP_BLE_HOST_STATUS_CHECK(status)  do {} while (0)
-#endif
+#include "pvnr_mgmt.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*!< The maximum length of a BLE Mesh message, including Opcode, Payload and TransMIC */
-#define ESP_BLE_MESH_SDU_MAX_LEN            384
+#define ESP_BLE_MESH_SDU_MAX_LEN                    384
+#if CONFIG_BLE_MESH_LONG_PACKET
+/* Extended SDU maximum length (included Opcode, Payload and TransMIC) calculation:
+ * SEGMENT_COUNT × (ADV_PAYLOAD_LEN - 17 bytes overhead)
+ * 17 bytes = 9 bytes mesh network header + 4 bytes transport overhead + 4 bytes NetMIC */
+#define ESP_BLE_MESH_EXT_SDU_MAX_LEN                (CONFIG_BLE_MESH_LONG_PACKET_TX_SEG_CNT * (CONFIG_BLE_MESH_LONG_PACKET_ADV_LEN - 17))
+#endif /* CONFIG_BLE_MESH_LONG_PACKET */
 
 /*!< Length of a short Mesh MIC. */
-#define ESP_BLE_MESH_MIC_SHORT              4
+#define ESP_BLE_MESH_MIC_SHORT                      4
 
 /*!< Length of a long Mesh MIC. */
-#define ESP_BLE_MESH_MIC_LONG               8
+#define ESP_BLE_MESH_MIC_LONG                       8
 
 /*!< The maximum length of a BLE Mesh provisioned node name */
-#define ESP_BLE_MESH_NODE_NAME_MAX_LEN      31
+#define ESP_BLE_MESH_NODE_NAME_MAX_LEN              31
 
 /*!< The maximum length of a BLE Mesh unprovisioned device name */
-#define ESP_BLE_MESH_DEVICE_NAME_MAX_LEN    DEVICE_NAME_SIZE
+#define ESP_BLE_MESH_DEVICE_NAME_MAX_LEN            DEVICE_NAME_SIZE
+
+/*!< The maximum length of settings user id */
+#define ESP_BLE_MESH_SETTINGS_UID_SIZE              20
+
+/*!< The default value of Random Update Interval Steps */
+#define ESP_BLE_MESH_RAND_UPDATE_INTERVAL_DEFAULT   0x3C
+
+/*!< Invalid settings index */
+#define ESP_BLE_MESH_INVALID_SETTINGS_IDX           0xFF
 
 /*!< Define the BLE Mesh octet 16 bytes size */
 #define ESP_BLE_MESH_OCTET16_LEN    16
@@ -59,69 +57,94 @@ typedef uint8_t esp_ble_mesh_octet16_t[ESP_BLE_MESH_OCTET16_LEN];
 typedef uint8_t esp_ble_mesh_octet8_t[ESP_BLE_MESH_OCTET8_LEN];
 
 /*!< Invalid Company ID */
-#define ESP_BLE_MESH_CID_NVAL                     0xFFFF
+#define ESP_BLE_MESH_CID_NVAL                               0xFFFF
 
 /*!< Special TTL value to request using configured default TTL */
-#define ESP_BLE_MESH_TTL_DEFAULT                  0xFF
+#define ESP_BLE_MESH_TTL_DEFAULT                            0xFF
 
 /*!< Maximum allowed TTL value */
-#define ESP_BLE_MESH_TTL_MAX                      0x7F
+#define ESP_BLE_MESH_TTL_MAX                                0x7F
 
-#define ESP_BLE_MESH_ADDR_UNASSIGNED              0x0000
-#define ESP_BLE_MESH_ADDR_ALL_NODES               0xFFFF
-#define ESP_BLE_MESH_ADDR_PROXIES                 0xFFFC
-#define ESP_BLE_MESH_ADDR_FRIENDS                 0xFFFD
-#define ESP_BLE_MESH_ADDR_RELAYS                  0xFFFE
+#define ESP_BLE_MESH_ADDR_UNASSIGNED                        0x0000
+#define ESP_BLE_MESH_ADDR_ALL_NODES                         0xFFFF
+#define ESP_BLE_MESH_ADDR_PROXIES                           0xFFFC
+#define ESP_BLE_MESH_ADDR_FRIENDS                           0xFFFD
+#define ESP_BLE_MESH_ADDR_RELAYS                            0xFFFE
 
-#define ESP_BLE_MESH_KEY_UNUSED                   0xFFFF
-#define ESP_BLE_MESH_KEY_DEV                      0xFFFE
+#define ESP_BLE_MESH_KEY_UNUSED                             0xFFFF
+#define ESP_BLE_MESH_KEY_DEV                                0xFFFE
 
-#define ESP_BLE_MESH_KEY_PRIMARY                  0x0000
-#define ESP_BLE_MESH_KEY_ANY                      0xFFFF
+#define ESP_BLE_MESH_KEY_PRIMARY                            0x0000
+#define ESP_BLE_MESH_KEY_ANY                                0xFFFF
+
+/*!< Internal macros used to initialize array members */
+#define ESP_BLE_MESH_KEY_UNUSED_ELT_(IDX, _) ESP_BLE_MESH_KEY_UNUSED
+#define ESP_BLE_MESH_ADDR_UNASSIGNED_ELT_(IDX, _) ESP_BLE_MESH_ADDR_UNASSIGNED
+#define ESP_BLE_MESH_MODEL_KEYS_UNUSED            \
+    { LISTIFY(CONFIG_BLE_MESH_MODEL_KEY_COUNT, ESP_BLE_MESH_KEY_UNUSED_ELT_, (,)) }
+#define ESP_BLE_MESH_MODEL_GROUPS_UNASSIGNED      \
+    { LISTIFY(CONFIG_BLE_MESH_MODEL_GROUP_COUNT, ESP_BLE_MESH_ADDR_UNASSIGNED_ELT_, (,)) }
 
 /*!< Primary Network Key index */
-#define ESP_BLE_MESH_NET_PRIMARY                  0x000
+#define ESP_BLE_MESH_NET_PRIMARY                            0x000
 
 /*!< Relay state value */
-#define ESP_BLE_MESH_RELAY_DISABLED               0x00
-#define ESP_BLE_MESH_RELAY_ENABLED                0x01
-#define ESP_BLE_MESH_RELAY_NOT_SUPPORTED          0x02
+#define ESP_BLE_MESH_RELAY_DISABLED                         0x00
+#define ESP_BLE_MESH_RELAY_ENABLED                          0x01
+#define ESP_BLE_MESH_RELAY_NOT_SUPPORTED                    0x02
 
 /*!< Beacon state value */
-#define ESP_BLE_MESH_BEACON_DISABLED              0x00
-#define ESP_BLE_MESH_BEACON_ENABLED               0x01
+#define ESP_BLE_MESH_BEACON_DISABLED                        0x00
+#define ESP_BLE_MESH_BEACON_ENABLED                         0x01
+
+#define ESP_BLE_MESH_PRIVATE_BEACON_DISABLE                 0x00
+#define ESP_BLE_MESH_PRIVATE_BEACON_ENABLE                  0x01
 
 /*!< GATT Proxy state value */
-#define ESP_BLE_MESH_GATT_PROXY_DISABLED          0x00
-#define ESP_BLE_MESH_GATT_PROXY_ENABLED           0x01
-#define ESP_BLE_MESH_GATT_PROXY_NOT_SUPPORTED     0x02
+#define ESP_BLE_MESH_GATT_PROXY_DISABLED                    0x00
+#define ESP_BLE_MESH_GATT_PROXY_ENABLED                     0x01
+#define ESP_BLE_MESH_GATT_PROXY_NOT_SUPPORTED               0x02
+
+#define ESP_BLE_MESH_PRIVATE_GATT_PROXY_DISABLED            0x00
+#define ESP_BLE_MESH_PRIVATE_GATT_PROXY_ENABLED             0x01
+#define ESP_BLE_MESH_PRIVATE_GATT_PROXY_NOT_SUPPORTED       0x02
+
+#define ESP_BLE_MESH_PRIVATE_NODE_IDENTITY_DISABLED         0x00
+#define ESP_BLE_MESH_PRIVATE_NODE_IDENTITY_ENABLED          0x01
+#define ESP_BLE_MESH_PRIVATE_NODE_IDENTITY_NOT_SUPPORTED    0x02
 
 /*!< Friend state value */
-#define ESP_BLE_MESH_FRIEND_DISABLED              0x00
-#define ESP_BLE_MESH_FRIEND_ENABLED               0x01
-#define ESP_BLE_MESH_FRIEND_NOT_SUPPORTED         0x02
+#define ESP_BLE_MESH_FRIEND_DISABLED                        0x00
+#define ESP_BLE_MESH_FRIEND_ENABLED                         0x01
+#define ESP_BLE_MESH_FRIEND_NOT_SUPPORTED                   0x02
 
 /*!< Node identity state value */
-#define ESP_BLE_MESH_NODE_IDENTITY_STOPPED        0x00
-#define ESP_BLE_MESH_NODE_IDENTITY_RUNNING        0x01
-#define ESP_BLE_MESH_NODE_IDENTITY_NOT_SUPPORTED  0x02
+#define ESP_BLE_MESH_NODE_IDENTITY_STOPPED                  0x00
+#define ESP_BLE_MESH_NODE_IDENTITY_RUNNING                  0x01
+#define ESP_BLE_MESH_NODE_IDENTITY_NOT_SUPPORTED            0x02
+
+/*!< Subnet Bridge state value */
+#define ESP_BLE_MESH_SUBNET_BRIDGE_DISABLED                 0x00
+#define ESP_BLE_MESH_SUBNET_BRIDGE_ENABLED                  0x01
 
 /*!< Supported features */
-#define ESP_BLE_MESH_FEATURE_RELAY                BIT(0)
-#define ESP_BLE_MESH_FEATURE_PROXY                BIT(1)
-#define ESP_BLE_MESH_FEATURE_FRIEND               BIT(2)
-#define ESP_BLE_MESH_FEATURE_LOW_POWER            BIT(3)
-#define ESP_BLE_MESH_FEATURE_ALL_SUPPORTED        (ESP_BLE_MESH_FEATURE_RELAY |     \
-                                                   ESP_BLE_MESH_FEATURE_PROXY |     \
-                                                   ESP_BLE_MESH_FEATURE_FRIEND |    \
-                                                   ESP_BLE_MESH_FEATURE_LOW_POWER)
+#define ESP_BLE_MESH_FEATURE_RELAY                          BIT(0)
+#define ESP_BLE_MESH_FEATURE_PROXY                          BIT(1)
+#define ESP_BLE_MESH_FEATURE_FRIEND                         BIT(2)
+#define ESP_BLE_MESH_FEATURE_LOW_POWER                      BIT(3)
+#define ESP_BLE_MESH_FEATURE_ALL_SUPPORTED                  (ESP_BLE_MESH_FEATURE_RELAY | \
+                                                             ESP_BLE_MESH_FEATURE_PROXY | \
+                                                             ESP_BLE_MESH_FEATURE_FRIEND | \
+                                                             ESP_BLE_MESH_FEATURE_LOW_POWER)
 
-#define ESP_BLE_MESH_ADDR_IS_UNICAST(addr)        ((addr) && (addr) < 0x8000)
-#define ESP_BLE_MESH_ADDR_IS_GROUP(addr)          ((addr) >= 0xC000 && (addr) <= 0xFF00)
-#define ESP_BLE_MESH_ADDR_IS_VIRTUAL(addr)        ((addr) >= 0x8000 && (addr) < 0xC000)
-#define ESP_BLE_MESH_ADDR_IS_RFU(addr)            ((addr) >= 0xFF00 && (addr) <= 0xFFFB)
+#define ESP_BLE_MESH_ADDR_IS_UNICAST(addr)                  ((addr) && (addr) < 0x8000)
+#define ESP_BLE_MESH_ADDR_IS_GROUP(addr)                    ((addr) >= 0xC000 && (addr) <= 0xFF00)
+#define ESP_BLE_MESH_ADDR_IS_VIRTUAL(addr)                  ((addr) >= 0x8000 && (addr) < 0xC000)
+#define ESP_BLE_MESH_ADDR_IS_RFU(addr)                      ((addr) >= 0xFF00 && (addr) <= 0xFFFB)
 
-#define ESP_BLE_MESH_INVALID_NODE_INDEX           0xFFFF
+#define ESP_BLE_MESH_INVALID_NODE_INDEX                     0xFFFF
+
+#define ESP_BLE_MESH_PROV_RECORD_MAX_ID                     0x0013
 
 /** @def    ESP_BLE_MESH_TRANSMIT
  *
@@ -249,7 +272,9 @@ typedef enum {
     ESP_BLE_MESH_PROV_OOB_NFC       = BIT(4),
     ESP_BLE_MESH_PROV_OOB_NUMBER    = BIT(5),
     ESP_BLE_MESH_PROV_OOB_STRING    = BIT(6),
-    /* 7 - 10 are reserved */
+    ESP_BLE_MESH_PROV_CERT_BASED    = BIT(7),
+    ESP_BLE_MESH_PROV_RECORDS       = BIT(8),
+    /* 9 - 10 are reserved */
     ESP_BLE_MESH_PROV_OOB_ON_BOX    = BIT(11),
     ESP_BLE_MESH_PROV_OOB_IN_BOX    = BIT(12),
     ESP_BLE_MESH_PROV_OOB_ON_PAPER  = BIT(13),
@@ -275,26 +300,24 @@ typedef enum {
 #define ESP_BLE_MESH_SIG_MODEL(_id, _op, _pub, _user_data)          \
 {                                                                   \
     .model_id = (_id),                                              \
-    .op = _op,                                                      \
-    .keys = { [0 ... (CONFIG_BLE_MESH_MODEL_KEY_COUNT - 1)] =       \
-            ESP_BLE_MESH_KEY_UNUSED },                              \
     .pub = _pub,                                                    \
-    .groups = { [0 ... (CONFIG_BLE_MESH_MODEL_GROUP_COUNT - 1)] =   \
-            ESP_BLE_MESH_ADDR_UNASSIGNED },                         \
+    .keys = ESP_BLE_MESH_MODEL_KEYS_UNUSED,                         \
+    .groups = ESP_BLE_MESH_MODEL_GROUPS_UNASSIGNED,                 \
+    .op = _op,                                                      \
     .user_data = _user_data,                                        \
 }
 
 /*!< This macro is associated with BLE_MESH_MODEL_VND_CB in mesh_access.h */
 #define ESP_BLE_MESH_VENDOR_MODEL(_company, _id, _op, _pub, _user_data) \
 {                                                                       \
-    .vnd.company_id = (_company),                                       \
-    .vnd.model_id = (_id),                                              \
-    .op = _op,                                                          \
+    .vnd = {                                                            \
+        .company_id = (_company),                                       \
+        .model_id = (_id),                                              \
+    },                                                                  \
     .pub = _pub,                                                        \
-    .keys = { [0 ... (CONFIG_BLE_MESH_MODEL_KEY_COUNT - 1)] =           \
-            ESP_BLE_MESH_KEY_UNUSED },                                  \
-    .groups = { [0 ... (CONFIG_BLE_MESH_MODEL_GROUP_COUNT - 1)] =       \
-            ESP_BLE_MESH_ADDR_UNASSIGNED },                             \
+    .keys = ESP_BLE_MESH_MODEL_KEYS_UNUSED,                             \
+    .groups = ESP_BLE_MESH_MODEL_GROUPS_UNASSIGNED,                     \
+    .op = _op,                                                          \
     .user_data = _user_data,                                            \
 }
 
@@ -313,8 +336,8 @@ typedef enum {
 {                                                       \
     .location         = (_loc),                         \
     .sig_model_count  = ARRAY_SIZE(_mods),              \
-    .sig_models       = (_mods),                        \
     .vnd_model_count  = ARRAY_SIZE(_vnd_mods),          \
+    .sig_models       = (_mods),                        \
     .vnd_models       = (_vnd_mods),                    \
 }
 
@@ -328,33 +351,105 @@ typedef enum {
     .input_action   = in_act,       \
 }
 
-typedef uint8_t UINT8;
-typedef uint16_t UINT16;
-typedef uint32_t UINT32;
-typedef uint64_t UINT64;
+typedef uint8_t UINT8 __attribute__((deprecated));
+typedef uint16_t UINT16 __attribute__((deprecated));
+typedef uint32_t UINT32 __attribute__((deprecated));
+typedef uint64_t UINT64 __attribute__((deprecated));
 
-#define BT_OCTET32_LEN    32
-typedef UINT8 BT_OCTET32[BT_OCTET32_LEN];   /* octet array: size 32 */
-
+#ifndef BT_OCTET32_LEN
+#define BT_OCTET32_LEN  32
+typedef UINT8 BT_OCTET32[BT_OCTET32_LEN] __attribute__((deprecated));
+#endif
 
 #ifndef BD_ADDR_LEN
 #define BD_ADDR_LEN     6
-typedef uint8_t BD_ADDR[BD_ADDR_LEN];
+typedef uint8_t BD_ADDR[BD_ADDR_LEN] __attribute__((deprecated));
 #endif
 
 typedef uint8_t esp_ble_mesh_bd_addr_t[BD_ADDR_LEN];
 
-#define ESP_BLE_MESH_ADDR_TYPE_PUBLIC       0x00
-#define ESP_BLE_MESH_ADDR_TYPE_RANDOM       0x01
-#define ESP_BLE_MESH_ADDR_TYPE_RPA_PUBLIC   0x02
-#define ESP_BLE_MESH_ADDR_TYPE_RPA_RANDOM   0x03
+#define ESP_BLE_MESH_ADDR_TYPE_PUBLIC                       0x00
+#define ESP_BLE_MESH_ADDR_TYPE_RANDOM                       0x01
+#define ESP_BLE_MESH_ADDR_TYPE_RPA_PUBLIC                   0x02
+#define ESP_BLE_MESH_ADDR_TYPE_RPA_RANDOM                   0x03
 /// BLE device address type
 typedef uint8_t esp_ble_mesh_addr_type_t;
+
+#define ESP_BLE_MESH_DIRECTED_FORWARDING_DISABLED           0x00
+#define ESP_BLE_MESH_DIRECTED_FORWARDING_ENABLED            0x01
+
+#define ESP_BLE_MESH_DIRECTED_RELAY_DISABLED                0x00
+#define ESP_BLE_MESH_DIRECTED_RELAY_ENABLED                 0x01
+
+#define ESP_BLE_MESH_DIRECTED_PROXY_IGNORE                  0xFF
+#define ESP_BLE_MESH_DIRECTED_PROXY_USE_DEFAULT_IGNORE      0xFF
+#define ESP_BLE_MESH_DIRECTED_FRIEND_IGNORE                 0xFF
+
+#define ESP_BLE_MESH_DIRECTED_PROXY_DISABLED                0x00
+#define ESP_BLE_MESH_DIRECTED_PROXY_ENABLED                 0x01
+#define ESP_BLE_MESH_DIRECTED_PROXY_NOT_SUPPORTED           0x02
+
+#define ESP_BLE_MESH_DIRECTED_PROXY_USE_DEF_DISABLED        0x00
+#define ESP_BLE_MESH_DIRECTED_PROXY_USE_DEF_ENABLED         0x01
+#define ESP_BLE_MESH_DIRECTED_PROXY_USE_DEF_NOT_SUPPORTED   0x02
+
+#define ESP_BLE_MESH_DIRECTED_FRIEND_DISABLED               0x00
+#define ESP_BLE_MESH_DIRECTED_FRIEND_ENABLED                0x01
+#define ESP_BLE_MESH_DIRECTED_FRIEND_NOT_SUPPORTED          0x02
+
+#define ESP_BLE_MESH_DIRECTED_PUB_POLICY_FLOODING           0x00
+#define ESP_BLE_MESH_DIRECTED_PUB_POLICY_FORWARD            0x01
+
+#define ESP_BLE_MESH_PROXY_USE_DIRECTED_DISABLED            0x00
+#define ESP_BLE_MESH_PROXY_USE_DIRECTED_ENABLED             0x01
+
+#define ESP_BLE_MESH_FLOODING_CRED                          0x00    /* Managed flooding security credentials */
+#define ESP_BLE_MESH_FRIENDSHIP_CRED                        0x01    /* Friendship security credentials */
+#define ESP_BLE_MESH_DIRECTED_CRED                          0x02    /* Directed security credentials */
+
+#define ESP_BLE_MESH_TAG_SEND_SEGMENTED                     BIT(0)  /* Tagged with send-segmented */
+#define ESP_BLE_MESH_TAG_IMMUTABLE_CRED                     BIT(1)  /* Tagged with immutable-credentials */
+#define ESP_BLE_MESH_TAG_USE_DIRECTED                       BIT(2)  /* Tagged with use-directed */
+#define ESP_BLE_MESH_TAG_RELAY                              BIT(3)  /* Tagged as relay */
+#define ESP_BLE_MESH_TAG_FRIENDSHIP                         BIT(4)  /* Tagged as a friendship PDU */
+
+#define ESP_BLE_MESH_SEG_SZMIC_SHORT                        0       /* Using 4-octets TransMIC for a segmented message */
+#define ESP_BLE_MESH_SEG_SZMIC_LONG                         1       /* Using 8-octets TransMIC for a segmented message */
 
 /** BLE Mesh deinit parameters */
 typedef struct {
     bool erase_flash;   /*!< Indicate if erasing flash when deinit mesh stack */
 } esp_ble_mesh_deinit_param_t;
+
+/** Scan parameters */
+typedef struct {
+    /**
+     * Scan interval.
+     *
+     * Range: 0x0004 to 0x4000.
+     *
+     * Time = N * 0.625 ms. Time Range: 2.5 ms to 10.24 s
+     */
+    uint16_t scan_interval;
+
+    /**
+     * Uncoded Scan window.
+     *
+     * Time scanned on uncoded PHY within a scan interval.
+     *
+     * Range: 0x0004 to 0x4000.
+     *
+     * Time = N * 0.625 ms. Time Range: 2.5 ms to 10.24 s
+     */
+    uint16_t uncoded_scan_window;
+} esp_ble_mesh_scan_param_t;
+
+/** Format of Unicast Address Range */
+typedef struct {
+    uint16_t len_present:1,     /*!< Indicate the presence or absence of the RangeLength field */
+             range_start:15;    /*!< 15 least significant bits of the starting unicast address */
+    uint8_t  range_length;      /*!< Number of addresses in the range (0x02 - 0xFF) */
+} esp_ble_mesh_uar_t;
 
 typedef struct esp_ble_mesh_model esp_ble_mesh_model_t;
 
@@ -385,7 +480,8 @@ typedef struct {
     uint16_t publish_addr;  /*!< Publish Address. */
     uint16_t app_idx:12,    /*!< Publish AppKey Index. */
              cred:1,        /*!< Friendship Credentials Flag. */
-             send_rel:1;    /*!< Force reliable sending (segment acks) */
+             send_rel:1,    /*!< Force reliable sending (segment acks) */
+             send_szmic:1;  /*!< Size of TransMIC when publishing a Segmented Access message */
 
     uint8_t  ttl;           /*!< Publish Time to Live. */
     uint8_t  retransmit;    /*!< Retransmit Count & Interval Steps. */
@@ -395,7 +491,11 @@ typedef struct {
              fast_period:1, /*!< Use FastPeriodDivisor */
              count:3;       /*!< Retransmissions left. */
 
-    uint32_t period_start; /*!< Start of the current period. */
+    uint32_t period_start;  /*!< Start of the current period. */
+
+#if CONFIG_BLE_MESH_DF_SRV
+    uint8_t  directed_pub_policy; /*!< Directed publish policy */
+#endif
 
     /** @brief Publication buffer, containing the publication message.
      *
@@ -413,7 +513,7 @@ typedef struct {
     struct k_delayed_work timer;
 
     /** Role of the device that is going to publish messages */
-    uint8_t dev_role;
+    uint8_t dev_role __attribute__((deprecated));
 } esp_ble_mesh_model_pub_t;
 
 /** @def ESP_BLE_MESH_MODEL_PUB_DEFINE
@@ -427,8 +527,8 @@ typedef struct {
 #define ESP_BLE_MESH_MODEL_PUB_DEFINE(_name, _msg_len, _role) \
     NET_BUF_SIMPLE_DEFINE_STATIC(bt_mesh_pub_msg_##_name, _msg_len); \
     static esp_ble_mesh_model_pub_t _name = { \
-        .update = (uint32_t)NULL, \
         .msg = &bt_mesh_pub_msg_##_name, \
+        .update = (uint32_t)NULL, \
         .dev_role = _role, \
     }
 
@@ -468,8 +568,10 @@ typedef struct {
     /** Callback used during model initialization. Initialized by the stack. */
     esp_ble_mesh_cb_t init_cb;
 
+#if CONFIG_BLE_MESH_DEINIT
     /** Callback used during model deinitialization. Initialized by the stack. */
     esp_ble_mesh_cb_t deinit_cb;
+#endif /* CONFIG_BLE_MESH_DEINIT */
 } esp_ble_mesh_model_cbs_t;
 
 /** Abstraction that describes a Mesh Model instance.
@@ -481,7 +583,7 @@ struct esp_ble_mesh_model {
         const uint16_t model_id; /*!< 16-bit model identifier */
         struct {
             uint16_t company_id; /*!< 16-bit company identifier */
-            uint16_t model_id; /*!< 16-bit model identifier */
+            uint16_t model_id;   /*!< 16-bit model identifier */
         } vnd; /*!< Structure encapsulating a model ID with a company ID */
     };
 
@@ -517,6 +619,166 @@ struct esp_ble_mesh_model {
  */
 #define ESP_BLE_MESH_MODEL_NONE ((esp_ble_mesh_model_t []){})
 
+#if CONFIG_BLE_MESH_USE_BLE_50
+#define ESP_BLE_MESH_ADV_CHAN_UNASSIGNED        (0)
+#define ESP_BLE_MESH_ADV_CHAN_37                BIT(0)
+#define ESP_BLE_MESH_ADV_CHAN_38                BIT(1)
+#define ESP_BLE_MESH_ADV_CHAN_39                BIT(2)
+
+#define ESP_BLE_MESH_DEFAULT_CHANNEL_MAP        (ESP_BLE_MESH_ADV_CHAN_37| \
+                                                 ESP_BLE_MESH_ADV_CHAN_38| \
+                                                 ESP_BLE_MESH_ADV_CHAN_39)
+
+#define ESP_BLE_MESH_ADV_PHY_UNASSIGNED         (0)
+#define ESP_BLE_MESH_ADV_PHY_1M                 (1)
+#define ESP_BLE_MESH_ADV_PHY_2M                 (2)
+#define ESP_BLE_MESH_ADV_PHY_CODED              (3)
+#define ESP_BLE_MESH_ADV_PHY_DEFAULT            ESP_BLE_MESH_ADV_PHY_1M
+#endif /* CONFIG_BLE_MESH_USE_BLE_50 */
+
+/**
+ * Enhanced configuration for Mesh messages with legacy advertising
+ */
+typedef struct {
+    /**
+     * Advertising interval in milliseconds.
+     * If set to 0, the Mesh protocol stack's xmit parameters are used.
+     * If set to another value (e.g., 10), the advertising interval will be 10 ms.
+     */
+    uint32_t adv_itvl;
+
+    /**
+     * Number of advertising per packet.
+     * If set to 0, the Mesh protocol stack's xmit parameters are used.
+     * If set to another value (e.g., 3), the number of advertising per packet will be 3.
+     */
+    uint8_t adv_cnt;
+
+    /**
+     * Advertising channel map.
+     * If set to 0, the protocol stack uses default channels.
+     * If set to another value (e.g., ESP_BLE_MESH_ADV_CHAN_37),
+     * the advertising channel map will be 0x01, the advertising
+     * packet will only advertise on channel 37.
+     */
+    uint8_t channel_map;
+} esp_ble_mesh_adv_cfg_t;
+
+#if CONFIG_BLE_MESH_EXT_ADV
+/** Enhanced configuration for Mesh messages with extended advertising */
+typedef struct {
+    /**
+     * Primary PHY for advertising (ESP_BLE_MESH_ADV_PHY_1M or
+     * ESP_BLE_MESH_ADV_PHY_CODED).
+     * When using coded PHY, receivers must use coded scanning.
+     */
+    uint8_t primary_phy;
+
+    /**
+     * Secondary PHY for advertising (ESP_BLE_MESH_ADV_PHY_1M,
+     * ESP_BLE_MESH_ADV_PHY_2M, or ESP_BLE_MESH_ADV_PHY_CODED).
+     * When using coded PHY, receivers must use coded scanning.
+     */
+    uint8_t secondary_phy;
+
+    /**
+     * Include TX power in advertising packets (0: disabled, 1: enabled).
+     * Allows receivers/relays to maintain original transmission power.
+     */
+    uint8_t include_tx_power:1;
+
+    /** Transmission power level (in dBm) */
+    int8_t tx_power;
+} esp_ble_mesh_ext_adv_cfg_t;
+#endif /* CONFIG_BLE_MESH_EXT_ADV */
+
+#if CONFIG_BLE_MESH_LONG_PACKET
+/** Force this message to use long packet format */
+#define ESP_BLE_MESH_LONG_PACKET_FORCE     (1)
+
+/**
+ * Whether to use the long packet mode will be chosen by the protocol stack,
+ * which currently makes the decision based on message length.
+ * Advertising using the standard BLE Mesh protocol when possible.
+ * Switch to long packet mode for advertising when the standard BLE
+ * Mesh protocol cannot be used.
+ */
+#define ESP_BLE_MESH_LONG_PACKET_PREFER    (2)
+#endif /* CONFIG_BLE_MESH_LONG_PACKET */
+
+/** Enhanced message advertising parameters */
+typedef struct {
+    /**
+     * Use custom advertising parameters (0: disabled, 1: enabled).
+     * When enabled, `adv_cfg` parameters override stack defaults.
+     */
+    uint8_t adv_cfg_used:1;
+
+#if CONFIG_BLE_MESH_EXT_ADV
+    /**
+     * Use extended advertising parameters (0: disabled, 1: enabled).
+     * When enabled, `ext_adv_cfg` parameters override stack defaults.
+     */
+    uint8_t ext_adv_cfg_used:1;
+#endif /* CONFIG_BLE_MESH_EXT_ADV */
+
+#if CONFIG_BLE_MESH_LONG_PACKET
+    /**
+     * Control long packet usage (0: disabled, 1: enabled).
+     * When disabled, the protocol stack cannot use long packets to
+     * send this message.
+     */
+    uint8_t long_pkt_cfg_used:1;
+#endif /* CONFIG_BLE_MESH_LONG_PACKET */
+
+    /** Standard advertising parameters */
+    esp_ble_mesh_adv_cfg_t adv_cfg;
+
+#if CONFIG_BLE_MESH_EXT_ADV
+    /** Extended advertising parameters */
+    esp_ble_mesh_ext_adv_cfg_t ext_adv_cfg;
+#endif /* CONFIG_BLE_MESH_EXT_ADV */
+
+#if CONFIG_BLE_MESH_LONG_PACKET
+    /**
+     * Long packet configuration:
+     * - ESP_BLE_MESH_LONG_PACKET_FORCE
+     * - ESP_BLE_MESH_LONG_PACKET_PREFER
+     */
+    uint8_t long_pkt_cfg:2;
+#endif /* CONFIG_BLE_MESH_LONG_PACKET */
+} esp_ble_mesh_msg_enh_params_t;
+
+#define ESP_BLE_MESH_ADV_CFG_NULL ((esp_ble_mesh_adv_cfg_t){0})
+#define ESP_BLE_MESH_EXT_ADV_CFG_NULL ((esp_ble_mesh_ext_adv_cfg_t){0})
+
+#define ESP_BLE_MESH_ADV_CFG_DEFAULT \
+        ((esp_ble_mesh_adv_cfg_t){\
+            .adv_itvl= 0, \
+            .adv_cnt = 0, \
+            .channel_map = ESP_BLE_MESH_DEFAULT_CHANNEL_MAP, \
+        })
+
+#define ESP_BLE_MESH_EXT_ADV_CFG_DEFAULT \
+        ((esp_ble_mesh_ext_adv_cfg_t){ \
+            .primary_phy = ESP_BLE_MESH_ADV_PHY_1M, \
+            .secondary_phy = ESP_BLE_MESH_ADV_PHY_1M, \
+            .tx_power = 0x7f, \
+            .include_tx_power = false,\
+        })
+
+#if CONFIG_BLE_MESH_LONG_PACKET
+#define ESP_BLE_MESH_LONG_PACKET_DEF_ENH_SET(ADV_CFG, EXT_ADV_CFG, LONG_PACKET_CFG) \
+    ((esp_ble_mesh_msg_enh_params_t){    \
+        .adv_cfg_used = true,\
+        .adv_cfg = ADV_CFG, \
+        .ext_adv_cfg_used = true,  \
+        .ext_adv_cfg = EXT_ADV_CFG, \
+        .long_pkt_cfg_used = true,  \
+        .long_pkt_cfg = LONG_PACKET_CFG, \
+    })
+#endif /* CONFIG_BLE_MESH_LONG_PACKET */
+
 /** Message sending context.
  *  This structure is associated with struct bt_mesh_msg_ctx in mesh_access.h
  */
@@ -533,26 +795,44 @@ typedef struct {
     /** Destination address of a received message. Not used for sending. */
     uint16_t recv_dst;
 
-    /** RSSI of received packet. Not used for sending. */
+    /** RSSI of a received message. Not used for sending. */
     int8_t   recv_rssi;
 
-    /** Received TTL value. Not used for sending. */
-    uint8_t  recv_ttl: 7;
+    /** Opcode of a received message. Not used for sending. */
+    uint32_t recv_op;
 
-    /** Force sending reliably by using segment acknowledgement */
-    uint8_t  send_rel: 1;
+    /** Received TTL value. Not used for sending. */
+    uint8_t  recv_ttl;
+
+    /** Security credentials of a received message. Not used for sending. */
+    uint8_t  recv_cred;
+
+    /** Tag of a received message. Not used for sending. */
+    uint8_t  recv_tag;
+
+    /** Force sending reliably by using segment acknowledgement. */
+    uint8_t  send_rel:1 __attribute__((deprecated));
+
+    /** Size of TransMIC when sending a Segmented Access message. */
+    uint8_t  send_szmic:1;
 
     /** TTL, or ESP_BLE_MESH_TTL_DEFAULT for default TTL. */
     uint8_t  send_ttl;
 
-    /** Opcode of a received message. Not used for sending message. */
-    uint32_t recv_op;
+    /** Security credentials used for sending the message */
+    uint8_t  send_cred;
+
+    /** Tag used for sending the message. */
+    uint8_t  send_tag;
 
     /** Model corresponding to the message, no need to be initialized before sending message */
-    esp_ble_mesh_model_t *model;
+    esp_ble_mesh_model_t *model __attribute__((deprecated));
 
     /** Indicate if the message is sent by a node server model, no need to be initialized before sending message */
-    bool srv_send;
+    bool srv_send __attribute__((deprecated));
+
+    /** Enhanced message advertising parameters */
+    esp_ble_mesh_msg_enh_params_t enh;
 } esp_ble_mesh_msg_ctx_t;
 
 /** Provisioning properties & capabilities.
@@ -573,11 +853,20 @@ typedef struct {
     /** Out of Band information field. */
     esp_ble_mesh_prov_oob_info_t oob_info;
 
+    /* NOTE: In order to avoid suffering brute-forcing attack (CVE-2020-26559).
+     * The Bluetooth SIG recommends that potentially vulnerable mesh provisioners
+     * support an out-of-band mechanism to exchange the public keys.
+     * So as an unprovisioned device, it should enable this flag to support
+     * using an out-of-band mechanism to exchange Public Key.
+     */
     /** Flag indicates whether unprovisioned devices support OOB public key */
     bool oob_pub_key;
 
     /** Callback used to notify to set OOB Public Key. Initialized by the stack. */
     esp_ble_mesh_cb_t oob_pub_key_cb;
+
+    /** OOB type */
+    uint8_t        oob_type;
 
     /** Static OOB value */
     const uint8_t *static_val;
@@ -626,12 +915,29 @@ typedef struct {
     /** Provisioning Algorithm for the Provisioner */
     uint8_t        prov_algorithm;
 
+    /* NOTE: In order to avoid suffering brute-forcing attack (CVE-2020-26559).
+     * The Bluetooth SIG recommends that potentially vulnerable mesh provisioners
+     * use an out-of-band mechanism to exchange the public keys.
+     */
     /** Provisioner public key oob */
     uint8_t        prov_pub_key_oob;
 
     /** Callback used to notify to set device OOB Public Key. Initialized by the stack. */
     esp_ble_mesh_cb_t provisioner_prov_read_oob_pub_key;
 
+    /* NOTE: The Bluetooth SIG recommends that mesh implementations enforce a randomly
+     * selected AuthValue using all of the available bits, where permitted by the
+     * implementation. A large entropy helps ensure that a brute-force of the AuthValue,
+     * even a static AuthValue, cannot normally be completed in a reasonable time (CVE-2020-26557).
+     *
+     * AuthValues selected using a cryptographically secure random or pseudorandom number
+     * generator and having the maximum permitted entropy (128-bits) will be most difficult
+     * to brute-force. AuthValues with reduced entropy or generated in a predictable manner
+     * will not grant the same level of protection against this vulnerability. Selecting a
+     * new AuthValue with each provisioning attempt can also make it more difficult to launch
+     * a brute-force attack by requiring the attacker to restart the search with each
+     * provisioning attempt (CVE-2020-26556).
+     */
     /** Provisioner static oob value */
     uint8_t        *prov_static_oob_val;
     /** Provisioner static oob value length */
@@ -654,6 +960,12 @@ typedef struct {
     esp_ble_mesh_cb_t  provisioner_link_close;
     /** Callback used to indicate that a device is provisioned. Initialized by the stack. */
     esp_ble_mesh_cb_t  provisioner_prov_comp;
+    /** Callback used to indicate that certificate based provisioning needs to start. Initialized by the stack. */
+    esp_ble_mesh_cb_t  cert_based_prov_start;
+    /** Callback used to indicate that provisioner has received provisioning records list successfully. Initialized by the stack. */
+    esp_ble_mesh_cb_t  records_list_get;
+    /** Callback used to indicate that provisioner has received a complete provisioning record successfully. Initialized by the stack. */
+    esp_ble_mesh_cb_t  prov_record_recv_comp;
 #endif /* CONFIG_BLE_MESH_PROVISIONER */
 } esp_ble_mesh_prov_t;
 
@@ -684,8 +996,8 @@ typedef uint8_t esp_ble_mesh_dev_add_flag_t;
 
 /** Information of the device which is going to be added for provisioning. */
 typedef struct {
-    esp_ble_mesh_bd_addr_t addr;                 /*!< Device address */
-    esp_ble_mesh_addr_type_t addr_type;      /*!< Device address type */
+    esp_ble_mesh_bd_addr_t addr;        /*!< Device address */
+    esp_ble_mesh_addr_type_t addr_type; /*!< Device address type */
     uint8_t  uuid[16];                  /*!< Device UUID */
     uint16_t oob_info;                  /*!< Device OOB Info */
     /*!< ADD_DEV_START_PROV_NOW_FLAG shall not be set if the bearer has both PB-ADV and PB-GATT enabled */
@@ -696,14 +1008,16 @@ typedef struct {
 #define DEL_DEV_UUID_FLAG BIT(1)
 /** Information of the device which is going to be deleted. */
 typedef struct {
+    /** Union of Device information */
     union {
+        /** Device address */
         struct {
-            esp_ble_mesh_bd_addr_t addr;         /*!< Device address */
-            esp_ble_mesh_addr_type_t addr_type;  /*!< Device address type */
+            esp_ble_mesh_bd_addr_t addr;        /*!< Device address */
+            esp_ble_mesh_addr_type_t addr_type; /*!< Device address type */
         };
-        uint8_t uuid[16];                   /*!< Device UUID */
+        uint8_t uuid[16];                       /*!< Device UUID */
     };
-    uint8_t flag;                           /*!< BIT0: device address; BIT1: device UUID */
+    uint8_t flag;                               /*!< BIT0: device address; BIT1: device UUID */
 } esp_ble_mesh_device_delete_t;
 
 #define PROV_DATA_NET_IDX_FLAG  BIT(0)
@@ -711,6 +1025,7 @@ typedef struct {
 #define PROV_DATA_IV_INDEX_FLAG BIT(2)
 /** Information of the provisioner which is going to be updated. */
 typedef struct {
+    /** Provisioning data */
     union {
         uint16_t net_idx;   /*!< NetKey Index */
         uint8_t  flags;     /*!< Flags */
@@ -768,35 +1083,19 @@ typedef enum {
     PROXY_FILTER_BLACKLIST,
 } esp_ble_mesh_proxy_filter_type_t;
 
-/** Count for sending BLE advertising packet infinitely */
-#define ESP_BLE_MESH_BLE_ADV_INFINITE   0xFFFF
+/*!< Provisioner heartbeat filter type */
+#define ESP_BLE_MESH_HEARTBEAT_FILTER_ACCEPTLIST    0x00
+#define ESP_BLE_MESH_HEARTBEAT_FILTER_REJECTLIST    0x01
 
-/*!< This enum value is the priority of BLE advertising packet */
-typedef enum {
-    ESP_BLE_MESH_BLE_ADV_PRIO_LOW,
-    ESP_BLE_MESH_BLE_ADV_PRIO_HIGH,
-} esp_ble_mesh_ble_adv_priority_t;
+/*!< Provisioner heartbeat filter operation */
+#define ESP_BLE_MESH_HEARTBEAT_FILTER_ADD           0x00
+#define ESP_BLE_MESH_HEARTBEAT_FILTER_REMOVE        0x01
 
-/** Context of BLE advertising parameters. */
+/** Context of Provisioner heartbeat filter information to be set */
 typedef struct {
-    uint16_t interval;                  /*!< BLE advertising interval */
-    uint8_t  adv_type;                  /*!< BLE advertising type */
-    uint8_t  own_addr_type;             /*!< Own address type */
-    uint8_t  peer_addr_type;            /*!< Peer address type */
-    uint8_t  peer_addr[BD_ADDR_LEN];    /*!< Peer address */
-    uint16_t duration;                  /*!< Duration is milliseconds */
-    uint16_t period;                    /*!< Period in milliseconds */
-    uint16_t count;                     /*!< Number of advertising duration */
-    uint8_t  priority:2;                /*!< Priority of BLE advertising packet */
-} esp_ble_mesh_ble_adv_param_t;
-
-/** Context of BLE advertising data. */
-typedef struct {
-    uint8_t adv_data_len;       /*!< Advertising data length */
-    uint8_t adv_data[31];       /*!< Advertising data */
-    uint8_t scan_rsp_data_len;  /*!< Scan response data length */
-    uint8_t scan_rsp_data[31];  /*!< Scan response data */
-} esp_ble_mesh_ble_adv_data_t;
+    uint16_t hb_src;    /*!< Heartbeat source address (unicast address) */
+    uint16_t hb_dst;    /*!< Heartbeat destination address (unicast address or group address) */
+} esp_ble_mesh_heartbeat_filter_info_t;
 
 /*!< This enum value is the event of node/provisioner/fast provisioning */
 typedef enum {
@@ -816,8 +1115,13 @@ typedef enum {
     ESP_BLE_MESH_NODE_PROV_INPUT_NUMBER_COMP_EVT,               /*!< Node input number completion event */
     ESP_BLE_MESH_NODE_PROV_INPUT_STRING_COMP_EVT,               /*!< Node input string completion event */
     ESP_BLE_MESH_NODE_PROXY_IDENTITY_ENABLE_COMP_EVT,           /*!< Enable BLE Mesh Proxy Identity advertising completion event */
+    ESP_BLE_MESH_NODE_PRIVATE_PROXY_IDENTITY_ENABLE_COMP_EVT,   /*!< Enable BLE Mesh Private Proxy Identity advertising completion event */
+    ESP_BLE_MESH_NODE_PRIVATE_PROXY_IDENTITY_DISABLE_COMP_EVT,  /*!< Disable BLE Mesh Private Proxy Identity advertising completion event */
     ESP_BLE_MESH_NODE_PROXY_GATT_ENABLE_COMP_EVT,               /*!< Enable BLE Mesh GATT Proxy Service completion event */
     ESP_BLE_MESH_NODE_PROXY_GATT_DISABLE_COMP_EVT,              /*!< Disable BLE Mesh GATT Proxy Service completion event */
+    ESP_BLE_MESH_NODE_ADD_LOCAL_NET_KEY_COMP_EVT,               /*!< Node add NetKey locally completion event */
+    ESP_BLE_MESH_NODE_ADD_LOCAL_APP_KEY_COMP_EVT,               /*!< Node add AppKey locally completion event */
+    ESP_BLE_MESH_NODE_BIND_APP_KEY_TO_MODEL_COMP_EVT,           /*!< Node bind AppKey to model locally completion event */
     ESP_BLE_MESH_PROVISIONER_PROV_ENABLE_COMP_EVT,              /*!< Provisioner enable provisioning functionality completion event */
     ESP_BLE_MESH_PROVISIONER_PROV_DISABLE_COMP_EVT,             /*!< Provisioner disable provisioning functionality completion event */
     ESP_BLE_MESH_PROVISIONER_RECV_UNPROV_ADV_PKT_EVT,           /*!< Provisioner receives unprovisioned device beacon event */
@@ -827,6 +1131,13 @@ typedef enum {
     ESP_BLE_MESH_PROVISIONER_PROV_LINK_OPEN_EVT,                /*!< Provisioner establish a BLE Mesh link event */
     ESP_BLE_MESH_PROVISIONER_PROV_LINK_CLOSE_EVT,               /*!< Provisioner close a BLE Mesh link event */
     ESP_BLE_MESH_PROVISIONER_PROV_COMPLETE_EVT,                 /*!< Provisioner provisioning done event */
+    ESP_BLE_MESH_PROVISIONER_CERT_BASED_PROV_START_EVT,         /*!< Provisioner initiate a certificate based provisioning */
+    ESP_BLE_MESH_PROVISIONER_RECV_PROV_RECORDS_LIST_EVT,        /*!< Provisioner receive provisioning records list event */
+    ESP_BLE_MESH_PROVISIONER_PROV_RECORD_RECV_COMP_EVT,         /*!< Provisioner receive provisioning record complete event */
+    ESP_BLE_MESH_PROVISIONER_SEND_PROV_RECORDS_GET_EVT,         /*!< Provisioner send provisioning records get to device event */
+    ESP_BLE_MESH_PROVISIONER_SEND_PROV_RECORD_REQUEST_EVT,      /*!< Provisioner send provisioning record request to device event */
+    ESP_BLE_MESH_PROVISIONER_SEND_PROV_INVITE_EVT,              /*!< Provisioner send provisioning invite to device event */
+    ESP_BLE_MESH_PROVISIONER_SEND_LINK_CLOSE_EVT,               /*!< Provisioner send link close to device event */
     ESP_BLE_MESH_PROVISIONER_ADD_UNPROV_DEV_COMP_EVT,           /*!< Provisioner add a device to the list which contains devices that are waiting/going to be provisioned completion event */
     ESP_BLE_MESH_PROVISIONER_PROV_DEV_WITH_ADDR_COMP_EVT,       /*!< Provisioner start to provision an unprovisioned device completion event */
     ESP_BLE_MESH_PROVISIONER_DELETE_DEV_COMP_EVT,               /*!< Provisioner delete a device from the list, close provisioning link with the device completion event */
@@ -846,6 +1157,17 @@ typedef enum {
     ESP_BLE_MESH_PROVISIONER_STORE_NODE_COMP_DATA_COMP_EVT,     /*!< Provisioner store node composition data completion event */
     ESP_BLE_MESH_PROVISIONER_DELETE_NODE_WITH_UUID_COMP_EVT,    /*!< Provisioner delete node with uuid completion event */
     ESP_BLE_MESH_PROVISIONER_DELETE_NODE_WITH_ADDR_COMP_EVT,    /*!< Provisioner delete node with unicast address completion event */
+    ESP_BLE_MESH_PROVISIONER_ENABLE_HEARTBEAT_RECV_COMP_EVT,     /*!< Provisioner start to receive heartbeat message completion event */
+    ESP_BLE_MESH_PROVISIONER_SET_HEARTBEAT_FILTER_TYPE_COMP_EVT, /*!< Provisioner set the heartbeat filter type completion event */
+    ESP_BLE_MESH_PROVISIONER_SET_HEARTBEAT_FILTER_INFO_COMP_EVT, /*!< Provisioner set the heartbeat filter information completion event */
+    ESP_BLE_MESH_PROVISIONER_RECV_HEARTBEAT_MESSAGE_EVT,         /*!< Provisioner receive heartbeat message event */
+    ESP_BLE_MESH_PROVISIONER_DIRECT_ERASE_SETTINGS_COMP_EVT,        /*!< Provisioner directly erase settings completion event */
+    ESP_BLE_MESH_PROVISIONER_OPEN_SETTINGS_WITH_INDEX_COMP_EVT,     /*!< Provisioner open settings with index completion event */
+    ESP_BLE_MESH_PROVISIONER_OPEN_SETTINGS_WITH_UID_COMP_EVT,       /*!< Provisioner open settings with user id completion event */
+    ESP_BLE_MESH_PROVISIONER_CLOSE_SETTINGS_WITH_INDEX_COMP_EVT,    /*!< Provisioner close settings with index completion event */
+    ESP_BLE_MESH_PROVISIONER_CLOSE_SETTINGS_WITH_UID_COMP_EVT,      /*!< Provisioner close settings with user id completion event */
+    ESP_BLE_MESH_PROVISIONER_DELETE_SETTINGS_WITH_INDEX_COMP_EVT,   /*!< Provisioner delete settings with index completion event */
+    ESP_BLE_MESH_PROVISIONER_DELETE_SETTINGS_WITH_UID_COMP_EVT,     /*!< Provisioner delete settings with user id completion event */
     ESP_BLE_MESH_SET_FAST_PROV_INFO_COMP_EVT,                   /*!< Set fast provisioning information (e.g. unicast address range, net_idx, etc.) completion event */
     ESP_BLE_MESH_SET_FAST_PROV_ACTION_COMP_EVT,                 /*!< Set fast provisioning action completion event */
     ESP_BLE_MESH_HEARTBEAT_MESSAGE_RECV_EVT,                    /*!< Receive Heartbeat message event */
@@ -865,8 +1187,10 @@ typedef enum {
     ESP_BLE_MESH_PROXY_CLIENT_SET_FILTER_TYPE_COMP_EVT,         /*!< Proxy Client set filter type completion event */
     ESP_BLE_MESH_PROXY_CLIENT_ADD_FILTER_ADDR_COMP_EVT,         /*!< Proxy Client add filter address completion event */
     ESP_BLE_MESH_PROXY_CLIENT_REMOVE_FILTER_ADDR_COMP_EVT,      /*!< Proxy Client remove filter address completion event */
-    ESP_BLE_MESH_START_BLE_ADVERTISING_COMP_EVT,                /*!< Start BLE advertising completion event */
-    ESP_BLE_MESH_STOP_BLE_ADVERTISING_COMP_EVT,                 /*!< Stop BLE advertising completion event */
+    ESP_BLE_MESH_PROXY_CLIENT_DIRECTED_PROXY_SET_COMP_EVT,      /*!< Proxy Client directed proxy set completion event */
+    ESP_BLE_MESH_PROXY_SERVER_CONNECTED_EVT,                    /*!< Proxy Server establishes connection successfully event */
+    ESP_BLE_MESH_PROXY_SERVER_DISCONNECTED_EVT,                 /*!< Proxy Server terminates connection successfully event */
+    ESP_BLE_MESH_PROXY_CLIENT_SEND_SOLIC_PDU_COMP_EVT,          /*!< Proxy Client send Solicitation PDU completion event */
     ESP_BLE_MESH_MODEL_SUBSCRIBE_GROUP_ADDR_COMP_EVT,           /*!< Local model subscribes group address completion event */
     ESP_BLE_MESH_MODEL_UNSUBSCRIBE_GROUP_ADDR_COMP_EVT,         /*!< Local model unsubscribes group address completion event */
     ESP_BLE_MESH_DEINIT_MESH_COMP_EVT,                          /*!< De-initialize BLE Mesh stack completion event */
@@ -912,6 +1236,7 @@ typedef union {
      */
     struct ble_mesh_link_close_evt_param {
         esp_ble_mesh_prov_bearer_t bearer;      /*!< Type of the bearer used when device link is closed */
+        uint8_t reason;                         /*!< Reason of the closed provisioning link */
     } node_prov_link_close;                     /*!< Event parameter of ESP_BLE_MESH_NODE_PROV_LINK_CLOSE_EVT */
     /**
      * @brief ESP_BLE_MESH_NODE_PROV_OUTPUT_NUMBER_EVT
@@ -924,7 +1249,7 @@ typedef union {
      * @brief ESP_BLE_MESH_NODE_PROV_OUTPUT_STRING_EVT
      */
     struct ble_mesh_output_str_evt_param {
-        char string[8];                         /*!< String of Output OOB Authentication */
+        char string[ESP_BLE_MESH_PROV_OUTPUT_OOB_MAX_LEN + 1];  /*!< String of Output OOB Authentication */
     } node_prov_output_str;                     /*!< Event parameter of ESP_BLE_MESH_NODE_PROV_OUTPUT_STRING_EVT */
     /**
      * @brief ESP_BLE_MESH_NODE_PROV_INPUT_EVT
@@ -986,6 +1311,43 @@ typedef union {
         int err_code;                           /*!< Indicate the result of disabling Mesh Proxy Service */
     } node_proxy_gatt_disable_comp;             /*!< Event parameter of ESP_BLE_MESH_NODE_PROXY_GATT_DISABLE_COMP_EVT */
     /**
+     * @brief ESP_BLE_MESH_NODE_PRIVATE_PROXY_IDENTITY_ENABLE_COMP_EVT
+     */
+    struct ble_mesh_proxy_private_identity_enable_comp_param {
+        int err_code;                           /*!< Indicate the result of enabling Mesh Proxy private advertising */
+    } node_private_proxy_identity_enable_comp;  /*!< Event parameter of ESP_BLE_MESH_NODE_PRIVATE_PROXY_IDENTITY_ENABLE_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_NODE_PRIVATE_PROXY_IDENTITY_DISABLE_COMP_EVT
+     */
+    struct ble_mesh_proxy_private_identity_disable_comp_param {
+        int err_code;                           /*!< Indicate the result of disabling Mesh Proxy private advertising */
+    } node_private_proxy_identity_disable_comp;  /*!< Event parameter of ESP_BLE_MESH_NODE_PRIVATE_PROXY_IDENTITY_DISABLE_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_NODE_ADD_LOCAL_NET_KEY_COMP_EVT
+     */
+    struct ble_mesh_node_add_local_net_key_comp_param {
+        int err_code;                           /*!< Indicate the result of adding local NetKey by the node */
+        uint16_t net_idx;                       /*!< NetKey Index */
+    } node_add_net_key_comp;                    /*!< Event parameter of ESP_BLE_MESH_NODE_ADD_LOCAL_NET_KEY_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_NODE_ADD_LOCAL_APP_KEY_COMP_EVT
+     */
+    struct ble_mesh_node_add_local_app_key_comp_param {
+        int err_code;                           /*!< Indicate the result of adding local AppKey by the node */
+        uint16_t net_idx;                       /*!< NetKey Index */
+        uint16_t app_idx;                       /*!< AppKey Index */
+    } node_add_app_key_comp;                    /*!< Event parameter of ESP_BLE_MESH_NODE_ADD_LOCAL_APP_KEY_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_NODE_BIND_APP_KEY_TO_MODEL_COMP_EVT
+     */
+    struct ble_mesh_node_bind_local_mod_app_comp_param {
+        int err_code;                           /*!< Indicate the result of binding AppKey with model by the node */
+        uint16_t element_addr;                  /*!< Element address */
+        uint16_t app_idx;                       /*!< AppKey Index */
+        uint16_t company_id;                    /*!< Company ID */
+        uint16_t model_id;                      /*!< Model ID */
+    } node_bind_app_key_to_model_comp;          /*!< Event parameter of ESP_BLE_MESH_NODE_BIND_APP_KEY_TO_MODEL_COMP_EVT */
+    /**
      * @brief ESP_BLE_MESH_PROVISIONER_RECV_UNPROV_ADV_PKT_EVT
      */
     struct ble_mesh_provisioner_recv_unprov_adv_pkt_param {
@@ -993,7 +1355,7 @@ typedef union {
         esp_ble_mesh_bd_addr_t addr;            /*!< Device address of the unprovisioned device */
         esp_ble_mesh_addr_type_t addr_type;     /*!< Device address type */
         uint16_t oob_info;                      /*!< OOB Info of the unprovisioned device */
-        uint8_t  adv_type;                      /*!< Avertising type of the unprovisioned device */
+        uint8_t  adv_type;                      /*!< Advertising type of the unprovisioned device */
         esp_ble_mesh_prov_bearer_t bearer;      /*!< Bearer of the unprovisioned device */
         int8_t   rssi;                          /*!< RSSI of the received advertising packet */
     } provisioner_recv_unprov_adv_pkt;          /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_RECV_UNPROV_ADV_PKT_EVT */
@@ -1038,8 +1400,9 @@ typedef union {
         esp_ble_mesh_input_action_t action;     /*!< Action of device Input OOB Authentication */
         uint8_t size;                           /*!< Size of device Input OOB Authentication */
         uint8_t link_idx;                       /*!< Index of the provisioning link */
+        /** Union of output OOB */
         union {
-            char string[8];                     /*!< String output by the Provisioner */
+            char string[ESP_BLE_MESH_PROV_OUTPUT_OOB_MAX_LEN + 1];  /*!< String output by the Provisioner */
             uint32_t number;                    /*!< Number output by the Provisioner */
         };
     } provisioner_prov_output;                  /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_PROV_OUTPUT_EVT */
@@ -1060,6 +1423,62 @@ typedef union {
         uint8_t element_num;                    /*!< Element count of the provisioned device */
         uint16_t netkey_idx;                    /*!< NetKey Index of the provisioned device */
     } provisioner_prov_complete;                /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_PROV_COMPLETE_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_CERT_BASED_PROV_START_EVT
+     */
+    struct ble_mesh_provisioner_cert_based_prov_start_evt_param {
+        uint16_t link_idx;                      /*!< Index of the provisioning link */
+    } provisioner_cert_based_prov_start;        /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_CERT_BASED_PROV_START_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_RECV_PROV_RECORDS_LIST_EVT
+     */
+    struct ble_mesh_provisioner_recv_prov_records_list_evt_param {
+        uint16_t link_idx;                      /*!< Index of the provisioning link */
+        uint16_t len;                           /*!< Length of message */
+        uint8_t *msg;                           /*!< Lists the Record IDs of the provisioning records stored on the Provisionee */
+    } recv_provisioner_records_list;            /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_RECV_PROV_RECORDS_LIST_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_PROV_RECORD_RECV_COMP_EVT
+     */
+    struct ble_mesh_provisioner_prov_record_recv_comp_evt_param {
+        uint8_t  status;                        /*!< Indicates whether or not the request was handled successfully */
+        uint16_t link_idx;                      /*!< Index of the provisioning link */
+        uint16_t record_id;                     /*!< Identifies the provisioning record for which the request is made */
+        uint16_t frag_offset;                   /*!< The starting offset of the requested fragment in the provisioning record data */
+        uint16_t total_len;                     /*!< Total length of the provisioning record data stored on the Provisionee */
+        uint8_t *record;                        /*!< Provisioning record data fragment */
+    } provisioner_prov_record_recv_comp;        /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_PROV_RECORD_RECV_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_SEND_PROV_RECORDS_GET_EVT
+     */
+    struct ble_mesh_provisioner_send_prov_records_get_evt_param {
+        int err_code;                           /*!< Indicate the result of send Provisioning Records List Get message */
+        uint16_t link_idx;                      /*!< Index of the provisioning link */
+    } provisioner_send_records_get;             /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_SEND_PROV_RECORDS_GET_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_SEND_PROV_RECORD_REQUEST_EVT
+     */
+    struct ble_mesh_provisioner_send_prov_record_req_evt_param {
+        int err_code;                           /*!< Indicate the result of send Provisioning Record Request message */
+        uint16_t link_idx;                      /*!< Index of the provisioning link */
+        uint16_t record_id;                     /*!< Identifies the provisioning record for which the request is made */
+        uint16_t frag_offset;                   /*!< The starting offset of the requested fragment in the provisioning record data */
+        uint16_t max_size;                      /*!< The maximum size of the provisioning record fragment that the Provisioner can receive */
+    } provisioner_send_record_req;              /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_SEND_PROV_RECORD_REQUEST_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_SEND_PROV_INVITE_EVT
+     */
+    struct ble_mesh_provisioner_send_prov_invite_evt_param {
+        uint16_t link_idx;                      /*!< Index of the provisioning link */
+        int err_code;                           /*!< Indicate the result of send Provisioning Invite message */
+    } provisioner_send_prov_invite;             /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_SEND_PROV_INVITE_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_SEND_LINK_CLOSE_EVT
+     */
+    struct ble_mesh_provisioner_send_link_close_evt_param {
+        uint16_t link_idx;                      /*!< Index of the provisioning link */
+        int err_code;                           /*!< Indicate the result of send Link Close message */
+    } provisioner_send_link_close;              /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_SEND_LINK_CLOSE_EVT */
     /**
      * @brief ESP_BLE_MESH_PROVISIONER_ADD_UNPROV_DEV_COMP_EVT
      */
@@ -1188,6 +1607,92 @@ typedef union {
         int err_code;                           /*!< Indicate the result of deleting node with unicast address by the Provisioner */
         uint16_t unicast_addr;                  /*!< Node unicast address */
     } provisioner_delete_node_with_addr_comp;   /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_DELETE_NODE_WITH_ADDR_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_ENABLE_HEARTBEAT_RECV_COMP_EVT
+     */
+    struct {
+        int err_code;                           /*!< Indicate the result of enabling/disabling to receive heartbeat messages by the Provisioner */
+        bool enable;                            /*!< Indicate enabling or disabling receiving heartbeat messages */
+    } provisioner_enable_heartbeat_recv_comp;   /*!< Event parameters of ESP_BLE_MESH_PROVISIONER_ENABLE_HEARTBEAT_RECV_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_SET_HEARTBEAT_FILTER_TYPE_COMP_EVT
+     */
+    struct {
+        int err_code;                               /*!< Indicate the result of setting the heartbeat filter type by the Provisioner */
+        uint8_t type;                               /*!< Type of the filter used for receiving heartbeat messages */
+    } provisioner_set_heartbeat_filter_type_comp;   /*!< Event parameters of ESP_BLE_MESH_PROVISIONER_SET_HEARTBEAT_FILTER_TYPE_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_SET_HEARTBEAT_FILTER_INFO_COMP_EVT
+     */
+    struct {
+        int err_code;                               /*!< Indicate the result of setting the heartbeat filter address by the Provisioner */
+        uint8_t  op;                                /*!< Operation (add, remove, clean) */
+        uint16_t hb_src;                            /*!< Heartbeat source address */
+        uint16_t hb_dst;                            /*!< Heartbeat destination address */
+    } provisioner_set_heartbeat_filter_info_comp;   /*!< Event parameters of ESP_BLE_MESH_PROVISIONER_SET_HEARTBEAT_FILTER_INFO_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_RECV_HEARTBEAT_MESSAGE_EVT
+     */
+    struct {
+        uint16_t hb_src;            /*!< Heartbeat source address */
+        uint16_t hb_dst;            /*!< Heartbeat destination address */
+        uint8_t  init_ttl;          /*!< Heartbeat InitTTL */
+        uint8_t  rx_ttl;            /*!< Heartbeat RxTTL */
+        uint8_t  hops;              /*!< Heartbeat hops (InitTTL - RxTTL + 1) */
+        uint16_t feature;           /*!< Bit field of currently active features of the node */
+        int8_t   rssi;              /*!< RSSI of the heartbeat message */
+    } provisioner_recv_heartbeat;   /*!< Event parameters of ESP_BLE_MESH_PROVISIONER_RECV_HEARTBEAT_MESSAGE_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_DIRECT_ERASE_SETTINGS_COMP_EVT
+     */
+    struct {
+        int err_code;                           /*!< Indicate the result of directly erasing settings by the Provisioner */
+    } provisioner_direct_erase_settings_comp;   /*!< Event parameters of ESP_BLE_MESH_PROVISIONER_DIRECT_ERASE_SETTINGS_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_OPEN_SETTINGS_WITH_INDEX_COMP_EVT
+     */
+    struct {
+        int err_code;                               /*!< Indicate the result of opening settings with index by the Provisioner */
+        uint8_t index;                              /*!< Index of Provisioner settings */
+    } provisioner_open_settings_with_index_comp;    /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_OPEN_SETTINGS_WITH_INDEX_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_OPEN_SETTINGS_WITH_UID_COMP_EVT
+     */
+    struct {
+        int err_code;                                   /*!< Indicate the result of opening settings with user id by the Provisioner */
+        uint8_t index;                                  /*!< Index of Provisioner settings */
+        char uid[ESP_BLE_MESH_SETTINGS_UID_SIZE + 1];   /*!< Provisioner settings user id */
+    } provisioner_open_settings_with_uid_comp;          /*!< Event parameters of ESP_BLE_MESH_PROVISIONER_OPEN_SETTINGS_WITH_UID_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_CLOSE_SETTINGS_WITH_INDEX_COMP_EVT
+     */
+    struct {
+        int err_code;                               /*!< Indicate the result of closing settings with index by the Provisioner */
+        uint8_t index;                              /*!< Index of Provisioner settings */
+    } provisioner_close_settings_with_index_comp;   /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_CLOSE_SETTINGS_WITH_INDEX_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_CLOSE_SETTINGS_WITH_UID_COMP_EVT
+     */
+    struct {
+        int err_code;                                   /*!< Indicate the result of closing settings with user id by the Provisioner */
+        uint8_t index;                                  /*!< Index of Provisioner settings */
+        char uid[ESP_BLE_MESH_SETTINGS_UID_SIZE + 1];   /*!< Provisioner settings user id */
+    } provisioner_close_settings_with_uid_comp;         /*!< Event parameters of ESP_BLE_MESH_PROVISIONER_CLOSE_SETTINGS_WITH_UID_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_DELETE_SETTINGS_WITH_INDEX_COMP_EVT
+     */
+    struct {
+        int err_code;                               /*!< Indicate the result of deleting settings with index by the Provisioner */
+        uint8_t index;                              /*!< Index of Provisioner settings */
+    } provisioner_delete_settings_with_index_comp;  /*!< Event parameter of ESP_BLE_MESH_PROVISIONER_DELETE_SETTINGS_WITH_INDEX_COMP_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROVISIONER_DELETE_SETTINGS_WITH_UID_COMP_EVT
+     */
+    struct {
+        int err_code;                                   /*!< Indicate the result of deleting settings with user id by the Provisioner */
+        uint8_t index;                                  /*!< Index of Provisioner settings */
+        char uid[ESP_BLE_MESH_SETTINGS_UID_SIZE + 1];   /*!< Provisioner settings user id */
+    } provisioner_delete_settings_with_uid_comp;        /*!< Event parameters of ESP_BLE_MESH_PROVISIONER_DELETE_SETTINGS_WITH_UID_COMP_EVT */
     /**
      * @brief ESP_BLE_MESH_SET_FAST_PROV_INFO_COMP_EVT
      */
@@ -1339,19 +1844,35 @@ typedef union {
         uint16_t net_idx;                       /*!< Corresponding NetKey Index */
     } proxy_client_remove_filter_addr_comp;     /*!< Event parameter of ESP_BLE_MESH_PROXY_CLIENT_REMOVE_FILTER_ADDR_COMP_EVT */
     /**
-     * @brief ESP_BLE_MESH_START_BLE_ADVERTISING_COMP_EVT
+     * @brief ESP_BLE_MESH_PROXY_CLIENT_DIRECTED_PROXY_CONTROL_COMP_EVT
      */
-    struct ble_mesh_start_ble_advertising_comp_param {
-        int err_code;                           /*!< Indicate the result of starting BLE advertising */
-        uint8_t index;                          /*!< Index of the BLE advertising */
-    } start_ble_advertising_comp;               /*!< Event parameter of ESP_BLE_MESH_START_BLE_ADVERTISING_COMP_EVT */
+    struct ble_mesh_proxy_client_directed_proxy_set_param {
+        int err_code;                           /*!< Indicate the result of Proxy Client directed proxy control address */
+        uint8_t conn_handle;                    /*!< Proxy connection handle */
+        uint16_t net_idx;                       /*!< Corresponding NetKey Index */
+    } proxy_client_directed_proxy_set_comp;     /*!< Event parameter of ESP_BLE_MESH_PROXY_CLIENT_DIRECTED_PROXY_SET_COMP_EVT */
     /**
-     * @brief ESP_BLE_MESH_STOP_BLE_ADVERTISING_COMP_EVT
+     * @brief ESP_BLE_MESH_PROXY_SERVER_CONNECTED_EVT
      */
-    struct ble_mesh_stop_ble_advertising_comp_param {
-        int err_code;                           /*!< Indicate the result of stopping BLE advertising */
-        uint8_t index;                          /*!< Index of the BLE advertising */
-    } stop_ble_advertising_comp;                /*!< Event parameter of ESP_BLE_MESH_STOP_BLE_ADVERTISING_COMP_EVT */
+    struct ble_mesh_proxy_server_connected_param {
+        uint8_t conn_handle;                    /*!< Proxy connection handle */
+    } proxy_server_connected;                   /*!< Event parameter of ESP_BLE_MESH_PROXY_SERVER_CONNECTED_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROXY_SERVER_DISCONNECTED_EVT
+     */
+    struct ble_mesh_proxy_server_disconnected_param {
+        uint8_t conn_handle;                    /*!< Proxy connection handle */
+        uint8_t reason;                         /*!< Proxy disconnect reason */
+    } proxy_server_disconnected;                /*!< Event parameter of ESP_BLE_MESH_PROXY_SERVER_DISCONNECTED_EVT */
+    /**
+     * @brief ESP_BLE_MESH_PROXY_CLIENT_SEND_SOLIC_PDU_COMP_EVT
+     */
+    struct {
+        int err_code;                           /*!< Indicate the result of Proxy Client send Solicitation PDU */
+        uint16_t net_idx;                       /*!< Corresponding NetKey Index */
+        uint16_t ssrc;                          /*!< Solicitation SRC */
+        uint16_t dst;                           /*!< Solicitation DST */
+    } proxy_client_send_solic_pdu_comp;         /*!< Event parameter of ESP_BLE_MESH_PROXY_CLIENT_SEND_SOLIC_PDU_COMP_EVT */
     /**
      * @brief ESP_BLE_MESH_MODEL_SUBSCRIBE_GROUP_ADDR_COMP_EVT
      */
@@ -1378,7 +1899,7 @@ typedef union {
     struct ble_mesh_deinit_mesh_comp_param {
         int err_code;                           /*!< Indicate the result of BLE Mesh deinitialization */
     } deinit_mesh_comp;                         /*!< Event parameter of ESP_BLE_MESH_DEINIT_MESH_COMP_EVT */
-} esp_ble_mesh_prov_cb_param_t;
+} esp_ble_mesh_prov_cb_param_t;                 /*!< Event parameters of ESP_BLE_MESH_DEINIT_MESH_COMP_EVT */
 
 /**
  * @brief BLE Mesh models related Model ID and Opcode definitions
@@ -1389,6 +1910,24 @@ typedef union {
 #define ESP_BLE_MESH_MODEL_ID_CONFIG_CLI                            0x0001
 #define ESP_BLE_MESH_MODEL_ID_HEALTH_SRV                            0x0002
 #define ESP_BLE_MESH_MODEL_ID_HEALTH_CLI                            0x0003
+#define ESP_BLE_MESH_MODEL_ID_RPR_SRV                               0x0004
+#define ESP_BLE_MESH_MODEL_ID_RPR_CLI                               0x0005
+#define ESP_BLE_MESH_MODEL_ID_DF_SRV                                0x0006
+#define ESP_BLE_MESH_MODEL_ID_DF_CLI                                0x0007
+#define ESP_BLE_MESH_MODEL_ID_BRC_SRV                               0x0008
+#define ESP_BLE_MESH_MODEL_ID_BRC_CLI                               0x0009
+#define ESP_BLE_MESH_MODEL_ID_PRB_SRV                               0x000A
+#define ESP_BLE_MESH_MODEL_ID_PRB_CLI                               0x000B
+#define ESP_BLE_MESH_MODEL_ID_ODP_SRV                               0x000C
+#define ESP_BLE_MESH_MODEL_ID_ODP_CLI                               0x000D
+#define ESP_BLE_MESH_MODEL_ID_SAR_SRV                               0x000E
+#define ESP_BLE_MESH_MODEL_ID_SAR_CLI                               0x000F
+#define ESP_BLE_MESH_MODEL_ID_AGG_SRV                               0x0010
+#define ESP_BLE_MESH_MODEL_ID_AGG_CLI                               0x0011
+#define ESP_BLE_MESH_MODEL_ID_LCD_SRV                               0x0012
+#define ESP_BLE_MESH_MODEL_ID_LCD_CLI                               0x0013
+#define ESP_BLE_MESH_MODEL_ID_SRPL_SRV                              0x0014
+#define ESP_BLE_MESH_MODEL_ID_SRPL_CLI                              0x0015
 
 /*!< Models from the Mesh Model Specification */
 #define ESP_BLE_MESH_MODEL_ID_GEN_ONOFF_SRV                         0x1000
@@ -1443,7 +1982,14 @@ typedef union {
 #define ESP_BLE_MESH_MODEL_ID_LIGHT_LC_SRV                          0x130f
 #define ESP_BLE_MESH_MODEL_ID_LIGHT_LC_SETUP_SRV                    0x1310
 #define ESP_BLE_MESH_MODEL_ID_LIGHT_LC_CLI                          0x1311
-
+#define ESP_BLE_MESH_MODEL_ID_MBT_SRV                               0x14fe
+#define ESP_BLE_MESH_MODEL_ID_MBT_CLI                               0x14ff
+#define ESP_BLE_MESH_MODEL_ID_BLOB_SRV                              0x1400
+#define ESP_BLE_MESH_MODEL_ID_BLOB_CLI                              0x1401
+#define ESP_BLE_MESH_MODEL_ID_DFU_SRV                               0x1402
+#define ESP_BLE_MESH_MODEL_ID_DFU_CLI                               0x1403
+#define ESP_BLE_MESH_MODEL_ID_DFD_SRV                               0x1404
+#define ESP_BLE_MESH_MODEL_ID_DFD_CLI                               0x1405
 /**
  * esp_ble_mesh_opcode_config_client_get_t belongs to esp_ble_mesh_opcode_t, this typedef is only
  * used to locate the opcodes used by esp_ble_mesh_config_client_get_state.
@@ -1564,6 +2110,10 @@ typedef uint8_t esp_ble_mesh_cfg_status_t;
 #define ESP_BLE_MESH_CFG_STATUS_CANNOT_SET                          0x0F
 #define ESP_BLE_MESH_CFG_STATUS_UNSPECIFIED_ERROR                   0x10
 #define ESP_BLE_MESH_CFG_STATUS_INVALID_BINDING                     0x11
+#define ESP_BLE_MESH_CFG_STATUS_INVALID_PATH_ENTRY                  0x12
+#define ESP_BLE_MESH_CFG_STATUS_CANNOT_GET                          0x13
+#define ESP_BLE_MESH_CFG_STATUS_OBSOLETE_INFO                       0x14
+#define ESP_BLE_MESH_CFG_STATUS_INVALID_BEARER                      0x15
 
 /**
  * esp_ble_mesh_opcode_health_client_get_t belongs to esp_ble_mesh_opcode_t, this typedef is
@@ -1915,11 +2465,12 @@ typedef struct {
 /** Client Model user data context. */
 typedef struct {
     esp_ble_mesh_model_t *model;                    /*!< Pointer to the client model. Initialized by the stack. */
-    int op_pair_size;                               /*!< Size of the op_pair */
+    uint32_t op_pair_size;                          /*!< Size of the op_pair */
     const esp_ble_mesh_client_op_pair_t *op_pair;   /*!< Table containing get/set message opcode and corresponding status message opcode */
     uint32_t publish_status;                        /*!< Callback used to handle the received unsolicited message. Initialized by the stack. */
     void *internal_data;                            /*!< Pointer to the internal data of client model */
-    uint8_t msg_role;                               /*!< Role of the device (Node/Provisioner) that is going to send messages */
+    void *vendor_data;                              /*!< Pointer to the vendor data of client model */
+    uint8_t msg_role __attribute__((deprecated));   /*!< Role of the device (Node/Provisioner) that is going to send messages */
 } esp_ble_mesh_client_t;
 
 /** Common parameters of the messages sent by Client Model. */
@@ -1929,7 +2480,7 @@ typedef struct {
     esp_ble_mesh_msg_ctx_t ctx;     /*!< The context used to send message */
     int32_t msg_timeout;            /*!< Timeout value (ms) to get response to the sent message */
     /*!< Note: if using default timeout value in menuconfig, make sure to set this value to 0 */
-    uint8_t msg_role;               /*!< Role of the device - Node/Provisioner */
+    uint8_t msg_role __attribute__((deprecated));   /*!< Role of the device - Node/Provisioner */
 } esp_ble_mesh_client_common_param_t;
 
 /**
@@ -1975,8 +2526,8 @@ typedef struct {
     int64_t  timestamp; /*!< Time when the last message is received */
 } esp_ble_mesh_last_msg_info_t;
 
-#define ESP_BLE_MESH_SERVER_RSP_BY_APP  0   /*!< Response will be sent internally */
-#define ESP_BLE_MESH_SERVER_AUTO_RSP    1   /*!< Response need to be sent in the application */
+#define ESP_BLE_MESH_SERVER_RSP_BY_APP  0   /*!< Response need to be sent in the application */
+#define ESP_BLE_MESH_SERVER_AUTO_RSP    1   /*!< Response will be sent internally */
 
 /** Parameters of the Server Model response control */
 typedef struct {
@@ -2031,6 +2582,11 @@ typedef union {
     } light_ctl_temp_delta_uv;  /*!< The Light CTL Temperature & Delta UV states */
     struct {
         uint16_t lightness;     /*!< The value of the Light HSL Lightness state */
+        uint16_t hue;           /*!< The value of the Light HSL Hue state */
+        uint16_t saturation;    /*!< The value of the Light HSL Saturation state */
+    } light_hsl;                /*!< The Light HSL composite state */
+    struct {
+        uint16_t lightness;     /*!< The value of the Light HSL Lightness state */
     } light_hsl_lightness;      /*!< The Light HSL Lightness state */
     struct {
         uint16_t hue;           /*!< The value of the Light HSL Hue state */
@@ -2056,6 +2612,7 @@ typedef enum {
     ESP_BLE_MESH_LIGHT_LIGHTNESS_LINEAR_STATE,
     ESP_BLE_MESH_LIGHT_CTL_LIGHTNESS_STATE,
     ESP_BLE_MESH_LIGHT_CTL_TEMP_DELTA_UV_STATE,
+    ESP_BLE_MESH_LIGHT_HSL_STATE,
     ESP_BLE_MESH_LIGHT_HSL_LIGHTNESS_STATE,
     ESP_BLE_MESH_LIGHT_HSL_HUE_STATE,
     ESP_BLE_MESH_LIGHT_HSL_SATURATION_STATE,

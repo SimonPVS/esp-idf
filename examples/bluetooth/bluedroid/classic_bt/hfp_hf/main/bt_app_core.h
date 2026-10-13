@@ -1,10 +1,8 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #ifndef __BT_APP_CORE_H__
 #define __BT_APP_CORE_H__
@@ -22,11 +20,17 @@
  */
 typedef void (* bt_app_cb_t) (uint16_t event, void *param);
 
+/**
+ * @brief     parameter deep-free function
+ */
+typedef void (* bt_app_free_cb_t) (void *p_param);
+
 /* message to be sent */
 typedef struct {
     uint16_t             sig;      /*!< signal to bt_app_task */
     uint16_t             event;    /*!< message event id */
     bt_app_cb_t          cb;       /*!< context switch callback */
+    bt_app_free_cb_t     free_cb;  /*!< parameter deep-free function */
     void                 *param;   /*!< parameter area needs to be the last */
 } bt_app_msg_t;
 
@@ -38,7 +42,8 @@ typedef void (* bt_app_copy_cb_t) (bt_app_msg_t *msg, void *p_dest, void *p_src)
 /**
  * @brief     work dispatcher for the application task
  */
-bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, int param_len, bt_app_copy_cb_t p_copy_cback);
+bool bt_app_work_dispatch(bt_app_cb_t p_cback, uint16_t event, void *p_params, int param_len,
+                          bt_app_copy_cb_t p_copy_cback, bt_app_free_cb_t p_free_cback);
 
 void bt_app_task_start_up(void);
 

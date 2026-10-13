@@ -1,6 +1,8 @@
 #ifndef XTENSA_DEBUG_MODULE_H
 #define XTENSA_DEBUG_MODULE_H
-#include "soc/cpu.h"
+
+#include <xtensa/config/core-isa.h>
+
 /*
 ERI registers / OCD offsets and field definitions
 */
@@ -67,7 +69,7 @@ ERI registers / OCD offsets and field definitions
 #define TRAXADDR_TWSAT          (1<<31) //1 if TWRAP has overflown, clear by disabling tren.
 
 #define PCMATCHCTRL_PCML_SHIFT  0       //Amount of lower bits to ignore in pc trigger register
-#define PCMATCHCTRL_PCML_MASK   0x1F 
+#define PCMATCHCTRL_PCML_MASK   0x1F
 #define PCMATCHCTRL_PCMS        (1<<31) //PC Match Sense, 0 - match when procs PC is in-range, 1 - match when
                                         //out-of-range
 
@@ -81,6 +83,8 @@ ERI registers / OCD offsets and field definitions
 
 // Performance counter value
 #define ERI_PERFMON_PM0             (ERI_PERFMON_OFFSET+0x0080)
+#define ERI_PERFMON_PM1             (ERI_PERFMON_OFFSET+0x0084) /* used in apptrace module to store CRC16 */
+
 // Performance counter control register
 #define ERI_PERFMON_PMCTRL0         (ERI_PERFMON_OFFSET+0x0100)
 // Performance counter status register

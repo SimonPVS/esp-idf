@@ -28,6 +28,8 @@
 #include "bta_sys_int.h"
 #include "bta/utl.h"
 
+#if (CLASSIC_BT_INCLUDED == TRUE)
+
 /*******************************************************************************
 **
 ** Function         bta_sys_rm_register
@@ -527,8 +529,55 @@ void bta_sys_eir_register(tBTA_SYS_EIR_CBACK *p_cback)
 *******************************************************************************/
 void bta_sys_add_uuid(UINT16 uuid16)
 {
+    tBT_UUID uuid;
+    uuid.len = LEN_UUID_16;
+    uuid.uu.uuid16 = uuid16;
+
     if (bta_sys_cb.eir_cb) {
-        bta_sys_cb.eir_cb(uuid16, TRUE );
+        bta_sys_cb.eir_cb(uuid, TRUE);
+    }
+}
+
+
+/*******************************************************************************
+**
+** Function         bta_sys_add_uuid_32
+**
+** Description      Called by BTA subsystems to indicate to DM that new service
+**                  class UUID is added.
+**
+** Returns          void
+**
+*******************************************************************************/
+void bta_sys_add_uuid_32(UINT32 uuid32)
+{
+    tBT_UUID uuid;
+    uuid.len = LEN_UUID_32;
+    uuid.uu.uuid32 = uuid32;
+
+    if (bta_sys_cb.eir_cb) {
+        bta_sys_cb.eir_cb(uuid, TRUE);
+    }
+}
+
+/*******************************************************************************
+**
+** Function         bta_sys_add_uuid_128
+**
+** Description      Called by BTA subsystems to indicate to DM that new service
+**                  class UUID is added.
+**
+** Returns          void
+**
+*******************************************************************************/
+void bta_sys_add_uuid_128(UINT8 *uuid128)
+{
+    tBT_UUID uuid;
+    uuid.len = LEN_UUID_128;
+    memcpy(&uuid.uu.uuid128, uuid128, LEN_UUID_128);
+
+    if (bta_sys_cb.eir_cb) {
+        bta_sys_cb.eir_cb(uuid, TRUE);
     }
 }
 
@@ -544,10 +593,57 @@ void bta_sys_add_uuid(UINT16 uuid16)
 *******************************************************************************/
 void bta_sys_remove_uuid(UINT16 uuid16)
 {
+    tBT_UUID uuid;
+    uuid.len = LEN_UUID_16;
+    uuid.uu.uuid16 = uuid16;
+
     if (bta_sys_cb.eir_cb) {
-        bta_sys_cb.eir_cb(uuid16, FALSE);
+        bta_sys_cb.eir_cb(uuid, FALSE);
     }
 }
+
+/*******************************************************************************
+**
+** Function         bta_sys_remove_uuid_32
+**
+** Description      Called by BTA subsystems to indicate to DM that the service
+**                  class UUID is removed.
+**
+** Returns          void
+**
+*******************************************************************************/
+void bta_sys_remove_uuid_32(UINT32 uuid32)
+{
+    tBT_UUID uuid;
+    uuid.len = LEN_UUID_32;
+    uuid.uu.uuid32 = uuid32;
+
+    if (bta_sys_cb.eir_cb) {
+        bta_sys_cb.eir_cb(uuid, FALSE);
+    }
+}
+
+/*******************************************************************************
+**
+** Function         bta_sys_remove_uuid_128
+**
+** Description      Called by BTA subsystems to indicate to DM that the service
+**                  class UUID is removed.
+**
+** Returns          void
+**
+*******************************************************************************/
+void bta_sys_remove_uuid_128(UINT8 *uuid128)
+{
+    tBT_UUID uuid;
+    uuid.len = LEN_UUID_128;
+    memcpy(&uuid.uu.uuid128, uuid128, LEN_UUID_128);
+
+    if (bta_sys_cb.eir_cb) {
+        bta_sys_cb.eir_cb(uuid, FALSE);
+    }
+}
+
 #endif
 
 /*******************************************************************************
@@ -568,3 +664,4 @@ BOOLEAN bta_sys_vs_hdl(UINT16 evt, void *p)
     return FALSE;
 }
 
+#endif // #if (CLASSIC_BT_INCLUDED == TRUE)

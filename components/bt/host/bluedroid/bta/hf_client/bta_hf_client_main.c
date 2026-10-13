@@ -20,10 +20,16 @@
 #include <string.h>
 #include <stdlib.h>
 #include "common/bt_defs.h"
+#include "common/bt_target.h"
 #include "bta/bta_api.h"
 #include "bta/bta_sys.h"
 #include "bta/bta_hf_client_api.h"
 #include "bta_hf_client_int.h"
+#include "osi/allocator.h"
+
+#if BT_HF_CLIENT_BQB_INCLUDED
+static BOOLEAN s_bta_hf_client_bqb_clip_flag = TRUE;
+#endif /* BT_HF_CLIENT_BQB_INCLUDED */
 
 #if (BTA_HF_INCLUDED == TRUE)
 /* uncomment to enable extra debug */
@@ -75,6 +81,9 @@ enum {
     BTA_HF_CLIENT_SEND_AT_CMD,
 #if (BTM_SCO_HCI_INCLUDED == TRUE)
     BTA_HF_CLIENT_CI_SCO_DATA,
+    BTA_HF_CLIENT_SCO_DATA_SEND,
+    BTA_HF_CLIENT_SCO_DATA_FREE,
+    BTA_HF_CLIENT_PKT_STAT_NUMS,
 #endif
     BTA_HF_CLIENT_NUM_ACTIONS,
 };
@@ -111,8 +120,11 @@ const tBTA_HF_CLIENT_ACTION bta_hf_client_action[] = {
     /* BTA_HF_CLIENT_DISC_ACP_RES */  bta_hf_client_disc_acp_res,
     /* BTA_HF_CLIENT_SVC_CONN_OPEN */ bta_hf_client_svc_conn_open,
     /* BTA_HF_CLIENT_SEND_AT_CMD */   bta_hf_client_send_at_cmd,
-#if (BTM_SCO_HCI_INCLUDED == TRUE )
+#if (BTM_SCO_HCI_INCLUDED == TRUE)
     /* BTA_HF_CLIENT_CI_SCO_DATA */   bta_hf_client_ci_sco_data,
+    /* BTA_HF_CLIENT_SCO_DATA_SEND */ bta_hf_client_sco_data_send,
+    /* BTA_HF_CLIENT_SCO_DATA_FREE */ bta_hf_client_sco_data_free,
+    /* BTA_HF_CLIENT_PKT_STAT_NUMS */ bta_hf_client_pkt_stat_nums,
 #endif /* (BTM_SCO_HCI_INCLUDED == TRUE ) */
 };
 
@@ -143,6 +155,8 @@ const UINT8 bta_hf_client_st_init[][BTA_HF_CLIENT_NUM_COLS] = {
     /* SEND_AT_CMD_EVT */       {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_INIT_ST},
 #if (BTM_SCO_HCI_INCLUDED == TRUE )
     /* CI_SCO_DATA_EVT */       {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_INIT_ST},
+    /* SCO_DATA_SEND_EVT */     {BTA_HF_CLIENT_SCO_DATA_FREE,  BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_INIT_ST},
+    /* PKT_STAT_NUMS_GET_EVT */ {BTA_HF_CLIENT_PKT_STAT_NUMS,  BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_INIT_ST},
 #endif /* (BTM_SCO_HCI_INCLUDED == TRUE ) */
 };
 
@@ -166,8 +180,10 @@ const UINT8 bta_hf_client_st_opening[][BTA_HF_CLIENT_NUM_COLS] = {
     /* SCO_OPEN_EVT */          {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPENING_ST},
     /* SCO_CLOSE_EVT */         {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPENING_ST},
     /* SEND_AT_CMD_EVT */       {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPENING_ST},
-#if (BTM_SCO_HCI_INCLUDED == TRUE )
+#if (BTM_SCO_HCI_INCLUDED == TRUE)
     /* CI_SCO_DATA_EVT */       {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPENING_ST},
+    /* SCO_DATA_SEND_EVT */     {BTA_HF_CLIENT_SCO_DATA_FREE,  BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPENING_ST},
+    /* PKT_STAT_NUMS_GET_EVT */ {BTA_HF_CLIENT_PKT_STAT_NUMS,  BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPENING_ST},
 #endif /* (BTM_SCO_HCI_INCLUDED == TRUE ) */
 };
 
@@ -193,6 +209,8 @@ const UINT8 bta_hf_client_st_open[][BTA_HF_CLIENT_NUM_COLS] = {
     /* SEND_AT_CMD_EVT */       {BTA_HF_CLIENT_SEND_AT_CMD,    BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPEN_ST},
 #if (BTM_SCO_HCI_INCLUDED == TRUE )
     /* CI_SCO_DATA_EVT */       {BTA_HF_CLIENT_CI_SCO_DATA,    BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPEN_ST},
+    /* SCO_DATA_SEND_EVT */     {BTA_HF_CLIENT_SCO_DATA_SEND,  BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPEN_ST},
+    /* PKT_STAT_NUMS_GET_EVT */ {BTA_HF_CLIENT_PKT_STAT_NUMS,  BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_OPEN_ST},
 #endif /* (BTM_SCO_HCI_INCLUDED == TRUE ) */
 };
 
@@ -214,10 +232,12 @@ const UINT8 bta_hf_client_st_closing[][BTA_HF_CLIENT_NUM_COLS] = {
     /* DISC_OK_EVT */           {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
     /* DISC_FAIL_EVT */         {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
     /* SCO_OPEN_EVT */          {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
-    /* SCO_CLOSE_EVT */         {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
+    /* SCO_CLOSE_EVT */         {BTA_HF_CLIENT_SCO_CONN_CLOSE, BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
     /* SEND_AT_CMD_EVT */       {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
 #if (BTM_SCO_HCI_INCLUDED == TRUE )
     /* CI_SCO_DATA_EVT */       {BTA_HF_CLIENT_IGNORE,         BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
+    /* SCO_DATA_SEND_EVT */     {BTA_HF_CLIENT_SCO_DATA_FREE,  BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
+    /* PKT_STAT_NUMS_GET_EVT */ {BTA_HF_CLIENT_PKT_STAT_NUMS,  BTA_HF_CLIENT_IGNORE,          BTA_HF_CLIENT_CLOSING_ST},
 #endif /* (BTM_SCO_HCI_INCLUDED == TRUE ) */
 };
 
@@ -232,7 +252,11 @@ const tBTA_HF_CLIENT_ST_TBL bta_hf_client_st_tbl[] = {
     bta_hf_client_st_closing
 };
 
-const char *bta_hf_client_version = "1.6";
+#if UC_BT_HFP_LC3_ENABLE
+const int bta_hf_client_version = HFP_HF_VERSION_1_9;
+#else
+const int bta_hf_client_version = HFP_HF_VERSION_1_7;
+#endif
 
 /* HF Client control block */
 #if BTA_DYNAMIC_MEMORY == FALSE
@@ -241,6 +265,21 @@ tBTA_HF_CLIENT_CB  bta_hf_client_cb;
 tBTA_HF_CLIENT_CB  *bta_hf_client_cb_ptr;
 #endif
 
+/*******************************************************************************
+**
+** Function     bta_hf_client_bqb_clip_ctrl
+**
+** Description  Control if send the command AT+CLIP for BQB test
+**
+** Returns      void
+**
+*******************************************************************************/
+#if BT_HF_CLIENT_BQB_INCLUDED
+void bta_hf_client_bqb_clip_ctrl(BOOLEAN enable)
+{
+    s_bta_hf_client_bqb_clip_flag = enable;
+}
+#endif /* BT_HF_CLIENT_BQB_INCLUDED */
 
 /*******************************************************************************
 **
@@ -259,6 +298,7 @@ void bta_hf_client_scb_init(void)
     memset(&bta_hf_client_cb.scb, 0, sizeof(tBTA_HF_CLIENT_SCB));
     bta_hf_client_cb.scb.sco_idx = BTM_INVALID_SCO_INDEX;
     bta_hf_client_cb.scb.negotiated_codec = BTM_SCO_CODEC_CVSD;
+    bta_hf_client_cb.scb.p_sco_data = NULL;
 }
 
 /*******************************************************************************
@@ -274,10 +314,25 @@ void bta_hf_client_scb_init(void)
 void bta_hf_client_scb_disable(void)
 {
     APPL_TRACE_DEBUG("%s", __FUNCTION__);
+    if (bta_hf_client_cb.scb.p_sco_data != NULL) {
+        osi_free(bta_hf_client_cb.scb.p_sco_data);
+        bta_hf_client_cb.scb.p_sco_data = NULL;
+    }
+
+    if (bta_hf_client_cb.scb.p_disc_db != NULL) {
+        (void)SDP_CancelServiceSearch(bta_hf_client_cb.scb.p_disc_db);
+        bta_hf_client_free_db(NULL);
+    }
+    bta_hf_client_cb.scb.colli_tmr_on = FALSE;
+    bta_sys_free_timer(&bta_hf_client_cb.scb.colli_timer);
+    bta_hf_client_at_reset();
 
     bta_hf_client_scb_init();
+    bta_sys_deregister(BTA_ID_HS);
 
-    (*bta_hf_client_cb.p_cback)(BTA_HF_CLIENT_DISABLE_EVT, NULL);
+    if (bta_hf_client_cb.p_cback) {
+        (*bta_hf_client_cb.p_cback)(BTA_HF_CLIENT_DISABLE_EVT, NULL);
+    }
 }
 
 /*******************************************************************************
@@ -380,6 +435,19 @@ void bta_hf_client_collision_cback (tBTA_SYS_CONN_STATUS status, UINT8 id,
 *******************************************************************************/
 static void bta_hf_client_api_enable(tBTA_HF_CLIENT_DATA *p_data)
 {
+    if (bta_hf_client_cb.scb.p_disc_db != NULL) {
+        (void)SDP_CancelServiceSearch(bta_hf_client_cb.scb.p_disc_db);
+        bta_hf_client_free_db(NULL);
+    }
+    if (bta_hf_client_cb.scb.p_sco_data != NULL) {
+        osi_free(bta_hf_client_cb.scb.p_sco_data);
+        bta_hf_client_cb.scb.p_sco_data = NULL;
+    }
+    if (bta_hf_client_cb.scb.colli_tmr_on) {
+        bta_sys_stop_timer(&bta_hf_client_cb.scb.colli_timer);
+        bta_hf_client_cb.scb.colli_tmr_on = FALSE;
+    }
+
     /* initialize control block */
     memset(&bta_hf_client_cb, 0, sizeof(tBTA_HF_CLIENT_CB));
 
@@ -387,11 +455,25 @@ static void bta_hf_client_api_enable(tBTA_HF_CLIENT_DATA *p_data)
     bta_hf_client_cb.p_cback = p_data->api_enable.p_cback;
 
     /* check if mSBC support enabled */
-    if (strcmp(bta_hf_client_version, "1.6") == 0) {
+    if (bta_hf_client_version >= HFP_HF_VERSION_1_6) {
+#if (BTM_WBS_INCLUDED == TRUE)
         bta_hf_client_cb.msbc_enabled = TRUE;
+#else
+        bta_hf_client_cb.msbc_enabled = FALSE;
+#endif
     } else{
         bta_hf_client_cb.msbc_enabled = FALSE;
     }
+
+#if UC_BT_HFP_LC3_ENABLE
+    if (bta_hf_client_version >= HFP_HF_VERSION_1_9) {
+        bta_hf_client_cb.lc3_enabled = TRUE;
+    } else {
+        bta_hf_client_cb.lc3_enabled = FALSE;
+    }
+#else
+    bta_hf_client_cb.lc3_enabled = FALSE;
+#endif
 
     bta_hf_client_cb.scb.negotiated_codec = BTM_SCO_CODEC_CVSD;
 
@@ -421,9 +503,6 @@ static void bta_hf_client_api_disable(tBTA_HF_CLIENT_DATA *p_data)
         return;
     }
 
-    /* De-register with BTA system manager */
-    bta_sys_deregister(BTA_ID_HS);
-
     bta_hf_client_sm_execute(BTA_HF_CLIENT_API_DEREGISTER_EVT, p_data);
 
     bta_sys_collision_register (BTA_ID_HS, NULL);
@@ -441,6 +520,7 @@ static void bta_hf_client_api_disable(tBTA_HF_CLIENT_DATA *p_data)
 *******************************************************************************/
 BOOLEAN bta_hf_client_hdl_event(BT_HDR *p_msg)
 {
+    BOOLEAN free_msg = TRUE;
 #if BTA_HF_CLIENT_DEBUG == TRUE
     APPL_TRACE_DEBUG("bta_hf_client_hdl_event %s (0x%x)", bta_hf_client_evt_str(p_msg->event), p_msg->event);
 #endif
@@ -455,12 +535,16 @@ BOOLEAN bta_hf_client_hdl_event(BT_HDR *p_msg)
     case BTA_HF_CLIENT_API_DISABLE_EVT:
         bta_hf_client_api_disable((tBTA_HF_CLIENT_DATA *) p_msg);
         break;
-
+#if (BTM_SCO_HCI_INCLUDED == TRUE) && (BTA_HFP_EXT_CODEC == TRUE)
+    case BTA_HF_CLIENT_SCO_DATA_SEND_EVT:
+        free_msg = FALSE;
+        /* fall through */
+#endif
     default:
         bta_hf_client_sm_execute(p_msg->event, (tBTA_HF_CLIENT_DATA *) p_msg);
         break;
     }
-    return TRUE;
+    return free_msg;
 }
 
 /*******************************************************************************
@@ -532,7 +616,14 @@ static void send_post_slc_cmd(void)
     bta_hf_client_send_at_cmee(TRUE);
     bta_hf_client_send_at_cops(FALSE);
     bta_hf_client_send_at_btrh(TRUE, 0);
+
+#if BT_HF_CLIENT_BQB_INCLUDED
+    if (s_bta_hf_client_bqb_clip_flag == TRUE) {
+        bta_hf_client_send_at_clip(TRUE);
+    }
+#else
     bta_hf_client_send_at_clip(TRUE);
+#endif /* BT_HF_CLIENT_BQB_INCLUDED */
 }
 
 /*******************************************************************************
@@ -640,6 +731,7 @@ static char *bta_hf_client_evt_str(UINT16 event)
         CASE_RETURN_STR(BTA_HF_CLIENT_SCO_OPEN_EVT)
         CASE_RETURN_STR(BTA_HF_CLIENT_SCO_CLOSE_EVT)
         CASE_RETURN_STR(BTA_HF_CLIENT_SEND_AT_CMD_EVT)
+        CASE_RETURN_STR(BTA_HF_CLIENT_PKT_NUMS_GET_EVT)
     default:
         return "Unknown HF Client Event";
     }

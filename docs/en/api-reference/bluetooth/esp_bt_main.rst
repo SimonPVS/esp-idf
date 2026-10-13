@@ -1,18 +1,5 @@
-BT MAIN API
-===========
-
-Overview
---------
-
-`Instructions`_
-
-Application Example
--------------------
-
-`Instructions`_
-
-.. _Instructions: ../template.html
-
+Bluetooth® Main API
+===================
 
 API Reference
 -------------

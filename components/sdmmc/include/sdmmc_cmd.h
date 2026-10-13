@@ -1,36 +1,31 @@
-// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
 #include <stdio.h>
 #include "esp_err.h"
-#include "driver/sdmmc_types.h"
+#include "sd_protocol_types.h"
+#include "esp_blockdev.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/** Call `sdmmc_io_read_bytes`, `sdmmc_io_write_bytes`, `sdmmc_io_read_blocks` or `sdmmc_io_write_bocks` APIs with
+ * address ORed by this flag to send CMD53 with OP Code clear (fixed address) */
+#define SDMMC_IO_FIXED_ADDR BIT(31)
+
 /**
  * Probe and initialize SD/MMC card using given host
- *
- * @note Only SD cards (SDSC and SDHC/SDXC) are supported now.
- *       Support for MMC/eMMC cards will be added later.
  *
  * @param host  pointer to structure defining host controller
  * @param out_card  pointer to structure which will receive information
  *                  about the card when the function completes
+ * @note Call sdmmc_card_deinit before reinitializing the same card structure.
  * @return
  *      - ESP_OK on success
  *      - One of the error codes from SDMMC host controller
@@ -39,11 +34,43 @@ esp_err_t sdmmc_card_init(const sdmmc_host_t* host,
         sdmmc_card_t* out_card);
 
 /**
+ * Release resources allocated by sdmmc_card_init
+ *
+ * Currently the only persistent heap allocation made by sdmmc_card_init is
+ * host.dma_aligned_buffer, and only when SDMMC_HOST_FLAG_ALLOC_ALIGNED_BUF
+ * is set. Host DMA, descriptors, and per-transfer bounce buffers are owned
+ * by the host driver or the I/O path, not by this function.
+ *
+ * This function does not deinitialize the host or free the card structure.
+ * It is safe to call more than once on the same card.
+ * Do not also free dma_aligned_buffer if the flag was set; if the application
+ * provided that buffer without the flag, it remains caller-owned.
+ *
+ * @param card  pointer to card information structure initialized using
+ *              sdmmc_card_init
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if card is NULL
+ */
+esp_err_t sdmmc_card_deinit(sdmmc_card_t* card);
+
+/**
  * @brief Print information about the card to a stream
  * @param stream  stream obtained using fopen or fdopen
  * @param card  card information structure initialized using sdmmc_card_init
  */
 void sdmmc_card_print_info(FILE* stream, const sdmmc_card_t* card);
+
+/**
+ * Get status of SD/MMC card
+ *
+ * @param card  pointer to card information structure previously initialized
+ *              using sdmmc_card_init
+ * @return
+ *      - ESP_OK on success
+ *      - One of the error codes from SDMMC host controller
+ */
+esp_err_t sdmmc_get_status(sdmmc_card_t* card);
 
 /**
  * Write given number of sectors to SD/MMC card
@@ -55,14 +82,14 @@ void sdmmc_card_print_info(FILE* stream, const sdmmc_card_t* card);
  * @param start_sector  sector where to start writing
  * @param sector_count  number of sectors to write
  * @return
- *      - ESP_OK on success
+ *      - ESP_OK on success or sector_count equal to 0
  *      - One of the error codes from SDMMC host controller
  */
 esp_err_t sdmmc_write_sectors(sdmmc_card_t* card, const void* src,
         size_t start_sector, size_t sector_count);
 
 /**
- * Write given number of sectors to SD/MMC card
+ * Read given number of sectors from the SD/MMC card
  *
  * @param card  pointer to card information structure previously initialized
  *              using sdmmc_card_init
@@ -71,11 +98,89 @@ esp_err_t sdmmc_write_sectors(sdmmc_card_t* card, const void* src,
  * @param start_sector  sector where to start reading
  * @param sector_count  number of sectors to read
  * @return
- *      - ESP_OK on success
+ *      - ESP_OK on success or sector_count equal to 0
  *      - One of the error codes from SDMMC host controller
  */
 esp_err_t sdmmc_read_sectors(sdmmc_card_t* card, void* dst,
         size_t start_sector, size_t sector_count);
+
+/**
+ * Erase given number of sectors from the SD/MMC card
+ *
+ * @note When sdmmc_erase_sectors used with cards in SDSPI mode, it was
+ * observed that card requires re-init after erase operation.
+ *
+ * @param card  pointer to card information structure previously initialized
+ *              using sdmmc_card_init
+ * @param start_sector  sector where to start erase
+ * @param sector_count  number of sectors to erase
+ * @param arg  erase command (CMD38) argument
+ * @return
+ *      - ESP_OK on success or sector_count equal to 0
+ *      - One of the error codes from SDMMC host controller
+ */
+esp_err_t sdmmc_erase_sectors(sdmmc_card_t* card, size_t start_sector,
+        size_t sector_count, sdmmc_erase_arg_t arg);
+
+/**
+ * Check if SD/MMC card supports discard
+ *
+ * @param card  pointer to card information structure previously initialized
+ *              using sdmmc_card_init
+ * @return
+ *      - ESP_OK if supported by the card/device
+ *      - ESP_FAIL if not supported by the card/device
+ */
+esp_err_t sdmmc_can_discard(sdmmc_card_t* card);
+
+/**
+ * Check if SD/MMC card supports trim
+ *
+ * @param card  pointer to card information structure previously initialized
+ *              using sdmmc_card_init
+ * @return
+ *      - ESP_OK if supported by the card/device
+ *      - ESP_FAIL if not supported by the card/device
+ */
+esp_err_t sdmmc_can_trim(sdmmc_card_t* card);
+
+/**
+ * Check if SD/MMC card supports sanitize
+ *
+ * @param card  pointer to card information structure previously initialized
+ *              using sdmmc_card_init
+ * @return
+ *      - ESP_OK if supported by the card/device
+ *      - ESP_FAIL if not supported by the card/device
+ */
+esp_err_t sdmmc_mmc_can_sanitize(sdmmc_card_t* card);
+
+/**
+ * Sanitize the data that was unmapped by a Discard command
+ *
+ * @note  Discard command has to precede sanitize operation. To discard, use
+ *        MMC_DICARD_ARG with sdmmc_erase_sectors argument
+ *
+ * @param card  pointer to card information structure previously initialized
+ *              using sdmmc_card_init
+ * @param timeout_ms timeout value in milliseconds required to sanitize the
+ *                   selected range of sectors.
+ * @return
+ *      - ESP_OK on success
+ *      - One of the error codes from SDMMC host controller
+ */
+esp_err_t sdmmc_mmc_sanitize(sdmmc_card_t* card, uint32_t timeout_ms);
+
+/**
+ * Erase complete SD/MMC card
+ *
+ * @param card  pointer to card information structure previously initialized
+ *              using sdmmc_card_init
+ * @return
+ *      - ESP_OK on success
+ *      - One of the error codes from SDMMC host controller
+ */
+esp_err_t sdmmc_full_erase(sdmmc_card_t* card);
 
 /**
  * Read one byte from an SDIO card using IO_RW_DIRECT (CMD52)
@@ -115,12 +220,17 @@ esp_err_t sdmmc_io_write_byte(sdmmc_card_t* card, uint32_t function,
  * This function performs read operation using CMD53 in byte mode.
  * For block mode, see sdmmc_io_read_blocks.
  *
+ * By default OP Code is set (incrementing address). To send CMD53 without this bit, OR the argument `addr` with
+ * `SDMMC_IO_FIXED_ADDR`.
+ *
  * @param card  pointer to card information structure previously initialized
  *              using sdmmc_card_init
  * @param function  IO function number
  * @param addr  byte address within IO function where reading starts
- * @param dst  buffer which receives the data read from card
- * @param size  number of bytes to read
+ * @param dst  buffer which receives the data read from card. Aligned to 4 byte boundary unless
+ *             `SDMMC_HOST_FLAG_ALLOC_ALIGNED_BUF` flag is set when calling `sdmmc_card_init`. The flag is mandatory
+ *             when the buffer is behind the cache.
+ * @param size  number of bytes to read, 1 to 512.
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_SIZE if size exceeds 512 bytes
@@ -135,12 +245,16 @@ esp_err_t sdmmc_io_read_bytes(sdmmc_card_t* card, uint32_t function,
  * This function performs write operation using CMD53 in byte mode.
  * For block mode, see sdmmc_io_write_blocks.
  *
+ * By default OP Code is set (incrementing address). To send CMD53 without this bit, OR the argument `addr` with
+ * `SDMMC_IO_FIXED_ADDR`.
+ *
  * @param card  pointer to card information structure previously initialized
  *              using sdmmc_card_init
  * @param function  IO function number
  * @param addr  byte address within IO function where writing starts
- * @param src  data to be written
- * @param size  number of bytes to write
+ * @param src  data to be written. Aligned to 4 byte boundary unless `SDMMC_HOST_FLAG_ALLOC_ALIGNED_BUF` flag is set
+ *             when calling `sdmmc_card_init`. The flag is mandatory when the buffer is behind the cache.
+ * @param size  number of bytes to write, 1 to 512.
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_INVALID_SIZE if size exceeds 512 bytes
@@ -155,11 +269,15 @@ esp_err_t sdmmc_io_write_bytes(sdmmc_card_t* card, uint32_t function,
  * This function performs read operation using CMD53 in block mode.
  * For byte mode, see sdmmc_io_read_bytes.
  *
+ * By default OP Code is set (incrementing address). To send CMD53 without this bit, OR the argument `addr` with
+ * `SDMMC_IO_FIXED_ADDR`.
+ *
  * @param card  pointer to card information structure previously initialized
  *              using sdmmc_card_init
  * @param function  IO function number
  * @param addr  byte address within IO function where writing starts
- * @param dst  buffer which receives the data read from card
+ * @param dst  buffer which receives the data read from card. Aligned to 4 byte boundary, and also cache line size if
+ *             the buffer is behind the cache.
  * @param size  number of bytes to read, must be divisible by the card block
  *              size.
  * @return
@@ -176,12 +294,16 @@ esp_err_t sdmmc_io_read_blocks(sdmmc_card_t* card, uint32_t function,
  * This function performs write operation using CMD53 in block mode.
  * For byte mode, see sdmmc_io_write_bytes.
  *
+ * By default OP Code is set (incrementing address). To send CMD53 without this bit, OR the argument `addr` with
+ * `SDMMC_IO_FIXED_ADDR`.
+ *
  * @param card  pointer to card information structure previously initialized
  *              using sdmmc_card_init
  * @param function  IO function number
  * @param addr  byte address within IO function where writing starts
- * @param src  data to be written
- * @param size  number of bytes to read, must be divisible by the card block
+ * @param src  data to be written. Aligned to 4 byte boundary, and also cache line size if the buffer is behind the
+ *             cache.
+ * @param size  number of bytes to write, must be divisible by the card block
  *              size.
  * @return
  *      - ESP_OK on success
@@ -218,13 +340,13 @@ esp_err_t sdmmc_io_enable_int(sdmmc_card_t* card);
  *        IO interrupts
  *      - ESP_ERR_TIMEOUT if the interrupt does not happen in timeout_ticks
  */
-esp_err_t sdmmc_io_wait_int(sdmmc_card_t* card, TickType_t timeout_ticks);
+esp_err_t sdmmc_io_wait_int(sdmmc_card_t* card, uint32_t timeout_ticks);
 
 /**
- * Get the data of CIS region of a SDIO card.
+ * Get the data of CIS region of an SDIO card.
  *
  * You may provide a buffer not sufficient to store all the CIS data. In this
- * case, this functions store as much data into your buffer as possible. Also,
+ * case, this function stores as much data into your buffer as possible. Also,
  * this function will try to get and return the size required for you.
  *
  * @param card  pointer to card information structure previously initialized
@@ -250,7 +372,7 @@ esp_err_t sdmmc_io_wait_int(sdmmc_card_t* card, TickType_t timeout_ticks);
 esp_err_t sdmmc_io_get_cis_data(sdmmc_card_t* card, uint8_t* out_buffer, size_t buffer_size, size_t* inout_cis_size);
 
 /**
- * Parse and print the CIS information of a SDIO card.
+ * Parse and print the CIS information of an SDIO card.
  *
  * @note Not all the CIS codes and all kinds of tuples are supported. If you
  * see some unresolved code, you can add the parsing of these code in
@@ -268,6 +390,20 @@ esp_err_t sdmmc_io_get_cis_data(sdmmc_card_t* card, uint8_t* out_buffer, size_t 
  */
 esp_err_t sdmmc_io_print_cis_info(uint8_t* buffer, size_t buffer_size, FILE* fp);
 
+/**
+ * Get a block device handle for the SD/MMC card
+ *
+ * This function allocates a block device handle and initializes it with the
+ * card information.
+ *
+ * @param[in] card Pointer to card information structure previously initialized using sdmmc_card_init.
+ * @param[in,out] out_handle Pointer to variable which will receive the block device handle.
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if card or out_handle is NULL
+ *      - ESP_ERR_NO_MEM if memory allocation fails
+ */
+esp_err_t sdmmc_get_blockdev(sdmmc_card_t* card, esp_blockdev_handle_t* out_handle);
 
 #ifdef __cplusplus
 }

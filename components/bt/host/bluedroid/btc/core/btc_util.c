@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 /************************************************************************************
  *
@@ -35,6 +27,10 @@
 #include "bta/bta_ag_api.h"
 #endif  ///BTA_AG_INCLUDED == TRUE
 
+#if (BTA_HH_INCLUDED == TRUE)
+#include "bta/bta_hh_api.h"
+#endif  ///BTA_HH_INCLUDED == TRUE
+#include "bta/bta_hd_api.h"
 #include "common/bt_defs.h"
 #include "stack/btm_api.h"
 #include "bta/bta_api.h"
@@ -209,6 +205,56 @@ const char* dump_hf_call_setup_state(esp_hf_call_setup_status_t call_setup_state
 
 #endif // #if (BTA_AG_INCLUDED == TRUE)
 
+#if (BTA_HH_INCLUDED == TRUE)
+const char *dump_hh_event(uint16_t event)
+{
+    switch (event) {
+        CASE_RETURN_STR(BTA_HH_ENABLE_EVT)
+        CASE_RETURN_STR(BTA_HH_DISABLE_EVT)
+        CASE_RETURN_STR(BTA_HH_OPEN_EVT)
+        CASE_RETURN_STR(BTA_HH_CLOSE_EVT)
+        CASE_RETURN_STR(BTA_HH_GET_RPT_EVT)
+        CASE_RETURN_STR(BTA_HH_SET_RPT_EVT)
+        CASE_RETURN_STR(BTA_HH_GET_PROTO_EVT)
+        CASE_RETURN_STR(BTA_HH_SET_PROTO_EVT)
+        CASE_RETURN_STR(BTA_HH_GET_IDLE_EVT)
+        CASE_RETURN_STR(BTA_HH_SET_IDLE_EVT)
+        CASE_RETURN_STR(BTA_HH_GET_DSCP_EVT)
+        CASE_RETURN_STR(BTA_HH_ADD_DEV_EVT)
+        CASE_RETURN_STR(BTA_HH_RMV_DEV_EVT)
+        CASE_RETURN_STR(BTA_HH_VC_UNPLUG_EVT)
+        CASE_RETURN_STR(BTA_HH_DATA_EVT)
+        CASE_RETURN_STR(BTA_HH_API_ERR_EVT)
+        CASE_RETURN_STR(BTA_HH_UPDATE_SCPP_EVT)
+        CASE_RETURN_STR(BTA_HH_DATA_IND_EVT)
+    default:
+        return "UNKNOWN MSG ID";
+    }
+}
+#endif ///BTA_HH_INCLUDED
+
+#if BTA_HD_INCLUDED == TRUE
+const char* dump_hd_event(uint16_t event) {
+  switch (event) {
+    CASE_RETURN_STR(BTA_HD_ENABLE_EVT)
+    CASE_RETURN_STR(BTA_HD_DISABLE_EVT)
+    CASE_RETURN_STR(BTA_HD_REGISTER_APP_EVT)
+    CASE_RETURN_STR(BTA_HD_UNREGISTER_APP_EVT)
+    CASE_RETURN_STR(BTA_HD_OPEN_EVT)
+    CASE_RETURN_STR(BTA_HD_CLOSE_EVT)
+    CASE_RETURN_STR(BTA_HD_GET_REPORT_EVT)
+    CASE_RETURN_STR(BTA_HD_SET_REPORT_EVT)
+    CASE_RETURN_STR(BTA_HD_SET_PROTOCOL_EVT)
+    CASE_RETURN_STR(BTA_HD_INTR_DATA_EVT)
+    CASE_RETURN_STR(BTA_HD_VC_UNPLUG_EVT)
+    //CASE_RETURN_STR(BTA_HD_CONN_STATE_EVT)
+    CASE_RETURN_STR(BTA_HD_API_ERR_EVT)
+    default:
+      return "UNKNOWN MSG ID";
+  }
+}
+#endif ///BTA_HD_INCLUDED
+
 UINT32 devclass2uint(DEV_CLASS dev_class)
 {
     UINT32 cod = 0;
@@ -251,7 +297,7 @@ void uuid128_be_to_esp_uuid(esp_bt_uuid_t *u, uint8_t* uuid128)
     return;
 }
 
-void uuid_to_string_legacy(bt_uuid_t *p_uuid, char *str)
+void uuid_to_string_legacy(const bt_uuid_t *p_uuid, char *str)
 {
     uint32_t uuid0, uuid4;
     uint16_t uuid1, uuid2, uuid3, uuid5;
@@ -292,18 +338,21 @@ esp_bt_status_t btc_hci_to_esp_status(uint8_t hci_status)
         case HCI_ERR_ILLEGAL_PARAMETER_FMT:
             esp_status = ESP_BT_STATUS_ERR_ILLEGAL_PARAMETER_FMT;
             break;
+        case HCI_ERR_UNSUPPORTED_VALUE:
+            esp_status = ESP_BT_STATUS_UNSUPPORTED;
+            break;
         default:
-            esp_status = ESP_BT_STATUS_FAIL;
+            esp_status = hci_status | ESP_BT_STATUS_BASE_FOR_HCI_ERR;
             break;
     }
 
     return esp_status;
 }
 
-esp_bt_status_t btc_btm_status_to_esp_status (uint8_t btm_status)
+esp_bt_status_t btc_btm_status_to_esp_status(uint8_t btm_status)
 {
     esp_bt_status_t esp_status = ESP_BT_STATUS_FAIL;
-    switch(btm_status){
+    switch(btm_status) {
         case BTM_SUCCESS:
             esp_status = ESP_BT_STATUS_SUCCESS;
             break;
@@ -332,14 +381,18 @@ esp_bt_status_t btc_btm_status_to_esp_status (uint8_t btm_status)
             esp_status = ESP_BT_STATUS_FAIL;
             break;
         default:
-            esp_status = ESP_BT_STATUS_FAIL;
+            if (btm_status & BTM_HCI_ERROR) {
+                esp_status = ESP_BT_STATUS_BASE_FOR_HCI_ERR | (btm_status & 0x7F);
+            } else {
+                esp_status = ESP_BT_STATUS_FAIL;
+            }
             break;
     }
 
     return esp_status;
 }
 
-esp_bt_status_t btc_bta_status_to_esp_status (uint8_t bta_status)
+esp_bt_status_t btc_bta_status_to_esp_status(uint8_t bta_status)
 {
     esp_bt_status_t esp_status = ESP_BT_STATUS_FAIL;
     switch(bta_status){
@@ -370,4 +423,37 @@ esp_bt_status_t btc_bta_status_to_esp_status (uint8_t bta_status)
     }
 
     return esp_status;
+}
+
+void bta_to_btc_uuid(esp_bt_uuid_t *p_dest, tBT_UUID *p_src)
+{
+    p_dest->len = p_src->len;
+    if (p_src->len == LEN_UUID_16) {
+        p_dest->uuid.uuid16 = p_src->uu.uuid16;
+    } else if (p_src->len == LEN_UUID_32) {
+        p_dest->uuid.uuid32 = p_src->uu.uuid32;
+    } else if (p_src->len == LEN_UUID_128) {
+        memcpy(&p_dest->uuid.uuid128, p_src->uu.uuid128, p_dest->len);
+    } else if (p_src->len == 0) {
+        /* do nothing for now, there's some scenario will input 0
+           such as, receive notify, the descriptor may be 0 */
+    } else {
+        BTC_TRACE_ERROR("%s UUID len is invalid %d\n", __func__, p_src->len);
+    }
+}
+
+void btc_to_bta_uuid(tBT_UUID *p_dest, esp_bt_uuid_t *p_src)
+{
+    p_dest->len = p_src->len;
+    if (p_src->len == LEN_UUID_16) {
+        p_dest->uu.uuid16 = p_src->uuid.uuid16;
+    } else if (p_src->len == LEN_UUID_32) {
+        p_dest->uu.uuid32 = p_src->uuid.uuid32;
+    } else if (p_src->len == LEN_UUID_128) {
+        memcpy(&p_dest->uu.uuid128, p_src->uuid.uuid128, p_dest->len);
+    } else if (p_src->len == 0) {
+        /* do nothing for now, there's some scenario will input 0 */
+    } else {
+        BTC_TRACE_ERROR("%s UUID len is invalid %d\n", __func__, p_src->len);
+    }
 }

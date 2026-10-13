@@ -1,24 +1,25 @@
 ******************************
 Espressif Wireshark User Guide
 ******************************
+
 :link_to_translation:`zh_CN:[中文]`
 
 ===========
 1. Overview
 ===========
 
-1.1 What is Wireshark?
+1.1 What Is Wireshark?
 ======================
 
-`Wireshark <https://www.wireshark.org>`_ (originally named "Ethereal") is a network packet analyzer that captures network packets and displays the packet data as detailed as possible. It uses WinPcap as its interface to directly capture network traffic going through a network interface controller (NIC).
+`Wireshark <https://www.wireshark.org>`_ (originally named "Ethereal") is a network packet analyzer that captures network packets and displays the packet data as detailed as possible. It uses libpcap (on Linux and other Unix-like systems) or Npcap (on Windows) to directly capture network traffic going through a network interface controller (NIC).
 
 You could think of a network packet analyzer as a measuring device used to examine what is going on inside a network cable, just like a voltmeter is used by an electrician to examine what is going on inside an electric cable.
 
 In the past, such tools were either very expensive, proprietary, or both. However, with the advent of Wireshark, all that has changed.
 
-Wireshark is released under the terms of the GNU General Public License, which means you can use the software and the source code free of charge. It also allows you to modify and customize the source code. 
+Wireshark is released under the terms of the GNU General Public License, which means you can use the software and the source code free of charge. It also allows you to modify and customize the source code.
 
-Wireshark is, perhaps, one of the best open source packet analyzers available today. 
+Wireshark is, perhaps, one of the best open source packet analyzers available today.
 
 
 1.2 Some Intended Purposes
@@ -29,9 +30,9 @@ Here are some examples of how Wireshark is typically used:
 * Network administrators use it to troubleshoot network problems.
 
 * Network security engineers use it to examine security problems.
- 
+
 * Developers use it to debug protocol implementations.
- 
+
 * People use it to learn more about network protocol internals.
 
 Beside these examples, Wireshark can be used for many other purposes.
@@ -42,40 +43,40 @@ Beside these examples, Wireshark can be used for many other purposes.
 
 The main features of Wireshark are as follows:
 
-* Available for UNIX and Windows  
+* Available for Linux, macOS, and Windows
 
-* Captures live packet data from a network interface 
+* Captures live packet data from a network interface
 
 * Displays packets along with detailed protocol information
 
-* Opens/saves the captured packet data  
+* Opens/saves the captured packet data
 
 * Imports/exports packets into a number of file formats, supported by other capture programs
 
 * Advanced packet filtering
 
-* Searches for packets based on multiple criteria  
+* Searches for packets based on multiple criteria
 
 * Colorizes packets according to display filters
 
 * Calculates statistics
 
-* … and a lot more!
+* ... and a lot more!
 
 
-1.4 Wireshark Can or Can't Do
+1.4 Wireshark Can or Cannot Do
 ==============================
 
-* **Live capture from different network media**. 
-  
-  Wireshark can capture traffic from different network media, including wireless LAN. 
+* **Live capture from different network media**.
 
-* **Import files from many other capture programs**. 
-  
+  Wireshark can capture traffic from different network media, including wireless LAN (requires monitor mode support on the hardware).
+
+* **Import files from many other capture programs**.
+
   Wireshark can import data from a large number of file formats, supported by other capture programs.
 
-* **Export files for many other capture programs**. 
-  
+* **Export files for many other capture programs**.
+
   Wireshark can export data into a large number of file formats, supported by other capture programs.
 
 * **Numerous protocol dissectors**.
@@ -84,42 +85,46 @@ The main features of Wireshark are as follows:
 
 * **Wireshark is not an intrusion detection system**.
 
-  It will not warn you if there are any suspicious activities on your network. However, if strange things happen, Wireshark might help you figure out what is really going on. 
+  It will not warn you if there are any suspicious activities on your network. However, if strange things happen, Wireshark might help you figure out what is really going on.
 
 * **Wireshark does not manipulate processes on the network, it can only perform "measurements" within it**.
 
-  Wireshark does not send packets on the network or influence it in any other way, except for resolving names (converting numerical address values into a human readable format), but even that can be disabled. 
+  Wireshark does not send packets on the network or influence it in any other way, except for resolving names (converting numerical address values into a human readable format), but even that can be disabled.
 
 
 ==========================
 2. Where to Get Wireshark
 ==========================
 
-You can get Wireshark from the official website: https://www.wireshark.org/download.html  
+You can get Wireshark from the official website: https://www.wireshark.org/download.html
 
-Wireshark can run on various operating systems. Please download the correct version according to the operating system you are using.
+Wireshark can run on Linux, macOS, and Windows. Please download the correct version according to the operating system you are using. On Windows, the installer includes Npcap (the packet capture library); on Linux, ensure libpcap is installed.
 
 
 ======================
 3. Step-by-step Guide
 ======================
 
-**This demonstration uses Wireshark 2.2.6 on Linux.**
+**This demonstration uses Wireshark on Linux.** The UI may vary slightly between versions; the latest documentation is available at `Wireshark User's Guide <https://www.wireshark.org/docs/wsug_html/>`_.
 
 
 **a) Start Wireshark**
 
-On Linux, you can run the shell script provided below. It starts Wireshark, then configures NIC and the channel for packet capture. 
+To find your wireless NIC name (e.g., ``wlan0``), run ``ip link show`` or ``iw dev`` to list available interfaces.
 
-:: 
+On Linux, you can run the shell script provided below. It starts Wireshark and configures the NIC for packet capture in monitor mode. These commands require root privileges—run the script with ``sudo`` or as root:
 
-  ifconfig $1 down
-  iwconfig $1 mode monitor
-  iwconfig $1 channel $2
-  ifconfig $1 up
-  Wireshark&
+::
 
-In the above script, the parameter ``$1`` represents NIC and ``$2`` represents channel. For example, ``wlan0`` in ``./xxx.sh wlan0 6``, specifies the NIC for packet capture, and ``6`` identifies the channel of an AP or Soft-AP.
+  ip link set $1 down
+  iw dev $1 set type monitor
+  ip link set $1 up
+  wireshark &
+
+.. note::
+  Setting a specific channel (e.g., ``iw dev $1 set channel 6``) limits capture to that channel only. The script above omits that command, so capture stays on the interface's current channel. To capture on a specific channel, add ``iw dev $1 set channel 6`` (or another channel) between the ``set type monitor`` and ``ip link set $1 up`` lines.
+
+In the above script, the parameter ``$1`` represents the NIC (e.g., ``wlan0``). For example, ``./xxx.sh wlan0`` starts capture on the wireless interface.
 
 
 **b) Run the Shell Script to Open Wireshark and Display Capture Interface**
@@ -132,20 +137,28 @@ In the above script, the parameter ``$1`` represents NIC and ``$2`` represents c
 
     Wireshark Capture Interface
 
-**c) Select the Interface to Start Packet Capture** 
+**c) Select the Interface to Start Packet Capture**
 
 As the red markup shows in the picture above, many interfaces are available. The first one is a local NIC and the second one is a wireless NIC.
 
-Please select the NIC according to your requirements. This document will use the wireless NIC to demonstrate packet capture. 
+Please select the NIC according to your requirements. This document will use the wireless NIC to demonstrate packet capture.
 
 Double click *wlan0* to start packet capture.
 
 
 **d) Set up Filters**
 
-Since all packets in the channel will be captured, and many of them are not needed, you have to set up filters to get the packets that you need. 
+Since all packets in the channel will be captured, and many of them are not needed, you have to set up filters to get the packets that you need.
 
-Please find the picture below with the red markup, indicating where the filters should be set up. 
+Some commonly used display filters for wireless capture:
+
+* ``wlan.ssid == "MyNetwork"`` — filter by SSID (network name)
+* ``wlan.addr == aa:bb:cc:dd:ee:ff`` — filter by MAC address (source, destination, or BSSID)
+* ``wlan.bssid == aa:bb:cc:dd:ee:ff`` — filter by access point BSSID
+* ``wlan.fc.type_subtype == 0x08`` — filter beacon frames
+* ``eapol`` — filter EAPOL handshake packets (needed for WPA decryption)
+
+Please find the picture below with the red markup, indicating where the filters should be set up.
 
 .. figure:: ../../_static/ws-setup-filters.png
     :align: center
@@ -196,6 +209,27 @@ For example, as shown in the picture below, enter two MAC addresses as the filte
 
     Example of MAC Addresses applied in the Filter Toolbar
 
+**Decryption keys for encrypted Wi-Fi traffic**
+
+To view decrypted traffic after a successful Wi-Fi connection (WPA/WPA2-Personal), configure decryption keys in Wireshark:
+
+1. Go to *Edit* → *Preferences* → *Protocols* → *IEEE 802.11*
+2. Click *Edit* next to *Decryption Keys*
+3. Add keys according to the format below (ensure *Enable decryption* is checked)
+
+Common decryption key formats:
+
+============  ============================================
+Key type      Key format / example
+============  ============================================
+wpa-pwd       ``password:ssid``
+              e.g., ``mypassword:MyNetwork``
+wep           Hexadecimal key, e.g., ``a1:b2:c3:d4:e5``
+============  ============================================
+
+.. note::
+  For WPA/WPA2-Personal, the capture must include the 4-way EAPOL handshake (when the device joins the network). Use the ``eapol`` display filter to verify handshake packets are present. See the `Wireshark 802.11 documentation <https://www.wireshark.org/docs/wsug_html_chunked/Ch80211Keys.html>`_ for more details.
+
 **e) Packet List**
 
 You can click any packet in the packet list and check the detailed information about it in the box below the list. For example, if you click the first packet, its details will appear in that box.
@@ -230,7 +264,7 @@ Click the top left blue button to start or resume packet capture.
 
 **g) Save the Current Packet**
 
-On Linux, go to *File* -> *Export Packet Dissections* -> *As Plain Text File* to save the packet.
+On Linux, go to *File* → *Export Packet Dissections* → *as Plain Text* to save the packet.
 
 .. figure:: ../../_static/ws-save-packets.png
     :align: center
@@ -242,5 +276,5 @@ On Linux, go to *File* -> *Export Packet Dissections* -> *As Plain Text File* to
 
 Please note that *All packets*, *Displayed* and *All expanded* must be selected.
 
-By default, Wireshark saves the captured packet in a libpcap file. You can also save the file in other formats, e.g. txt, to analyze it in other tools.
+By default, Wireshark saves the captured packet in a libpcap file. You can also save the file in other formats, e.g., txt, to analyze it in other tools.
 

@@ -3,41 +3,53 @@ API Guides
 :link_to_translation:`zh_CN:[中文]`
 
 .. toctree::
-    :maxdepth: 1
+   :maxdepth: 1
 
-    Application Level Tracing <app_trace>
-    :SOC_BT_SUPPORTED: BluFi <blufi>
-    Bootloader <bootloader>
-    Build System <build-system>
-    :esp32: Build System (Legacy GNU Make) <build-system-legacy>
-    Deep Sleep Wake Stubs <deep-sleep-stub>
-    :esp32s2: Device Firmware Upgrade through USB <dfu>
-    Error Handling <error-handling>
-    :SOC_BT_SUPPORTED: ESP-BLE-MESH <esp-ble-mesh/ble-mesh-index>
-    ESP-MESH (Wi-Fi) <mesh>
-    Core Dump <core_dump>
-    Event Handling <event-handling>
-    External SPI-connected RAM <external-ram>
-    Fatal Errors <fatal-errors>
-    Flash Encryption <../security/flash-encryption>
-    FreeRTOS SMP Changes <freertos-smp>
-    General Notes <general-notes>
-    Hardware Abstraction <hardware-abstraction>
-    High Level Interrupts <hlinterrupts>
-    JTAG Debugging <jtag-debugging/index>
-    Linker Script Generation <linker-script-generation>
-    lwIP TCP/IP Stack <lwip>
-    Partition Tables <partition-tables>
-    :esp32: RF Calibration <RF_calibration>
-    ROM debug console <romconsole>
-    :esp32: Secure Boot <../security/secure-boot-v1>
-    Secure Boot V2 <../security/secure-boot-v2>
-    Thread Local Storage <thread-local-storage>
-    Tools <tools/index>
-    ULP Coprocessor <ulp>
-    :esp32: ULP Coprocessor (Legacy GNU Make) <ulp-legacy>
-    :esp32s2: ULP-RISC-V Coprocessor <ulp-risc-v>
-    Unit Testing <unit-tests>
-    :esp32: Unit Testing (Legacy GNU Make) <unit-tests-legacy>
-    :esp32s2: USB Console <usb-console>
-    WiFi Driver <wifi>
+   startup
+   :SOC_BT_SUPPORTED: bt-architecture/index
+   :SOC_BT_CLASSIC_SUPPORTED: classic-bt/index
+   :SOC_BLE_SUPPORTED: ble/index
+   :SOC_BLE_MESH_SUPPORTED: esp-ble-mesh/ble-mesh-index
+   :SOC_BLE_AUDIO_SUPPORTED: esp-ble-audio/ble-audio-index
+   bootloader
+   build-system
+   build-system-v2/index
+   :SOC_SUPPORT_COEXISTENCE: coexist
+   c
+   cplusplus
+   code-quality/index
+   core_dump
+   current-consumption-measurement-modules
+   :ESP_ROM_SUPPORT_DEEP_SLEEP_WAKEUP_STUB: deep-sleep-stub
+   :SOC_USB_DFU_SUPPORTED: dfu
+   error-handling
+   :SOC_WIFI_MESH_SUPPORT: esp-wifi-mesh
+   :SOC_SPIRAM_SUPPORTED: external-ram
+   fatal-errors
+   file-system-considerations
+   :esp32s3: flash_psram_config
+   hardware-abstraction
+   :CONFIG_IDF_TARGET_ARCH_XTENSA: hlinterrupts
+   jtag-debugging/index
+   kconfig/index
+   linker-script-generation
+   low-power-mode/index
+   lwip
+   memory-types
+   openthread
+   partition-tables
+   performance/index
+   reproducible-builds
+   :(SOC_WIFI_SUPPORTED or SOC_BT_SUPPORTED or SOC_IEEE802154_SUPPORTED): RF_calibration
+   stdio
+   thread-local-storage
+   tools/index
+   tracing/index
+   unit-tests
+   host-apps
+   :SOC_USB_OTG_CONSOLE_SUPPORTED: usb-otg-console
+   :SOC_USB_SERIAL_JTAG_SUPPORTED: usb-serial-jtag-console
+   :SOC_WIFI_SUPPORTED: wifi-driver/index
+   :SOC_WIFI_SUPPORTED: wifi-security
+   wifi-expansion
+   :SOC_WIFI_SUPPORTED or SOC_BT_SUPPORTED or SOC_IEEE802154_SUPPORTED: phy

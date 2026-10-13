@@ -22,22 +22,19 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "bt_common.h"
-
-typedef uint8_t UINT8;
-typedef uint16_t UINT16;
-typedef uint32_t UINT32;
-typedef uint64_t UINT64;
+#include "osi/semaphore.h"
 
 typedef int8_t INT8;
 typedef int16_t INT16;
 typedef int32_t INT32;
-typedef bool BOOLEAN;
 
 #define PACKED  __packed
 // #define INLINE  __inline
 
 #define BCM_STRCPY_S(x1,x2)      strcpy((x1),(x2))
-#define BCM_STRNCPY_S(x1,x2,x3)  strncpy((x1),(x2),(x3))
+#define BCM_STRLCPY_S(x1,x2,x3)  strlcpy((x1),(x2),(x3))
+#define BCM_STRCMP_S(x1,x2)      strcmp((x1),(x2))
+#define BCM_STRNCMP_S(x1,x2,x3)  strncmp((x1),(x2),(x3))
 
 /* READ WELL !!
 **
@@ -52,6 +49,7 @@ typedef bool BOOLEAN;
 #define BT_EVT_MASK                 0xFF00
 #define BT_SUB_EVT_MASK             0x00FF
 #define BT_STATIC_RAND_ADDR_MASK    0xC0
+#define BT_NON_RPA_MASK             0x3F
 /* To Bluetooth Upper Layers        */
 /************************************/
 #define BT_EVT_TO_BTU_L2C_EVT       0x0900      /* L2CAP event */
@@ -196,6 +194,13 @@ typedef struct {
     uint8_t           data[];
 } BT_HDR;
 
+typedef struct {
+    uint8_t           status;
+    uint16_t          opcode;
+    osi_sem_t         sync_sem;
+} BlE_SYNC;
+
+
 #define BT_HDR_SIZE (sizeof (BT_HDR))
 
 #define BT_PSM_SDP                      0x0001
@@ -255,6 +260,7 @@ typedef struct {
 
 #define STREAM_SKIP_UINT8(p)  do { (p) += 1; } while (0)
 #define STREAM_SKIP_UINT16(p) do { (p) += 2; } while (0)
+#define STREAM_SKIP_UINT24(p) do { (p) += 3; } while (0)
 
 /********************************************************************************
 ** Macros to get and put bytes to and from a field (Little Endian format).
@@ -295,8 +301,6 @@ typedef struct {
 
 
 /* Common Bluetooth field definitions */
-#define BD_ADDR_LEN     6                   /* Device address length */
-typedef UINT8 BD_ADDR[BD_ADDR_LEN];         /* Device address */
 typedef UINT8 *BD_ADDR_PTR;                 /* Pointer to Device Address */
 
 #define AMP_KEY_TYPE_GAMP       0
@@ -413,23 +417,6 @@ typedef UINT8 ACCESS_CODE[ACCESS_CODE_BYTE_LEN];
 #define BT_CLK_TO_MICROSECS(x)  (((x) * 5000 + 3) / 8)
 #define BT_MICROSECS_TO_CLK(x)  (((x) * 8 + 2499) / 5000)
 
-/* Maximum UUID size - 16 bytes, and structure to hold any type of UUID. */
-#define MAX_UUID_SIZE              16
-typedef struct {
-#define LEN_UUID_16     2
-#define LEN_UUID_32     4
-#define LEN_UUID_128    16
-
-    UINT16          len;
-
-    union {
-        UINT16      uuid16;
-        UINT32      uuid32;
-        UINT8       uuid128[MAX_UUID_SIZE];
-    } uu;
-
-} tBT_UUID;
-
 #define BT_EIR_FLAGS_TYPE                   0x01
 #define BT_EIR_MORE_16BITS_UUID_TYPE        0x02
 #define BT_EIR_COMPLETE_16BITS_UUID_TYPE    0x03
@@ -500,6 +487,7 @@ typedef struct {
 #define BLE_ADDR_RANDOM_ID      0x03
 #define BLE_ADDR_TYPE_MAX       BLE_ADDR_RANDOM_ID
 #define BLE_ADDR_UNKNOWN_TYPE   0XFF
+#define BLE_ADDR_ANONYMOUS      0xFF
 typedef UINT8 tBLE_ADDR_TYPE;
 #define BLE_ADDR_TYPE_MASK      (BLE_ADDR_RANDOM | BLE_ADDR_PUBLIC)
 
@@ -692,6 +680,11 @@ typedef void (BT_LOG_FUNC) (int trace_type, const char *fmt_str, ...);
 typedef uint8_t BD_ADDR[BD_ADDR_LEN];
 #endif
 
+/* peer irk */
+#ifndef PEER_IRK_LEN
+#define PEER_IRK_LEN     16
+typedef uint8_t PEER_IRK[PEER_IRK_LEN];
+#endif
 // From bd.c
 
 /*****************************************************************************

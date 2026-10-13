@@ -1,18 +1,10 @@
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include <stdint.h>
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 #include <string.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -112,12 +104,13 @@ static void bas_gatts_callback(esp_gatts_evt_t event, tBTA_GATTS *p_data)
                   p_data->add_result.char_uuid.uu.uuid16);
         UINT16 char_uuid = p_data->add_result.char_uuid.uu.uuid16;
         UINT16 service_id = p_data->add_result.service_id;
-        if (char_uuid == GATT_UUID_BATTERY_LEVEL) {
-            bas_AddCharDescr(service_id, p_data->add_result.attr_id);
-        }
-        if (char_uuid == GATT_UUID_SYSTEM_ID | GATT_UUID_MODEL_NUMBER_STR | GATT_UUID_PNP_ID |
-                GATT_UUID_SERIAL_NUMBER_STR | GATT_UUID_FW_VERSION_STR | GATT_UUID_HW_VERSION_STR |
-                GATT_UUID_SW_VERSION_STR | GATT_UUID_MANU_NAME | GATT_UUID_IEEE_DATA) {
+        UINT16 uuid_len = p_data->add_result.char_uuid.len;
+
+        if (uuid_len == ESP_UUID_LEN_16) {
+            if (char_uuid == GATT_UUID_BATTERY_LEVEL) {
+                bas_AddCharDescr(service_id, p_data->add_result.attr_id);
+            }
+
             switch (char_uuid) {
             case GATT_UUID_SYSTEM_ID:
                 dis_cb.dis_attr[0].handle = service_id; break;
@@ -138,6 +131,8 @@ static void bas_gatts_callback(esp_gatts_evt_t event, tBTA_GATTS *p_data)
             case GATT_UUID_PNP_ID:
                 dis_cb.dis_attr[8].handle = service_id; break;
             }
+            default:
+                break;
         }
     }
     break;

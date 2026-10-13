@@ -15,6 +15,7 @@
 #include "esp_netif.h"
 #include "esp_eth.h"
 #include "protocol_examples_common.h"
+#include "esp_check.h"
 
 #include <esp_http_server.h>
 
@@ -23,7 +24,7 @@
  */
 
 static const char *TAG = "example";
- 
+
 /* Function to free context */
 static void adder_free_func(void *ctx)
 {
@@ -61,6 +62,7 @@ static esp_err_t adder_post_handler(httpd_req_t *req)
     if (! req->sess_ctx) {
         ESP_LOGI(TAG, "/adder allocating new session");
         req->sess_ctx = malloc(sizeof(int));
+        ESP_RETURN_ON_FALSE(req->sess_ctx, ESP_ERR_NO_MEM, TAG, "Failed to allocate sess_ctx");
         req->free_ctx = adder_free_func;
         *(int *)req->sess_ctx = 0;
     }
@@ -88,6 +90,7 @@ static esp_err_t adder_get_handler(httpd_req_t *req)
     if (! req->sess_ctx) {
         ESP_LOGI(TAG, "/adder GET allocating new session");
         req->sess_ctx = malloc(sizeof(int));
+        ESP_RETURN_ON_FALSE(req->sess_ctx, ESP_ERR_NO_MEM, TAG, "Failed to allocate sess_ctx");
         req->free_ctx = adder_free_func;
         *(int *)req->sess_ctx = 0;
     }
@@ -98,6 +101,47 @@ static esp_err_t adder_get_handler(httpd_req_t *req)
     httpd_resp_send(req, outbuf, HTTPD_RESP_USE_STRLEN);
     return ESP_OK;
 }
+
+#if CONFIG_EXAMPLE_SESSION_CTX_HANDLERS
+// login and logout handler are created to test the server functionality to delete the older sess_ctx if it is changed from another handler.
+// login handler creates a new sess_ctx
+static esp_err_t login_handler(httpd_req_t *req)
+{
+    /* Log total visitors */
+    unsigned *visitors = (unsigned *)req->user_ctx;
+    ESP_LOGI(TAG, "/login visitor count = %d", ++(*visitors));
+
+    char outbuf[50];
+
+    /* Create session's context if not already available */
+    if (! req->sess_ctx) {
+        ESP_LOGI(TAG, "/login GET allocating new session");
+        req->sess_ctx = malloc(sizeof(int));
+        if (!req->sess_ctx) {
+            return ESP_ERR_NO_MEM;
+        }
+        *(int *)req->sess_ctx = 1;
+    }
+    ESP_LOGI(TAG, "/login GET handler send %d", *(int *)req->sess_ctx);
+
+    /* Respond with the accumulated value */
+    snprintf(outbuf, sizeof(outbuf),"%d", *((int *)req->sess_ctx));
+    httpd_resp_send(req, outbuf, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+// This handler sets sess_ctx to NULL.
+static esp_err_t logout_handler(httpd_req_t *req)
+{
+    ESP_LOGI(TAG, "Logging out");
+    // Setting sess_ctx to NULL here. This is done to test the server functionality to free the older sesss_ctx if it is changed by some handler.
+    req->sess_ctx = NULL;
+    char outbuf[50];
+    snprintf(outbuf, sizeof(outbuf),"%d", 1);
+    httpd_resp_send(req, outbuf, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+#endif // CONFIG_EXAMPLE_SESSION_CTX_HANDLERS
 
 /* This handler resets the value of the accumulator */
 static esp_err_t adder_put_handler(httpd_req_t *req)
@@ -127,6 +171,7 @@ static esp_err_t adder_put_handler(httpd_req_t *req)
     if (! req->sess_ctx) {
         ESP_LOGI(TAG, "/adder PUT allocating new session");
         req->sess_ctx = malloc(sizeof(int));
+        ESP_RETURN_ON_FALSE(req->sess_ctx, ESP_ERR_NO_MEM, TAG, "Failed to allocate sess_ctx");
         req->free_ctx = adder_free_func;
     }
     *(int *)req->sess_ctx = val;
@@ -155,6 +200,22 @@ static const httpd_uri_t adder_get = {
     .user_ctx = &visitors
 };
 
+#if CONFIG_EXAMPLE_SESSION_CTX_HANDLERS
+static const httpd_uri_t login = {
+    .uri      = "/login",
+    .method   = HTTP_GET,
+    .handler  = login_handler,
+    .user_ctx = &visitors
+};
+
+static const httpd_uri_t logout = {
+    .uri      = "/logout",
+    .method   = HTTP_GET,
+    .handler  = logout_handler,
+    .user_ctx = &visitors
+};
+#endif // CONFIG_EXAMPLE_SESSION_CTX_HANDLERS
+
 static const httpd_uri_t adder_put = {
     .uri      = "/adder",
     .method   = HTTP_PUT,
@@ -173,6 +234,10 @@ static httpd_handle_t start_webserver(void)
         // Set URI handlers
         ESP_LOGI(TAG, "Registering URI handlers");
         httpd_register_uri_handler(server, &adder_get);
+#if CONFIG_EXAMPLE_SESSION_CTX_HANDLERS
+        httpd_register_uri_handler(server, &login);
+        httpd_register_uri_handler(server, &logout);
+#endif // CONFIG_EXAMPLE_SESSION_CTX_HANDLERS
         httpd_register_uri_handler(server, &adder_put);
         httpd_register_uri_handler(server, &adder_post);
         return server;
@@ -182,25 +247,28 @@ static httpd_handle_t start_webserver(void)
     return NULL;
 }
 
-static void stop_webserver(httpd_handle_t server)
+static esp_err_t stop_webserver(httpd_handle_t server)
 {
     // Stop the httpd server
-    httpd_stop(server);
+    return httpd_stop(server);
 }
 
 
-static void disconnect_handler(void* arg, esp_event_base_t event_base, 
+static void disconnect_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data)
 {
     httpd_handle_t* server = (httpd_handle_t*) arg;
     if (*server) {
         ESP_LOGI(TAG, "Stopping webserver");
-        stop_webserver(*server);
-        *server = NULL;
+        if (stop_webserver(*server) == ESP_OK) {
+            *server = NULL;
+        } else {
+            ESP_LOGE(TAG, "Failed to stop http server");
+        }
     }
 }
 
-static void connect_handler(void* arg, esp_event_base_t event_base, 
+static void connect_handler(void* arg, esp_event_base_t event_base,
                             int32_t event_id, void* event_data)
 {
     httpd_handle_t* server = (httpd_handle_t*) arg;

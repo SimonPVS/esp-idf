@@ -1,3 +1,6 @@
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- |
+
 
 # UDP Server example
 
@@ -9,11 +12,12 @@ The application creates UDP socket with the specified port number and waits for 
 
 In order to create UDP client that communicates with UDP server example, choose one of the following options.
 
-There are many host-side tools which can be used to interact with the UDP/TCP server/client. 
-One command line tool is [netcat](http://netcat.sourceforge.net) which can send and receive many kinds of packets. 
+There are many host-side tools which can be used to interact with the UDP/TCP server/client.
+One command line tool is [netcat](http://netcat.sourceforge.net) which can send and receive many kinds of packets.
 Note: please replace `192.168.0.167 3333` with desired IPV4/IPV6 address (displayed in monitor console) and port number in the following commands.
+If want to use this RECVINFO function, please enable LWIP_NETBUF_RECVINFO in menuconfig,this function can only resolve the destination address of IPV4.
 
-In addition to those tools, simple Python scripts can be found under sockets/scripts directory. Every script is designed to interact with one of the examples.
+Ref to the [upper level README](../README.md#host-tools) for more information.
 
 ### Send UDP packet via netcat
 ```
@@ -29,16 +33,6 @@ echo "Hello from PC" | nc -w1 -u 192.168.0.167 3333
 ```
 nc -u 192.168.0.167 3333
 ```
-
-### Python scripts
-Script example_test.py could be used as a counter part to the udp-server application,
-IP address and the message to be send to the server shall be stated as arguments. Example:
-
-```
-python example_test.py 192.168.0.167 Message
-```
-Note that this script is used in automated tests, as well, so the IDF test framework packages need to be imported;
-please add `$IDF_PATH/tools/ci/python_packages` to `PYTHONPATH`.
 
 ## Hardware Required
 

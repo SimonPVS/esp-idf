@@ -1,27 +1,12 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-#ifndef nvs_page_hpp
-#define nvs_page_hpp
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
 
 #include "nvs.h"
 #include "nvs_types.hpp"
-#include <cstdint>
-#include <type_traits>
-#include <cstring>
-#include <algorithm>
-#include "esp_spi_flash.h"
-#include "compressed_enum_table.hpp"
 #include "intrusive_list.h"
 #include "nvs_item_hash_list.hpp"
 #include "partition.hpp"
@@ -30,49 +15,51 @@ namespace nvs
 {
 
 
-class Page : public intrusive_list_node<Page>
+class Page : public intrusive_list_node<Page>, public ExceptionlessAllocatable
 {
 public:
-    static const uint32_t PSB_INIT = 0x1;
-    static const uint32_t PSB_FULL = 0x2;
-    static const uint32_t PSB_FREEING = 0x4;
-    static const uint32_t PSB_CORRUPT = 0x8;
+    static const bool DEFAULT_PURGE_AFTER_ERASE = true;
 
-    static const uint32_t ESB_WRITTEN = 0x1;
-    static const uint32_t ESB_ERASED = 0x2;
+    static const uint32_t PSB_INIT = NVS_CONST_PSB_INIT;
+    static const uint32_t PSB_FULL = NVS_CONST_PSB_FULL;
+    static const uint32_t PSB_FREEING = NVS_CONST_PSB_FREEING;
+    static const uint32_t PSB_CORRUPT = NVS_CONST_PSB_CORRUPT;
 
-    static const uint32_t SEC_SIZE = SPI_FLASH_SEC_SIZE;
+    static const uint32_t ESB_WRITTEN = NVS_CONST_ESB_WRITTEN;
+    static const uint32_t ESB_ERASED = NVS_CONST_ESB_ERASED;
 
-    static const size_t ENTRY_SIZE  = 32;
-    static const size_t ENTRY_COUNT = 126;
-    static const uint32_t INVALID_ENTRY = 0xffffffff;
+    static const uint32_t SEC_SIZE = NVS_CONST_PAGE_SIZE;
+
+    static const size_t ENTRY_SIZE  = NVS_CONST_ENTRY_SIZE;
+    static const size_t ENTRY_COUNT = NVS_CONST_ENTRY_COUNT;
+    static const uint32_t INVALID_ENTRY = NVS_CONST_INVALID_ENTRY;
 
     static const size_t CHUNK_MAX_SIZE = ENTRY_SIZE * (ENTRY_COUNT - 1);
 
-    static const uint8_t NS_INDEX = 0;
-    static const uint8_t NS_ANY = 255;
+    static const uint8_t NS_INDEX = NVS_CONST_NS_INDEX;
+    static const uint8_t NS_ANY = NVS_CONST_NS_ANY;
 
     static const uint8_t CHUNK_ANY = Item::CHUNK_ANY;
 
-    static const uint8_t NVS_VERSION = 0xfe; // Decrement to upgrade
+    static const uint8_t NVS_VERSION = NVS_CONST_NVS_VERSION; // Decrement to upgrade
 
     enum class PageState : uint32_t {
         // All bits set, default state after flash erase. Page has not been initialized yet.
-        UNINITIALIZED = 0xffffffff,
+        UNINITIALIZED = NVS_CONST_PAGE_STATE_UNINITIALIZED,
 
         // Page is initialized, and will accept writes.
-        ACTIVE        = UNINITIALIZED & ~PSB_INIT,
+        ACTIVE        = NVS_CONST_PAGE_STATE_ACTIVE,
 
         // Page is marked as full and will not accept new writes.
-        FULL          = ACTIVE & ~PSB_FULL,
+        FULL          = NVS_CONST_PAGE_STATE_FULL,
 
         // Data is being moved from this page to a new one.
-        FREEING       = FULL & ~PSB_FREEING,
+        FREEING       = NVS_CONST_PAGE_STATE_FREEING,
 
         // Page was found to be in a corrupt and unrecoverable state.
         // Instead of being erased immediately, it will be kept for diagnostics and data recovery.
         // It will be erased once we run out out free pages.
-        CORRUPT       = FREEING & ~PSB_CORRUPT,
+        CORRUPT       = NVS_CONST_PAGE_STATE_CORRUPT,
 
         // Page object wasn't loaded from flash memory
         INVALID       = 0
@@ -95,15 +82,21 @@ public:
 
     esp_err_t writeItem(uint8_t nsIndex, ItemType datatype, const char* key, const void* data, size_t dataSize, uint8_t chunkIdx = CHUNK_ANY);
 
+    esp_err_t readVariableLengthItemData(const Item& item, const size_t index, void* data);
+
     esp_err_t readItem(uint8_t nsIndex, ItemType datatype, const char* key, void* data, size_t dataSize, uint8_t chunkIdx = CHUNK_ANY, VerOffset chunkStart = VerOffset::VER_ANY);
 
     esp_err_t cmpItem(uint8_t nsIndex, ItemType datatype, const char* key, const void* data, size_t dataSize, uint8_t chunkIdx = CHUNK_ANY, VerOffset chunkStart = VerOffset::VER_ANY);
 
-    esp_err_t eraseItem(uint8_t nsIndex, ItemType datatype, const char* key, uint8_t chunkIdx = CHUNK_ANY, VerOffset chunkStart = VerOffset::VER_ANY);
+    esp_err_t eraseItem(uint8_t nsIndex, ItemType datatype, const char* key, const bool purgeAfterErase, uint8_t chunkIdx = CHUNK_ANY, VerOffset chunkStart = VerOffset::VER_ANY);
+
+    esp_err_t purgeErasedItems(uint8_t nsIndex);
 
     esp_err_t findItem(uint8_t nsIndex, ItemType datatype, const char* key, uint8_t chunkIdx = CHUNK_ANY, VerOffset chunkStart = VerOffset::VER_ANY);
 
     esp_err_t findItem(uint8_t nsIndex, ItemType datatype, const char* key, size_t &itemIndex, Item& item, uint8_t chunkIdx = CHUNK_ANY, VerOffset chunkStart = VerOffset::VER_ANY);
+
+    esp_err_t eraseEntryAndSpan(size_t index, const bool purgeAfterErase);
 
     template<typename T>
     esp_err_t writeItem(uint8_t nsIndex, const char* key, const T& value)
@@ -124,9 +117,9 @@ public:
     }
 
     template<typename T>
-    esp_err_t eraseItem(uint8_t nsIndex, const char* key)
+    esp_err_t eraseItem(uint8_t nsIndex, const char* key, const bool purgeAfterErase)
     {
-        return eraseItem(nsIndex, itemTypeOf<T>(), key);
+        return eraseItem(nsIndex, itemTypeOf<T>(), key, purgeAfterErase);
     }
 
     size_t getUsedEntryCount() const
@@ -172,10 +165,11 @@ protected:
     };
 
     enum class EntryState {
-        EMPTY   = 0x3, // 0b11, default state after flash erase
-        WRITTEN = EMPTY & ~ESB_WRITTEN, // entry was written
-        ERASED  = WRITTEN & ~ESB_ERASED, // entry was written and then erased
-        INVALID = 0x4 // entry is in inconsistent state (write started but ESB_WRITTEN has not been set yet)
+        EMPTY   = NVS_CONST_ENTRY_STATE_EMPTY, // 0b11, default state after flash erase
+        WRITTEN = NVS_CONST_ENTRY_STATE_WRITTEN, // entry was written
+        ERASED  = NVS_CONST_ENTRY_STATE_ERASED, // entry was written and then erased
+        ILLEGAL = NVS_CONST_ENTRY_STATE_ILLEGAL, // only possible if flash is inconsistent
+        INVALID = NVS_CONST_ENTRY_STATE_INVALID // entry is in inconsistent state (write started but ESB_WRITTEN has not been set yet)
     };
 
     esp_err_t mLoadEntryTable();
@@ -188,25 +182,28 @@ protected:
 
     esp_err_t alterPageState(PageState state);
 
+    esp_err_t purgeEntryRange(size_t begin, size_t end);
+
+    esp_err_t purgeEntry(size_t index);
+
     esp_err_t readEntry(size_t index, Item& dst) const;
 
     esp_err_t writeEntry(const Item& item);
 
     esp_err_t writeEntryData(const uint8_t* data, size_t size);
 
-    esp_err_t eraseEntryAndSpan(size_t index);
-
-    void updateFirstUsedEntry(size_t index, size_t span);
+    esp_err_t updateFirstUsedEntry(size_t index, size_t span);
 
     static constexpr size_t getAlignmentForType(ItemType type)
     {
         return static_cast<uint8_t>(type) & 0x0f;
     }
 
-    uint32_t getEntryAddress(size_t entry) const
+    esp_err_t getEntryAddress(size_t entry, uint32_t *address) const
     {
-        assert(entry < ENTRY_COUNT);
-        return mBaseAddress + ENTRY_DATA_OFFSET + static_cast<uint32_t>(entry) * ENTRY_SIZE;
+        NVS_ASSERT_OR_RETURN(entry < ENTRY_COUNT, ESP_FAIL);
+        *address =  mBaseAddress + ENTRY_DATA_OFFSET + static_cast<uint32_t>(entry) * ENTRY_SIZE;
+        return ESP_OK;
     }
 
     static const char* pageStateToName(PageState ps);
@@ -224,13 +221,16 @@ protected:
     uint16_t mUsedEntryCount = 0;
     uint16_t mErasedEntryCount = 0;
 
+    /**
+     * This hash list stores hashes of namespace index, key, and ChunkIndex for quick lookup when searching items.
+     */
     HashList mHashList;
 
     Partition *mPartition;
 
-    static const uint32_t HEADER_OFFSET = 0;
-    static const uint32_t ENTRY_TABLE_OFFSET = HEADER_OFFSET + 32;
-    static const uint32_t ENTRY_DATA_OFFSET = ENTRY_TABLE_OFFSET + 32;
+    static const uint32_t HEADER_OFFSET = NVS_CONST_PAGE_HEADER_OFFSET;
+    static const uint32_t ENTRY_TABLE_OFFSET = NVS_CONST_PAGE_ENTRY_TABLE_OFFSET;
+    static const uint32_t ENTRY_DATA_OFFSET = NVS_CONST_PAGE_ENTRY_DATA_OFFSET;
 
     static_assert(sizeof(Header) == 32, "header size must be 32 bytes");
     static_assert(ENTRY_TABLE_OFFSET % 32 == 0, "entry table offset should be aligned");
@@ -239,6 +239,3 @@ protected:
 }; // class Page
 
 } // namespace nvs
-
-
-#endif /* nvs_page_hpp */

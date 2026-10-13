@@ -50,7 +50,7 @@
 #endif
 
 #include <xtensa/config/core.h>
-#include <xtensa/config/specreg.h>
+#include <xtensa/config/xt_specreg.h>
 #include <xtensa/config/system.h>
 
 /*
@@ -1056,4 +1056,3 @@
 #endif
 
 #endif /*XTENSA_COREASM_H*/
-

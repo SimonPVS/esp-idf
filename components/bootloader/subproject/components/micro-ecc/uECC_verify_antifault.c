@@ -1,8 +1,10 @@
-/* Copyright 2014, Kenneth MacKay. Licensed under the BSD 2-clause license.
-
-   Modifications Copyright 2020, Espressif Systems (Shanghai) PTE LTD. Licensed under the BSD
-   2-clause license.
-*/
+/*
+ * SPDX-FileCopyrightText: 2014, Kenneth MacKay
+ *
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
+ * SPDX-FileContributor: 2020-2021 Espressif Systems (Shanghai) CO LTD
+ */
 
 /* uECC_verify() calls a number of static functions form here and
    uses other definitions, so we just build that whole source file here and then append
@@ -34,7 +36,7 @@ int uECC_verify_antifault(const uint8_t *public_key,
     uECC_word_t *_public = (uECC_word_t *)public_key;
 #else
     uECC_word_t _public[uECC_MAX_WORDS * 2];
-#endif    
+#endif
     uECC_word_t r[uECC_MAX_WORDS], s[uECC_MAX_WORDS];
     wordcount_t num_words = curve->num_words;
     wordcount_t num_n_words = BITS_TO_WORDS(curve->num_n_bits);
@@ -127,7 +129,7 @@ int uECC_verify_antifault(const uint8_t *public_key,
     const uECC_word_t *mhash_words = (const uECC_word_t *)message_hash;
     uECC_word_t *vhash_words = (uECC_word_t *)verified_hash;
     unsigned hash_words = hash_size / sizeof(uECC_word_t);
-    for (int w = 0; w < hash_words; w++) {
+    for (unsigned int w = 0; w < hash_words; w++) {
         /* note: using curve->num_words here to encourage compiler to re-read this variable */
         vhash_words[w] = mhash_words[w] ^ rx[w % curve->num_words] ^ r[w % curve->num_words];
     }

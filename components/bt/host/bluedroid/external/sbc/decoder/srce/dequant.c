@@ -104,16 +104,12 @@
 #define SBC_DEQUANT_LONG_SCALED_OFFSET 1555931970
 #endif
 
-#ifndef SBC_DEQUANT_LONG_UNSCALED_OFFSET
-#define SBC_DEQUANT_LONG_UNSCALED_OFFSET 2147483648
-#endif
-
 #ifndef SBC_DEQUANT_SCALING_FACTOR
 #define SBC_DEQUANT_SCALING_FACTOR 1.38019122262781f
 #endif
 
-const OI_UINT32 dequant_long_scaled[17];
-const OI_UINT32 dequant_long_unscaled[17];
+extern const OI_UINT32 dequant_long_scaled[17];
+extern const OI_UINT32 dequant_long_unscaled[17];
 
 /** Scales x by y bits to the right, adding a rounding factor.
  */

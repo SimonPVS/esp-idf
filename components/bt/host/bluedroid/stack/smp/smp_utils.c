@@ -36,6 +36,9 @@
 #include "smp_int.h"
 #include "device/controller.h"
 #include "btm_int.h"
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+#include "btm_ble_pseudo.h"
+#endif
 #include "common/bte_appl.h"
 
 #define SMP_PAIRING_REQ_SIZE    7
@@ -55,7 +58,7 @@
 #define SMP_PAIR_KEYPR_NOTIF_SIZE       (1 /* opcode */ + 1 /*Notif Type*/)
 
 /* SMP command sizes per spec */
-static const UINT8 smp_cmd_size_per_spec[] = {
+const UINT8 smp_cmd_size_per_spec[] = {
     0,
     SMP_PAIRING_REQ_SIZE,       /* 0x01: pairing request */
     SMP_PAIRING_REQ_SIZE,       /* 0x02: pairing response */
@@ -331,8 +334,7 @@ BOOLEAN  smp_send_msg_to_L2CAP(BD_ADDR rem_bda, BT_HDR *p_toL2CAP)
 
     if ((l2cap_ret = L2CA_SendFixedChnlData (fixed_cid, rem_bda, p_toL2CAP)) == L2CAP_DW_FAILED) {
         smp_cb.total_tx_unacked -= 1;
-        SMP_TRACE_ERROR("SMP   failed to pass msg:0x%0x to L2CAP",
-                        *((UINT8 *)(p_toL2CAP + 1) + p_toL2CAP->offset));
+        SMP_TRACE_ERROR("SMP failed to pass msg to L2CAP");
         return FALSE;
     } else {
         return TRUE;
@@ -352,7 +354,7 @@ BOOLEAN smp_send_cmd(UINT8 cmd_code, tSMP_CB *p_cb)
     BOOLEAN sent = FALSE;
     UINT8 failure = SMP_PAIR_INTERNAL_ERR;
     SMP_TRACE_EVENT("smp_send_cmd on l2cap cmd_code=0x%x\n", cmd_code);
-    if ( cmd_code <= (SMP_OPCODE_MAX + 1 /* for SMP_OPCODE_PAIR_COMMITM */) &&
+    if ( cmd_code < SMP_OPCODE_ARRAY_SIZE &&
             smp_cmd_build_act[cmd_code] != NULL) {
         p_buf = (*smp_cmd_build_act[cmd_code])(cmd_code, p_cb);
 
@@ -367,6 +369,7 @@ BOOLEAN smp_send_cmd(UINT8 cmd_code, tSMP_CB *p_cb)
     }
 
     if (!sent) {
+        SMP_TRACE_ERROR("%s failed, cmd_code=0x%02x", __func__, cmd_code);
         if (p_cb->smp_over_br) {
 #if (CLASSIC_BT_INCLUDED == TRUE)
             smp_br_state_machine_event(p_cb, SMP_BR_AUTH_CMPL_EVT, &failure);
@@ -393,7 +396,7 @@ void smp_rsp_timeout(TIMER_LIST_ENT *p_tle)
     UINT8 failure = SMP_RSP_TIMEOUT;
     UNUSED(p_tle);
 
-    SMP_TRACE_EVENT("%s state:%d br_state:%d", __FUNCTION__, p_cb->state, p_cb->br_state);
+    SMP_TRACE_ERROR("%s state=%d br_state=%d", __func__, p_cb->state, p_cb->br_state);
 
     if (p_cb->smp_over_br) {
 #if (CLASSIC_BT_INCLUDED == TRUE)
@@ -582,37 +585,89 @@ static BT_HDR *smp_build_identity_info_cmd(UINT8 cmd_code, tSMP_CB *p_cb)
 **
 ** Function         smp_build_id_addr_cmd
 **
-** Description      Build identity address information command.
+** Description      Build SMP Identity Address Information command
+**                  (opcode 0x09). The address distributed here is the
+**                  local device's permanent identity; an on-air RPA must
+**                  never be sent.
+**
+**                  In BLE 5.0 multi-ADV, each set has its own
+**                  own_addr_type / Static Random and the global
+**                  addr_mgnt_cb may reflect a different set, so we look
+**                  up the ext-adv instance that produced this connection
+**                  and use ITS per-set state. Fall back to addr_mgnt_cb
+**                  for initiator / legacy advertising paths.
 **
 *******************************************************************************/
 static BT_HDR *smp_build_id_addr_cmd(UINT8 cmd_code, tSMP_CB *p_cb)
 {
-    BT_HDR *p_buf = NULL;
-    UINT8 *p;
+    BT_HDR        *p_buf = NULL;
+    UINT8         *p;
+    tBLE_ADDR_TYPE id_type = BLE_ADDR_PUBLIC;
+    BD_ADDR        id_addr = {0};
 
     UNUSED(cmd_code);
     UNUSED(p_cb);
     SMP_TRACE_EVENT("smp_build_id_addr_cmd\n");
+
+
+    {
+#if (BLE_INCLUDED == TRUE)
+        tBLE_ADDR_TYPE policy_type = btm_cb.ble_ctr_cb.addr_mgnt_cb.own_addr_type;
+        const UINT8   *policy_rand = NULL;
+        BOOLEAN        policy_resolved = FALSE;
+        const BD_ADDR zero = {0};
+#if (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == TRUE)
+        {
+            tACL_CONN *p_acl = btm_bda_to_acl(p_cb->pairing_bda, BT_TRANSPORT_LE);
+            if (p_acl != NULL) {
+                UINT8 inst = BTM_BleGetExtAdvInstByConHandle(p_acl->hci_handle);
+                if (inst < MAX_BLE_ADV_INSTANCE) {
+                    policy_type = extend_adv_cb.inst[inst].own_addr_type;
+                    /* Only a host-set Static Random may be sent as identity;
+                     * a stack-generated RPA stored in rand_addr must not. */
+                    if (extend_adv_cb.inst[inst].rand_addr_set) {
+                        policy_rand = extend_adv_cb.inst[inst].rand_addr;
+                    }
+                    policy_resolved = TRUE;
+                }
+            }
+        }
+#endif /* (BLE_50_FEATURE_SUPPORT == TRUE) && (BLE_50_EXTEND_ADV_EN == TRUE) && (CONTROLLER_RPA_LIST_ENABLE == TRUE) */
+
+        if (!policy_resolved) {
+            if (memcmp(btm_cb.ble_ctr_cb.addr_mgnt_cb.static_rand_addr,
+                       zero, BD_ADDR_LEN) != 0) {
+                policy_rand = btm_cb.ble_ctr_cb.addr_mgnt_cb.static_rand_addr;
+            }
+        }
+
+        /* LSB(own_addr_type) selects Public (0) vs Static Random (1).
+         * If Random is required but unavailable, emit Public rather than
+         * leak an RPA or send all-zero. */
+        if ((policy_type & 0x01) && (policy_rand != NULL) && memcmp(policy_rand, zero, BD_ADDR_LEN) != 0) {
+            id_type = BLE_ADDR_RANDOM;
+            memcpy(id_addr, policy_rand, BD_ADDR_LEN);
+        } else if (policy_type & 0x01) {
+            SMP_TRACE_WARNING("%s: no static rand, fallback public (type=%u)",
+                              __func__, policy_type);
+        }
+#endif  ///BLE_INCLUDED == TRUE
+        if (id_type == BLE_ADDR_PUBLIC) {
+            memcpy(id_addr,
+                   controller_get_interface()->get_address()->address,
+                   BD_ADDR_LEN);
+        }
+    }
+
     if ((p_buf = (BT_HDR *)osi_malloc(sizeof(BT_HDR) + SMP_ID_ADDR_SIZE + L2CAP_MIN_OFFSET)) != NULL) {
         p = (UINT8 *)(p_buf + 1) + L2CAP_MIN_OFFSET;
 
-        UINT8_TO_STREAM (p, SMP_OPCODE_ID_ADDR);
-        /* Identity Address Information is used in the Transport Specific Key Distribution phase to distribute
-        its public device address or static random address. if slave using static random address is encrypted,
-        it should distribute its static random address */
-#if (BLE_INCLUDED == TRUE)
-        if(btm_cb.ble_ctr_cb.addr_mgnt_cb.own_addr_type == BLE_ADDR_RANDOM && memcmp(btm_cb.ble_ctr_cb.addr_mgnt_cb.static_rand_addr, btm_cb.ble_ctr_cb.addr_mgnt_cb.private_addr,6) == 0) {
-            UINT8_TO_STREAM (p, 0x01);
-            BDADDR_TO_STREAM (p, btm_cb.ble_ctr_cb.addr_mgnt_cb.static_rand_addr);
-        } else
-#endif  ///BLE_INCLUDED == TRUE
-        {
-            UINT8_TO_STREAM (p, 0);
-            BDADDR_TO_STREAM (p, controller_get_interface()->get_address()->address);
-        }
+        UINT8_TO_STREAM(p, SMP_OPCODE_ID_ADDR);
+        UINT8_TO_STREAM(p, id_type);
+        BDADDR_TO_STREAM(p, id_addr);
 
         p_buf->offset = L2CAP_MIN_OFFSET;
-        p_buf->len = SMP_ID_ADDR_SIZE;
+        p_buf->len    = SMP_ID_ADDR_SIZE;
     }
 
     return p_buf;
@@ -749,11 +804,14 @@ static BT_HDR *smp_build_pairing_commitment_cmd(UINT8 cmd_code, tSMP_CB *p_cb)
     UINT8 *p;
     UNUSED(cmd_code);
 
-    SMP_TRACE_EVENT("%s\n", __func__);
     if ((p_buf = (BT_HDR *)osi_malloc(sizeof(BT_HDR) + SMP_PAIR_COMMITM_SIZE + L2CAP_MIN_OFFSET))
             != NULL) {
         p = (UINT8 *)(p_buf + 1) + L2CAP_MIN_OFFSET;
-
+        /* The transmitter sends 0x03 universally.
+        The receiver performs automatic conversion according to its capabilities to ensure backward compatibility.
+        The state machine operates using the translated opcode. please refer to smp_data_received() in smp_l2c.c
+        Please note that using SMP OPCODE to CONFIRM is not an error.
+        */
         UINT8_TO_STREAM (p, SMP_OPCODE_CONFIRM);
         ARRAY_TO_STREAM (p, p_cb->commitment, BT_OCTET16_LEN);
 
@@ -858,6 +916,11 @@ void smp_convert_string_to_tk(BT_OCTET16 tk, UINT32 passkey)
 void smp_mask_enc_key(UINT8 loc_enc_size, UINT8 *p_data)
 {
     SMP_TRACE_EVENT("smp_mask_enc_key\n");
+    if (loc_enc_size < SMP_ENCR_KEY_SIZE_MIN) {
+        SMP_TRACE_ERROR("smp_mask_enc_key: loc_enc_size %d below minimum %d\n",
+                        loc_enc_size, SMP_ENCR_KEY_SIZE_MIN);
+        return;
+    }
     if (loc_enc_size < BT_OCTET16_LEN) {
         for (; loc_enc_size < BT_OCTET16_LEN; loc_enc_size ++) {
             * (p_data + loc_enc_size) = 0;
@@ -981,6 +1044,10 @@ void smp_proc_pairing_cmpl(tSMP_CB *p_cb)
     evt_data.cmplt.reason = p_cb->status;
     evt_data.cmplt.smp_over_br = p_cb->smp_over_br;
     evt_data.cmplt.auth_mode = 0;
+#if (BLE_INCLUDED == TRUE && BLE_SMP_HARDENED_REPAIRING == TRUE)
+    /* Copied before smp_reset_control_value() zeros the control block. */
+    evt_data.cmplt.keep_bond = p_cb->keep_bond_on_fail;
+#endif
 #if (BLE_INCLUDED == TRUE)
     tBTM_SEC_DEV_REC    *p_rec = btm_find_dev (p_cb->pairing_bda);
     if (p_cb->status == SMP_SUCCESS) {
@@ -1021,7 +1088,9 @@ void smp_proc_pairing_cmpl(tSMP_CB *p_cb)
             //clear flag
             p_rec->ble.skip_update_conn_param = false;
         } else {
+            #if (BT_MULTI_CONNECTION_ENBALE == FALSE)
             L2CA_EnableUpdateBleConnParams(p_cb->pairing_bda, TRUE);
+            #endif
         }
     }
 
@@ -1029,6 +1098,8 @@ void smp_proc_pairing_cmpl(tSMP_CB *p_cb)
 #endif  ///BLE_INCLUDED == TRUE
 
     smp_reset_control_value(p_cb);
+    // TODO: clear local oob data when start advertising
+    smp_clear_local_oob_data();
 
     if (p_callback) {
         (*p_callback) (SMP_COMPLT_EVT, pairing_bda, &evt_data);
@@ -1053,7 +1124,7 @@ BOOLEAN smp_command_has_invalid_parameters(tSMP_CB *p_cb)
 
     SMP_TRACE_DEBUG("%s for cmd code 0x%02x\n", __func__, cmd_code);
 
-    if ((cmd_code > (SMP_OPCODE_MAX + 1 /* for SMP_OPCODE_PAIR_COMMITM */)) ||
+    if ((cmd_code >= SMP_OPCODE_ARRAY_SIZE) ||
             (cmd_code < SMP_OPCODE_MIN)) {
         SMP_TRACE_WARNING("Somehow received command with the RESERVED code 0x%02x\n", cmd_code);
         return TRUE;
@@ -1121,7 +1192,7 @@ BOOLEAN smp_pairing_request_response_parameters_are_valid(tSMP_CB *p_cb)
     SMP_TRACE_DEBUG("%s for cmd code 0x%02x\n", __func__, p_cb->rcvd_cmd_code);
 
     if (io_caps >= BTM_IO_CAP_MAX) {
-        SMP_TRACE_WARNING("Rcvd from the peer cmd 0x%02x with IO Capabilty \
+        SMP_TRACE_WARNING("Rcvd from the peer cmd 0x%02x with IO Capability \
             value (0x%02x) out of range).\n",
                           p_cb->rcvd_cmd_code, io_caps);
         return FALSE;
@@ -1217,6 +1288,104 @@ BOOLEAN smp_parameter_unconditionally_invalid(tSMP_CB *p_cb)
 {
     return FALSE;
 }
+
+#if (BLE_INCLUDED == TRUE && BLE_SMP_HARDENED_REPAIRING == TRUE)
+/*******************************************************************************
+**
+** Function         smp_repairing_is_allowed
+**
+** Description      Called once the association model of a pairing procedure is known.
+**                  First pairing (no stored bond) is always allowed. On re-pairing,
+**                  refuses when the peer drops AuthReq bits it announced in a Security
+**                  Request, when the association model would weaken MITM/SC relative to
+**                  the stored bond, or when the encryption key would get shorter.
+**
+** Returns          TRUE when the pairing may continue. Otherwise FALSE, and *p_reason
+**                  holds the SMP failure code to report to the peer. Also sets
+**                  p_cb->keep_bond_on_fail so BTA/BTC keep the stored bond even when
+**                  REMOVE_BOND_ON_PAIR_FAIL_AS_CENTRAL / _AS_PERIPHERAL is enabled. The
+**                  caller should drop the link so the peer cannot retry with other
+**                  parameters until one gets through.
+**
+*******************************************************************************/
+BOOLEAN smp_repairing_is_allowed(tSMP_CB *p_cb, UINT8 *p_reason)
+{
+    const UINT16 level_bits = SMP_AUTH_YN_BIT | SMP_SC_SUPPORT_BIT;
+    tBTM_SEC_DEV_REC *p_dev_rec;
+    UINT16 new_auth = p_cb->auth_mode;
+    UINT16 sec_req_level;
+    UINT16 old_auth;
+    UINT8 new_key_size;
+
+    p_dev_rec = btm_find_dev(p_cb->pairing_bda);
+    if (p_dev_rec == NULL ||
+            !(p_dev_rec->ble.key_type & (BTM_LE_KEY_PENC | BTM_LE_KEY_LENC))) {
+        /* First pairing with this peer, there is nothing to downgrade. A Security
+           Request that outruns what IO capabilities can deliver must not block it. */
+        SMP_TRACE_DEBUG("LE first pairing, skip downgrade check, BDA:0x%02X%02X%02X%02X%02X%02X",
+                        p_cb->pairing_bda[0], p_cb->pairing_bda[1], p_cb->pairing_bda[2],
+                        p_cb->pairing_bda[3], p_cb->pairing_bda[4], p_cb->pairing_bda[5]);
+        return TRUE;
+    }
+
+    /* A Security Request carries no authentication, but the pairing command that
+       follows must still claim the level it announced, otherwise the peer can
+       advertise a high level to force a re-pairing and then drop those bits in the
+       Pairing Response. Compare against peer_auth_req (the pairing command), not
+       against the association-model result: IO capabilities that force Just Works
+       are a local limitation, not a peer AuthReq downgrade. Only bits this side
+       also asked for are enforced. */
+    sec_req_level = p_cb->sec_req_auth_req & p_cb->loc_auth_req & level_bits;
+
+    if (p_cb->sec_req_rcvd &&
+            ((p_cb->peer_auth_req & sec_req_level) != sec_req_level)) {
+        SMP_TRACE_ERROR("LE re-pair refuse: SR 0x%02x pair 0x%02x loc 0x%02x, BDA:0x%02X%02X%02X%02X%02X%02X",
+                        p_cb->sec_req_auth_req, p_cb->peer_auth_req, p_cb->loc_auth_req,
+                        p_cb->pairing_bda[0], p_cb->pairing_bda[1], p_cb->pairing_bda[2],
+                        p_cb->pairing_bda[3], p_cb->pairing_bda[4], p_cb->pairing_bda[5]);
+        *p_reason = SMP_PAIR_AUTH_FAIL;
+        /* Keep the existing bond: this is a local policy refusal, not a peer that
+           proved the stored keys are gone. BTC must not erase NVS on this path. */
+        p_cb->keep_bond_on_fail = TRUE;
+        return FALSE;
+    }
+
+    old_auth = p_dev_rec->ble.auth_mode;
+    /* Bonds created before auth_mode was recorded, or restored from an older NVS layout,
+       only carry the security level. */
+    if (p_dev_rec->ble.keys.sec_level >= SMP_SEC_AUTHENTICATED) {
+        old_auth |= SMP_AUTH_YN_BIT;
+    }
+
+    if ((new_auth & old_auth & level_bits) != (old_auth & level_bits)) {
+        SMP_TRACE_ERROR("LE re-pair refuse: auth 0x%02x < bonded 0x%02x, BDA:0x%02X%02X%02X%02X%02X%02X",
+                        new_auth, old_auth,
+                        p_cb->pairing_bda[0], p_cb->pairing_bda[1], p_cb->pairing_bda[2],
+                        p_cb->pairing_bda[3], p_cb->pairing_bda[4], p_cb->pairing_bda[5]);
+        *p_reason = SMP_PAIR_AUTH_FAIL;
+        p_cb->keep_bond_on_fail = TRUE;
+        return FALSE;
+    }
+
+    new_key_size = (p_cb->loc_enc_size < p_cb->peer_enc_size) ? p_cb->loc_enc_size
+                                                              : p_cb->peer_enc_size;
+    if (new_key_size < p_dev_rec->ble.keys.key_size) {
+        SMP_TRACE_ERROR("LE re-pair refuse: key size %d < bonded %d, BDA:0x%02X%02X%02X%02X%02X%02X",
+                        new_key_size, p_dev_rec->ble.keys.key_size,
+                        p_cb->pairing_bda[0], p_cb->pairing_bda[1], p_cb->pairing_bda[2],
+                        p_cb->pairing_bda[3], p_cb->pairing_bda[4], p_cb->pairing_bda[5]);
+        *p_reason = SMP_ENC_KEY_SIZE;
+        p_cb->keep_bond_on_fail = TRUE;
+        return FALSE;
+    }
+
+    SMP_TRACE_DEBUG("LE re-pair allowed: auth 0x%02x->0x%02x key %d->%d, BDA:0x%02X%02X%02X%02X%02X%02X",
+                    old_auth, new_auth, p_dev_rec->ble.keys.key_size, new_key_size,
+                    p_cb->pairing_bda[0], p_cb->pairing_bda[1], p_cb->pairing_bda[2],
+                    p_cb->pairing_bda[3], p_cb->pairing_bda[4], p_cb->pairing_bda[5]);
+    return TRUE;
+}
+#endif  ///BLE_INCLUDED == TRUE && BLE_SMP_HARDENED_REPAIRING == TRUE
 
 /*******************************************************************************
 **
@@ -1458,7 +1627,7 @@ void smp_collect_peer_io_capabilities(UINT8 *iocap, tSMP_CB *p_cb)
 void smp_collect_local_ble_address(UINT8 *le_addr, tSMP_CB *p_cb)
 {
     tBLE_ADDR_TYPE  addr_type = 0;
-    BD_ADDR         bda;
+    BD_ADDR         bda = {0};
     UINT8           *p = le_addr;
 
     SMP_TRACE_DEBUG("%s\n", __func__);
@@ -1466,6 +1635,10 @@ void smp_collect_local_ble_address(UINT8 *le_addr, tSMP_CB *p_cb)
     BTM_ReadConnectionAddr( p_cb->pairing_bda, bda, &addr_type);
     BDADDR_TO_STREAM(p, bda);
     UINT8_TO_STREAM(p, addr_type);
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+    BLE_PSEUDO_DBG("smp local addr for f5/f6 = " BLE_PSEUDO_BDA_FMT " type %u (pairing_bda " BLE_PSEUDO_BDA_FMT ")",
+                   BLE_PSEUDO_BDA(bda), addr_type, BLE_PSEUDO_BDA(p_cb->pairing_bda));
+#endif
 }
 
 /*******************************************************************************
@@ -1481,7 +1654,7 @@ void smp_collect_local_ble_address(UINT8 *le_addr, tSMP_CB *p_cb)
 void smp_collect_peer_ble_address(UINT8 *le_addr, tSMP_CB *p_cb)
 {
     tBLE_ADDR_TYPE  addr_type = 0;
-    BD_ADDR         bda;
+    BD_ADDR         bda = {0};
     UINT8           *p = le_addr;
 
     SMP_TRACE_DEBUG("%s\n", __func__);
@@ -1493,6 +1666,10 @@ void smp_collect_peer_ble_address(UINT8 *le_addr, tSMP_CB *p_cb)
 
     BDADDR_TO_STREAM(p, bda);
     UINT8_TO_STREAM(p, addr_type);
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+    BLE_PSEUDO_DBG("smp peer addr for f5/f6 = " BLE_PSEUDO_BDA_FMT " type %u (pairing_bda " BLE_PSEUDO_BDA_FMT ")",
+                   BLE_PSEUDO_BDA(bda), addr_type, BLE_PSEUDO_BDA(p_cb->pairing_bda));
+#endif
 }
 
 /*******************************************************************************
@@ -1570,8 +1747,8 @@ void smp_save_secure_connections_long_term_key(tSMP_CB *p_cb)
 *******************************************************************************/
 BOOLEAN smp_calculate_f5_mackey_and_long_term_key(tSMP_CB *p_cb)
 {
-    UINT8 a[7];
-    UINT8 b[7];
+    UINT8 a[7] = {0};
+    UINT8 b[7] = {0};
     UINT8 *p_na;
     UINT8 *p_nb;
 
@@ -1639,4 +1816,3 @@ BOOLEAN smp_request_oob_data(tSMP_CB *p_cb)
 
 
 #endif
-

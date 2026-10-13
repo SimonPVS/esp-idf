@@ -132,7 +132,7 @@ static int create_multicast_ipv4_socket(void)
 
     // Assign multicast TTL (set separately from normal interface TTL)
     uint8_t ttl = MULTICAST_TTL;
-    setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(uint8_t));
+    err = setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(uint8_t));
     if (err < 0) {
         ESP_LOGE(V4TAG, "Failed to set IP_MULTICAST_TTL. Error %d", errno);
         goto err;
@@ -193,7 +193,7 @@ static int create_multicast_ipv6_socket(void)
         goto err;
     }
 
-    // Selct the interface to use as multicast source for this socket.
+    // Select the interface to use as multicast source for this socket.
 #if LISTEN_ALL_IF
     bzero(&if_inaddr.un, sizeof(if_inaddr.un));
 #else
@@ -364,7 +364,7 @@ static void mcast_example_task(void *pvParameters)
                     char recvbuf[48];
                     char raddr_name[32] = { 0 };
 
-                    struct sockaddr_in6 raddr; // Large enough for both IPv4 or IPv6
+                    struct sockaddr_storage raddr; // Large enough for both IPv4 or IPv6
                     socklen_t socklen = sizeof(raddr);
                     int len = recvfrom(sock, recvbuf, sizeof(recvbuf)-1, 0,
                                        (struct sockaddr *)&raddr, &socklen);
@@ -376,14 +376,14 @@ static void mcast_example_task(void *pvParameters)
 
                     // Get the sender's address as a string
 #ifdef CONFIG_EXAMPLE_IPV4
-                    if (raddr.sin6_family == PF_INET) {
-                        inet_ntoa_r(((struct sockaddr_in *)&raddr)->sin_addr.s_addr,
+                    if (raddr.ss_family == PF_INET) {
+                        inet_ntoa_r(((struct sockaddr_in *)&raddr)->sin_addr,
                                     raddr_name, sizeof(raddr_name)-1);
                     }
 #endif
 #ifdef CONFIG_EXAMPLE_IPV6
-                    if (raddr.sin6_family == PF_INET6) {
-                        inet6_ntoa_r(raddr.sin6_addr, raddr_name, sizeof(raddr_name)-1);
+                    if (raddr.ss_family== PF_INET6) {
+                        inet6_ntoa_r(((struct sockaddr_in6 *)&raddr)->sin6_addr, raddr_name, sizeof(raddr_name)-1);
                     }
 #endif
                     ESP_LOGI(TAG, "received %d bytes from %s:", len, raddr_name);
@@ -417,8 +417,12 @@ static void mcast_example_task(void *pvParameters)
 #ifdef CONFIG_EXAMPLE_IPV4_ONLY
                 hints.ai_family = AF_INET; // For an IPv4 socket
 #else
+
+#ifdef CONFIG_ESP_NETIF_TCPIP_LWIP  // Resolving IPv4 mapped IPv6 addresses is supported only in the official TCPIP_LWIP stack (esp-lwip)
                 hints.ai_family = AF_INET6; // For an IPv4 socket with V4 mapped addresses
                 hints.ai_flags |= AI_V4MAPPED;
+#endif // CONFIG_ESP_NETIF_TCPIP_LWIP
+
 #endif
                 int err = getaddrinfo(CONFIG_EXAMPLE_MULTICAST_IPV4_ADDR,
                                       NULL,

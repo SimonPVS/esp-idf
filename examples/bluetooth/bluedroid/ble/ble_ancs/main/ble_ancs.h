@@ -1,10 +1,8 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 
 #include <stdio.h>
@@ -97,6 +95,7 @@ typedef enum {
    Invalid_command   = (0xA1), //The command was improperly formatted.
    Invalid_parameter = (0xA2), // One of the parameters (for example, the NotificationUID) does not refer to an existing object on the NP.
    Action_failed     = (0xA3), //The action was not performed
+   Internal_error    = (0xA4), //An internal error occurred on the NP (Apple ANCS specification).
 } esp_error_code;
 
 typedef enum {
@@ -113,12 +112,8 @@ typedef enum {
 #define ESP_NOTIFICATIONUID_LEN   4
 
 
-char *EventID_to_String(uint8_t EventID);
-char *CategoryID_to_String(uint8_t CategoryID);
+const char *EventID_to_String(uint8_t EventID);
+const char *CategoryID_to_String(uint8_t CategoryID);
 void esp_receive_apple_notification_source(uint8_t *message, uint16_t message_len);
 void esp_receive_apple_data_source(uint8_t *message, uint16_t message_len);
-char *Errcode_to_String(uint16_t status);
-
-
-
-
+const char *Errcode_to_String(uint16_t status);

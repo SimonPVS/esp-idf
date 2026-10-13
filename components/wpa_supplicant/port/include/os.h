@@ -14,13 +14,19 @@
 
 #ifndef OS_H
 #define OS_H
+#include <sys/types.h>
 #include "esp_types.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "esp_err.h"
+#include "supplicant_opt.h"
+#include "esp_private/esp_wifi_private.h"
+#include "esp_wifi.h"
 
-typedef time_t os_time_t;
+/* Modifying datatype for platform and compiler independence */
+
+typedef uint64_t os_time_t;
 
 /**
  * os_sleep - Sleep (sec, usec)
@@ -30,9 +36,11 @@ typedef time_t os_time_t;
 void os_sleep(os_time_t sec, os_time_t usec);
 
 struct os_time {
-	os_time_t sec;
-	suseconds_t usec;
+    os_time_t sec;
+    suseconds_t usec;
 };
+
+#define os_reltime os_time
 
 struct os_tm {
     int sec; /* 0..59 or 60 for leap seconds */
@@ -49,22 +57,24 @@ struct os_tm {
  * Returns: 0 on success, -1 on failure
  */
 int os_get_time(struct os_time *t);
-
+#define os_get_reltime os_get_time
 
 /* Helper macros for handling struct os_time */
 
 #define os_time_before(a, b) \
-	((a)->sec < (b)->sec || \
-	 ((a)->sec == (b)->sec && (a)->usec < (b)->usec))
+    ((a)->sec < (b)->sec || \
+     ((a)->sec == (b)->sec && (a)->usec < (b)->usec))
 
+#define os_reltime_before os_time_before
 #define os_time_sub(a, b, res) do { \
-	(res)->sec = (a)->sec - (b)->sec; \
-	(res)->usec = (a)->usec - (b)->usec; \
-	if ((res)->usec < 0) { \
-		(res)->sec--; \
-		(res)->usec += 1000000; \
-	} \
+    (res)->sec = (a)->sec - (b)->sec; \
+    (res)->usec = (a)->usec - (b)->usec; \
+    if ((res)->usec < 0) { \
+        (res)->sec--; \
+        (res)->usec += 1000000; \
+    } \
 } while (0)
+#define os_reltime_sub os_time_sub
 
 /**
  * os_mktime - Convert broken-down time into seconds since 1970-01-01
@@ -82,7 +92,7 @@ int os_get_time(struct os_time *t);
  * which is used by POSIX mktime().
  */
 int os_mktime(int year, int month, int day, int hour, int min, int sec,
-	      os_time_t *t);
+              os_time_t *t);
 
 int os_gmtime(os_time_t t, struct os_tm *tm);
 
@@ -180,7 +190,11 @@ int os_unsetenv(const char *name);
  * binary and text files can be read with this function. The caller is
  * responsible for freeing the returned buffer with os_free().
  */
-char * os_readfile(const char *name, size_t *len);
+/* We don't support file reading support */
+static inline char *os_readfile(const char *name, size_t *len)
+{
+    return NULL;
+}
 
 /*
  * The following functions are wrapper for standard ANSI C or POSIX functions.
@@ -207,6 +221,10 @@ char * os_readfile(const char *name, size_t *len);
 #ifndef os_zalloc
 #define os_zalloc(s) calloc(1, (s))
 #endif
+#ifndef os_calloc
+#define os_calloc(p, s) calloc((p), (s))
+#endif
+
 #ifndef os_free
 #define os_free(p) free((p))
 #endif
@@ -214,7 +232,6 @@ char * os_readfile(const char *name, size_t *len);
 #ifndef os_bzero
 #define os_bzero(s, n) bzero(s, n)
 #endif
-
 
 #ifndef os_strdup
 #ifdef _MSC_VER
@@ -241,9 +258,11 @@ char * ets_strdup(const char *s);
 #define os_memcmp_const(s1, s2, n) memcmp((s1), (s2), (n))
 #endif
 
-
 #ifndef os_strlen
 #define os_strlen(s) strlen(s)
+#endif
+#ifndef os_strnlen
+#define os_strnlen(s, n) strnlen((s), (n))
 #endif
 #ifndef os_strcasecmp
 #ifdef _MSC_VER
@@ -268,9 +287,6 @@ char * ets_strdup(const char *s);
 #ifndef os_strncmp
 #define os_strncmp(s1, s2, n) strncmp((s1), (s2), (n))
 #endif
-#ifndef os_strncpy
-#define os_strncpy(d, s, n) strncpy((d), (s), (n))
-#endif
 #ifndef os_strrchr
 #define os_strrchr(s, c)  strrchr((s), (c))
 #endif
@@ -280,6 +296,9 @@ char * ets_strdup(const char *s);
 #ifndef os_strlcpy
 #define os_strlcpy(d, s, n) strlcpy((d), (s), (n))
 #endif
+#ifndef os_strcat
+#define os_strcat(d, s) strcat((d), (s))
+#endif
 
 #ifndef os_snprintf
 #ifdef _MSC_VER
@@ -288,9 +307,99 @@ char * ets_strdup(const char *s);
 #define os_snprintf snprintf
 #endif
 #endif
+#ifndef os_sprintf
+#define os_sprintf sprintf
+#endif
 
 static inline int os_snprintf_error(size_t size, int res)
 {
-        return res < 0 || (unsigned int) res >= size;
+    return res < 0 || (unsigned int) res >= size;
 }
+
+static inline void * os_realloc_array(void *ptr, size_t nmemb, size_t size)
+{
+    if (size && nmemb > (~(size_t) 0) / size) {
+        return NULL;
+    }
+    return os_realloc(ptr, nmemb * size);
+}
+
+#ifdef CONFIG_CRYPTO_MBEDTLS
+void forced_memzero(void *ptr, size_t len);
+#else
+/* Try to prevent most compilers from optimizing out clearing of memory that
+ * becomes unaccessible after this function is called. This is mostly the case
+ * for clearing local stack variables at the end of a function. This is not
+ * exactly perfect, i.e., someone could come up with a compiler that figures out
+ * the pointer is pointing to memset and then end up optimizing the call out, so
+ * try go a bit further by storing the first octet (now zero) to make this even
+ * a bit more difficult to optimize out. Once memset_s() is available, that
+ * could be used here instead. */
+static void * (* const volatile memset_func)(void *, int, size_t) = memset;
+static uint8_t forced_memzero_val;
+
+static inline void forced_memzero(void *ptr, size_t len)
+{
+    memset_func(ptr, 0, len);
+    if (len) {
+        forced_memzero_val = ((uint8_t *) ptr)[0];
+    }
+}
+#endif
+
+extern const wifi_osi_funcs_t *wifi_funcs;
+#define OS_BLOCK OSI_FUNCS_TIME_BLOCKING
+
+#define os_mutex_lock(a) wifi_funcs->_mutex_lock((a))
+#define os_mutex_unlock(a) wifi_funcs->_mutex_unlock((a))
+#define os_recursive_mutex_create() wifi_funcs->_recursive_mutex_create()
+#define os_mutex_create() wifi_funcs->_mutex_create()
+#define os_mutex_delete(a) wifi_funcs->_mutex_delete(a)
+
+#define os_queue_create(a, b) wifi_funcs->_queue_create((a), (b))
+#define os_queue_delete(a) wifi_funcs->_queue_delete(a)
+#define os_queue_send(a, b, c) wifi_funcs->_queue_send((a), (b), (c))
+#define os_queue_send_to_front(a, b, c) wifi_funcs->_queue_send_to_front((a), (b), (c))
+#define os_queue_recv(a, b, c) wifi_funcs->_queue_recv((a), (b), (c))
+#define os_queue_msg_waiting(a) wifi_funcs->_queue_msg_waiting((a))
+
+#define os_task_create(a,b,c,d,e,f) wifi_funcs->_task_create((a), (b), (c), (d), (e), (f))
+#define os_task_delete(a) wifi_funcs->_task_delete((a))
+#define os_task_get_current_task() wifi_funcs->_task_get_current_task()
+
+#define os_semphr_create(a, b) wifi_funcs->_semphr_create((a), (b))
+#define os_semphr_delete(a) wifi_funcs->_semphr_delete((a))
+#define os_semphr_give(a) wifi_funcs->_semphr_give((a))
+#define os_semphr_take(a, b) wifi_funcs->_semphr_take((a), (b))
+
+#define os_task_ms_to_tick(a) wifi_funcs->_task_ms_to_tick((a))
+#define os_timer_get_time(void) wifi_funcs->_esp_timer_get_time(void)
+
+#define os_event_group_create(void) wifi_funcs->_event_group_create(void)
+#define os_event_group_delete(a) wifi_funcs->_event_group_delete((a))
+#define os_event_group_wait_bits(a, b, c, d, e) wifi_funcs->_event_group_wait_bits((a), (b), (c), (d), (e))
+#define os_event_group_clear_bits(a, b) wifi_funcs->_event_group_clear_bits((a), (b))
+#define os_event_group_set_bits(a, b) wifi_funcs->_event_group_set_bits((a), (b))
+
+static inline void os_timer_setfn(void *ptimer, void *pfunction, void *parg)
+{
+    return wifi_funcs->_timer_setfn(ptimer, pfunction, parg);
+}
+static inline void os_timer_disarm(void *ptimer)
+{
+    return wifi_funcs->_timer_disarm(ptimer);
+}
+static inline void os_timer_arm_us(void *ptimer, uint32_t u_seconds, bool repeat_flag)
+{
+    return wifi_funcs->_timer_arm_us(ptimer, u_seconds, repeat_flag);
+}
+static inline void os_timer_arm(void *ptimer, uint32_t milliseconds, bool repeat_flag)
+{
+    return wifi_funcs->_timer_arm(ptimer, milliseconds, repeat_flag);
+}
+static inline void os_timer_done(void *ptimer)
+{
+    return wifi_funcs->_timer_done(ptimer);
+}
+
 #endif /* OS_H */

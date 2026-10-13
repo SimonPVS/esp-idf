@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 /* HTTP File Server Example
 
    This example code is in the Public Domain (or CC0 licensed, at your option.)
@@ -277,6 +282,9 @@ static esp_err_t download_get_handler(httpd_req_t *req)
     ESP_LOGI(TAG, "File sending complete");
 
     /* Respond with an empty chunk to signal HTTP response completion */
+#ifdef CONFIG_EXAMPLE_HTTPD_CONN_CLOSE_HEADER
+    httpd_resp_set_hdr(req, "Connection", "close");
+#endif
     httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 }
@@ -388,6 +396,9 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
     /* Redirect onto root to see the updated file list */
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
+#ifdef CONFIG_EXAMPLE_HTTPD_CONN_CLOSE_HEADER
+    httpd_resp_set_hdr(req, "Connection", "close");
+#endif
     httpd_resp_sendstr(req, "File uploaded successfully");
     return ESP_OK;
 }
@@ -429,20 +440,17 @@ static esp_err_t delete_post_handler(httpd_req_t *req)
     /* Redirect onto root to see the updated file list */
     httpd_resp_set_status(req, "303 See Other");
     httpd_resp_set_hdr(req, "Location", "/");
+#ifdef CONFIG_EXAMPLE_HTTPD_CONN_CLOSE_HEADER
+    httpd_resp_set_hdr(req, "Connection", "close");
+#endif
     httpd_resp_sendstr(req, "File deleted successfully");
     return ESP_OK;
 }
 
 /* Function to start the file server */
-esp_err_t start_file_server(const char *base_path)
+esp_err_t example_start_file_server(const char *base_path)
 {
     static struct file_server_data *server_data = NULL;
-
-    /* Validate file storage base path */
-    if (!base_path || strcmp(base_path, "/spiffs") != 0) {
-        ESP_LOGE(TAG, "File server presently supports only '/spiffs' as base path");
-        return ESP_ERR_INVALID_ARG;
-    }
 
     if (server_data) {
         ESP_LOGE(TAG, "File server already started");
@@ -466,7 +474,7 @@ esp_err_t start_file_server(const char *base_path)
      * target URIs which match the wildcard scheme */
     config.uri_match_fn = httpd_uri_match_wildcard;
 
-    ESP_LOGI(TAG, "Starting HTTP Server");
+    ESP_LOGI(TAG, "Starting HTTP Server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start file server!");
         return ESP_FAIL;

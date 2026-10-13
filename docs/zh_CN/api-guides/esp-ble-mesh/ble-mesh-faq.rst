@@ -15,13 +15,13 @@ ESP-BLE-MESH 常见问题手册
 
 用户可以参考这些章节，快速找到问题的答案。该文档会根据各种渠道收集的反馈进行更新。
 
+
 .. _ble-mesh-faq-provisioner-development:
 
 1. Provisioner 开发
 --------------------
 
 通常而言，Provisioner 用于配网未配网设备并形成 mesh 网络。组网后，设备的角色变成节点。
-
 
 1.1 未配网设备加入 ESP-BLE-MESH 网络的流程是什么？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -54,7 +54,7 @@ ESP-BLE-MESH 常见问题手册
 1.5 Provisioner 的单播地址是不是固定的？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    :cpp:type:`esp_ble_mesh_prov_t` 中 :code:`prov_unicast_addr` 的值用于设置 Provisioner 的单播地址，只能在初始化期间设置一次，此后不能更改。 
+    :cpp:type:`esp_ble_mesh_prov_t` 中 :code:`prov_unicast_addr` 的值用于设置 Provisioner 的单播地址，只能在初始化期间设置一次，此后不能更改。
 
 1.6 Provisioner 的地址是否可以作为节点上报状态消息的目的地址？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -88,7 +88,7 @@ ESP-BLE-MESH 常见问题手册
 
     - Device UUID
     - OOB Info
-    - URL Hash (可选的)
+    - URL Hash（可选的）
 
 1.12 这些信息可以用于设备识别吗？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -320,7 +320,7 @@ ESP-BLE-MESH 常见问题手册
 1.22 Provisioner 如何管理 mesh 网络中的节点？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    ESP-BLE-MESH 在示例中实现了一些基本的节点管理功能，比如 :cpp:func:`esp_ble_mesh_store_node_info`。 
+    ESP-BLE-MESH 在示例中实现了一些基本的节点管理功能，比如 :cpp:func:`esp_ble_mesh_store_node_info`。
     ESP-BLE-MESH 还提供可用于设置节点本地名称的 API :cpp:func:`esp_ble_mesh_provisioner_set_node_name` 和可用于获取节点本地名称的 API :cpp:func:`esp_ble_mesh_provisioner_get_node_name`。
 
 1.23 Provisioner 想要控制节点的服务器模型时需要什么？
@@ -338,7 +338,7 @@ ESP-BLE-MESH 常见问题手册
 
     - Provisioner 调用 API :cpp:func:`esp_ble_mesh_provisioner_bind_app_key_to_local_model` 以绑定应用密钥至自己的客户端模型。
 
-1.24 Provisoner 如何控制节点的服务器模型？
+1.24 Provisioner 如何控制节点的服务器模型？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     ESP-BLE-MESH 支持所有 SIG 定义的客户端模型。Provisioner 可以使用这些客户端模型控制节点的服务器模型。客户端模型分为 6 类，每类有相应的功能。
@@ -346,31 +346,31 @@ ESP-BLE-MESH 常见问题手册
     - Configuration Client Model
 
         - API :cpp:func:`esp_ble_mesh_config_client_get_state` 可用于获取 Configuration Server Model 的 :cpp:type:`esp_ble_mesh_cfg_client_get_state_t` 值。
-        - API :cpp:func:`esp_ble_mesh_config_client_set_state` 可用于获取 Configuration Server Model 的 :cpp:type:`esp_ble_mesh_cfg_client_set_state_t` 值。
+        - API :cpp:func:`esp_ble_mesh_config_client_set_state` 可用于设置 Configuration Server Model 的 :cpp:type:`esp_ble_mesh_cfg_client_set_state_t` 值。
 
     - Health Client Model
 
         - API :cpp:func:`esp_ble_mesh_health_client_get_state` 可用于获取 Health Server Model 的 :cpp:type:`esp_ble_mesh_health_client_get_state_t` 值。
-        - API :cpp:func:`esp_ble_mesh_health_client_set_state` 可用于获取 Health Server Model 的 :cpp:type:`esp_ble_mesh_health_client_set_state_t` 值。
+        - API :cpp:func:`esp_ble_mesh_health_client_set_state` 可用于设置 Health Server Model 的 :cpp:type:`esp_ble_mesh_health_client_set_state_t` 值。
 
     - Generic Client Models
 
         - API :cpp:func:`esp_ble_mesh_generic_client_get_state` 可用于获取 Generic Server Model 的 :cpp:type:`esp_ble_mesh_generic_client_get_state_t` 值。
-        - API :cpp:func:`esp_ble_mesh_generic_client_set_state` 可用于获取 Generic Server Model 的 :cpp:type:`esp_ble_mesh_generic_client_set_state_t` 值。
+        - API :cpp:func:`esp_ble_mesh_generic_client_set_state` 可用于设置 Generic Server Model 的 :cpp:type:`esp_ble_mesh_generic_client_set_state_t` 值。
 
     - Lighting Client Models
 
         - API :cpp:func:`esp_ble_mesh_light_client_get_state` 可用于获取 Lighting Server Model 的 :cpp:type:`esp_ble_mesh_light_client_get_state_t` 值。
-        - API :cpp:func:`esp_ble_mesh_light_client_set_state` 可用于获取 Lighting Server Model 的 :cpp:type:`esp_ble_mesh_light_client_set_state_t` 值。
+        - API :cpp:func:`esp_ble_mesh_light_client_set_state` 可用于设置 Lighting Server Model 的 :cpp:type:`esp_ble_mesh_light_client_set_state_t` 值。
 
     - Sensor Client Models
 
         - API :cpp:func:`esp_ble_mesh_sensor_client_get_state` 可用于获取 Sensor Server Model 的 :cpp:type:`esp_ble_mesh_sensor_client_get_state_t` 值。
-        - API :cpp:func:`esp_ble_mesh_sensor_client_set_state` 可用于获取 Sensor Server Model 的 :cpp:type:`esp_ble_mesh_sensor_client_set_state_t` 值。
+        - API :cpp:func:`esp_ble_mesh_sensor_client_set_state` 可用于设置 Sensor Server Model 的 :cpp:type:`esp_ble_mesh_sensor_client_set_state_t` 值。
 
     - Time and Scenes Client Models
         - API :cpp:func:`esp_ble_mesh_time_scene_client_get_state` 可用于获取 Time and Scenes Server Model 的 :cpp:type:`esp_ble_mesh_time_scene_client_get_state_t` 值。
-        - API :cpp:func:`esp_ble_mesh_time_scene_client_set_state` 可用于获取 Time and Scenes Server Model 的 :cpp:type:`esp_ble_mesh_time_scene_client_set_state_t` 值。
+        - API :cpp:func:`esp_ble_mesh_time_scene_client_set_state` 可用于设置 Time and Scenes Server Model 的 :cpp:type:`esp_ble_mesh_time_scene_client_set_state_t` 值。
 
 
 .. _ble-mesh-faq-node-development:
@@ -385,7 +385,7 @@ ESP-BLE-MESH 常见问题手册
 
     - 模型分为两种，客户端模型和服务器模型。客户端模型可以获取并设置服务器模型的状态。
 
-    - 模型也可以分为 SIG 模型和自定义模型。 SIG 模型的所有行为都由官方定义，而自定义模型的行为均由用户定义。
+    - 模型也可以分为 SIG 模型和自定义模型。SIG 模型的所有行为都由官方定义，而自定义模型的行为均由用户定义。
 
 2.2 每个模型对应的消息格式是不是固定的？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -406,7 +406,7 @@ ESP-BLE-MESH 常见问题手册
 2.4 如何实现消息传输不丢包？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    如果用户要实现消息传输不丢包，则需有应答的消息。等待应答的默认时间在 :ref:`CONFIG_BLE_MESH_CLIENT_MSG_TIMEOUT` 中设置。如果发送端等待应答超时，就会触发对应的超时事件。
+    如果用户要实现消息传输不丢包，则需有应答的消息。等待应答的默认时间在 :menuitem:`CONFIG_BLE_MESH_CLIENT_MSG_TIMEOUT` 中设置。如果发送端等待应答超时，就会触发对应的超时事件。
 
 .. note::
 
@@ -502,7 +502,7 @@ ESP-BLE-MESH 常见问题手册
 2.18 设备通信必须要网关吗？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    - 情况 1：节点仅在 mesh 网络内通信。这种情况下，不需要网关。ESP-BLE-MESH 网络是一个泛洪的网络，网络中的消息没有固定的路径，节点与节点之间可以随意通信. 
+    - 情况 1：节点仅在 mesh 网络内通信。这种情况下，不需要网关。ESP-BLE-MESH 网络是一个泛洪的网络，网络中的消息没有固定的路径，节点与节点之间可以随意通信.
 
     - 情况 2：如果用户想要远程控制网络，比如在到家之前打开某些节点，则需要网关。
 
@@ -530,15 +530,18 @@ ESP-BLE-MESH 常见问题手册
 3.2 Wi-Fi 和 ESP-BLE-MESH 共存时，为什么 Wi-Fi 吞吐量很低？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    未搭载 PSRAM 的 `ESP32-DevKitC <../../hw-reference/get-started-devkitc>`_ 开发板，Wi-Fi 和 ESP-BLE-MESH 共存可以正常运行，但是吞吐率较低。当 Wi-Fi 和 ESP-BLE-MESH 共存时，搭载 PSRAM 的 ESP32-DevKitC 速率可以稳定在 1 Mbps 以上。
+    .. only:: esp32
+
+        未搭载 PSRAM 的 `ESP32-DevKitC <https://docs.espressif.com/projects/esp-dev-kits/zh_CN/latest/esp32/esp32-devkitc/index.html>`__ 开发板，Wi-Fi 和 ESP-BLE-MESH 共存可以正常运行，但是吞吐率较低。当 Wi-Fi 和 ESP-BLE-MESH 共存时，搭载 PSRAM 的 ESP32-DevKitC 速率可以稳定在 1 Mbps 以上。
 
     应使能 menuconfig 中的一些配置来支持 PSRAM。
 
-        - :code:`ESP32-specific --> Support for external,SPI-connected RAM --> Try to allocate memories of Wi-Fi and LWIP...`
-        - :code:`Bluetooth --> Bluedriod Enable --> BT/BLE will first malloc the memory from the PSRAM`
-        - :code:`Bluetooth --> Bluedriod Enable --> Use dynamic memory allocation in BT/BLE stack.`
-        - :code:`Bluetooth --> Blutooth controller --> BLE full scan feature supported.`
-        - :code:`Wi-Fi --> Software controls Wi-Fi/Bluetooth coexistence --> Wi-Fi`
+        - ``{IDF_TARGET_NAME}-specific`` > ``Support for external,SPI-connected RAM`` > ``Try to allocate memories of Wi-Fi and LWIP...``
+        - ``Bluetooth`` > ``Bluedroid Enable`` > ``BT/BLE will first malloc the memory from the PSRAM``
+        - ``Bluetooth`` > ``Bluedroid Enable`` > ``Use dynamic memory allocation in BT/BLE stack``
+        - ``Bluetooth`` > ``Bluetooth controller`` > ``BLE full scan feature supported``
+        - ``Wi-Fi`` > ``Software controls Wi-Fi/Bluetooth coexistence`` > ``Wi-Fi``
+
 
 .. _ble-mesh-faq-fast-provisioning:
 
@@ -560,12 +563,12 @@ ESP-BLE-MESH 常见问题手册
 
     每完成一次快速配网后、开始新一次快速配网前，APP 会存有上次配网的数据，因此 APP 中显示的节点地址的数量比现有的节点地址更多。
 
-4.4 在 EspBleMesh App 中输入的 ** count ** 值有什么用途？
+4.4 在 EspBleMesh App 中输入的 **count** 值有什么用途？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     此 **count** 值提供给 App 配置的代理节点，以决定何时提前开始 Proxy 广播信息。
 
-4.5 运行以下示例 :example:`fast_prov_server <bluetooth/esp_ble_mesh/ble_mesh_fast_provision/fast_prov_server>` 的节点的 Configuration Client Model 何时开始工作？
+4.5 运行以下示例 :example:`fast_prov_server <bluetooth/esp_ble_mesh/fast_provisioning/fast_prov_server>` 的节点的 Configuration Client Model 何时开始工作？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     使能了 Temporary Provisioner 功能后，Configuration Client Model 会开始工作。
@@ -581,39 +584,39 @@ ESP-BLE-MESH 常见问题手册
 5. Log 帮助
 -----------
 
-当 ESP-BLE-MESH 协议栈底层出现错误或者警告时，您可以在这儿找到这些错误和警告的含义。
+当 ESP-BLE-MESH 协议栈底层出现错误或者警告时，可以在这儿找到这些错误和警告的含义。
 
-5.1 :code:`ran out of retransmit attempts` 代表什么？
+5.1 ``ran out of retransmit attempts`` 代表什么？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     节点发送分段消息时，由于某些原因，接收端未收到完整的消息。节点会重传消息。当重传次数达到最大重传数时，会出现该警告，当前最大重传数为 4。
 
-5.2 :code:`Duplicate found in Network Message Cache` 代表什么？
+5.2 ``Duplicate found in Network Message Cache`` 代表什么？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     当节点收到一条消息时，它会把该消息与网络缓存中存储的消息进行比较。如果在缓存中找到相同的消息，这意味着之前已接受过该消息，则该消息会被丢弃。
 
-5.3 :code:`Incomplete timer expired` 代表什么？
+5.3  ``Incomplete timer expired`` 代表什么？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     当节点在一定时间段（比如 10 秒）内未收到分段消息的所有段时，则 Incomplete 计时器到时，并且出现该警告。
 
-5.4 :code:`No matching TX context for ack` 代表什么？
+5.4 ``No matching TX context for ack`` 代表什么？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     当节点收到一个分段 ack 且不能找到任何自己发送的与该 ack 相关的消息时，会出现该警告。
 
-5.5 :code:`No free slots for new incoming segmented messages` 代表什么？
+5.5  ``No free slots for new incoming segmented messages`` 代表什么？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    当节点没有空间来接收新的分段消息时，会出现该警告。用户可以通过配置 :ref:`CONFIG_BLE_MESH_RX_SEG_MSG_COUNT` 扩大空间。
+    当节点没有空间来接收新的分段消息时，会出现该警告。用户可以通过配置 :menuitem:`CONFIG_BLE_MESH_RX_SEG_MSG_COUNT` 扩大空间。
 
-5.6 :code:`Model not bound to AppKey 0x0000` 代表什么？
+5.6  ``Model not bound to AppKey 0x0000`` 代表什么？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     当节点发送带有模型的消息且该模型尚未绑定到索引为 0x000 的应用密钥时，会出现该报错。
 
-5.7 :code:`Busy sending message to DST xxxx` 代表什么？
+5.7  ``Busy sending message to DST xxxx`` 代表什么？
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
    该错误表示节点的客户端模型已将消息发送给目标节点，并且正在等待响应，用户无法将消息发送到单播地址相同的同一节点。接收到相应的响应或计时器到时后，可以发送另一条消息。

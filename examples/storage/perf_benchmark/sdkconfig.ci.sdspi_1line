@@ -1,0 +1,19 @@
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_example.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions_example.csv"
+CONFIG_ESP_TASK_WDT_EN=n
+
+# FATFS
+CONFIG_FATFS_VFS_FSTAT_BLKSIZE=4096
+
+# SPI flash
+CONFIG_EXAMPLE_TEST_SPIFLASH=n
+
+# SD card
+CONFIG_EXAMPLE_TEST_SD_CARD=y
+CONFIG_EXAMPLE_USE_SDSPI=y
+CONFIG_EXAMPLE_USE_SDMMC=n
+
+# The SD slot used for SPI mode is wired to the board with jump wires and is
+# powered externally, not from the on-chip LDO used by the SDMMC slot.
+CONFIG_EXAMPLE_SD_PWR_CTRL_LDO_INTERNAL_IO=n

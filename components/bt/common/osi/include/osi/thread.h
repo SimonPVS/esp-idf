@@ -1,21 +1,12 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef __THREAD_H__
 #define __THREAD_H__
 
-#include "freertos/xtensa_api.h"
 #include "freertos/FreeRTOSConfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -24,11 +15,11 @@
 #include "esp_task.h"
 #include "bt_common.h"
 
-#define portBASE_TYPE int
-
 #define OSI_THREAD_MAX_TIMEOUT OSI_SEM_MAX_TIMEOUT
 
 struct osi_thread;
+struct osi_event;
+struct osi_dynamic_event;
 
 typedef struct osi_thread osi_thread_t;
 
@@ -46,10 +37,11 @@ typedef enum {
  * param stack_size: thread stack size
  * param priority: thread priority
  * param core: the CPU core which this thread run, OSI_THREAD_CORE_AFFINITY means unspecific CPU core
- * param work_queue_num: speicify queue number, the queue[0] has highest priority, and the priority is decrease by index
+ * param work_queue_num: specify queue number, the queue[0] has highest priority, and the priority is decrease by index
+ * param in_psram: place the task in PSRAM
  * return : if create successfully, return thread handler; otherwise return NULL.
  */
-osi_thread_t *osi_thread_create(const char *name, size_t stack_size, int priority, osi_thread_core_t core, uint8_t work_queue_num);
+osi_thread_t *osi_thread_create(const char *name, size_t stack_size, int priority, osi_thread_core_t core, uint8_t work_queue_num, const size_t work_queue_len[], bool in_psram);
 
 /*
  * brief: Destroy a thread or task
@@ -88,5 +80,60 @@ const char *osi_thread_name(osi_thread_t *thread);
  * return: queue size
  */
 int osi_thread_queue_wait_size(osi_thread_t *thread, int wq_idx);
+
+/*
+ * brief: Create a session-stable osi_event and register its handler and argument.
+ *        An osi_event is a kind of work that can be posted to the workqueue of osi_thread to process,
+ *        but the work can have at most one instance the thread workqueue before it is processed. This
+ *        allows the "single post, multiple data processing" jobs.
+ *        Delete is logical: storage remains valid until osi_thread_event_deinit(), allowing stale
+ *        posts during session teardown to be rejected without a global alive-list lock.
+ * param func: the handler to process the job
+ * param context: the argument to be passed to the handler function when the job is being processed
+ * return: NULL if no memory, otherwise a valid struct pointer
+ */
+struct osi_event *osi_event_create(osi_thread_func_t func, void *context);
+
+/*
+ * brief: Bind an osi_event to a specific work queue for an osi_thread.
+ *        After binding is completed, a function call of API osi_thread_post_event will send a work
+ *        to the workqueue of the thread, with specified queue index.
+ * param func: event: the pointer to osi_event that is created using osi_event_create
+ * param thread: the pointer to osi_thread that is created using osi_thread_create
+ * param queue_idx: the index of the workqueue of the specified osi_thread, with range starting from 0 to work_queue_num - 1
+ * return: true if osi_event binds to the thread's workqueue successfully, otherwise false
+ */
+bool osi_event_bind(struct osi_event* event, osi_thread_t *thread, int queue_idx);
+
+/*
+ * brief: Logically delete an osi_event. Its memory is reclaimed by osi_thread_event_deinit().
+ * param event: the pointer to osi_event
+ */
+void osi_event_delete(struct osi_event* event);
+
+/*
+ * brief: try sending a work to the binded thread's workqueue, so that it can be handled by the worker thread
+ * param event: pointer to osi_event, created by osi_event_create
+ * param timeout: post timeout, OSI_THREAD_MAX_TIMEOUT means blocking forever, 0 means never blocking, others means block millisecond
+ * return: true if the message is enqueued to the thread workqueue, otherwise failed
+ * note: if the return value of function is false, it is the case that the workqueue of the thread is full, and users
+ *       are expected to post the event sometime later to get the work handled.
+ */
+bool osi_thread_post_event(struct osi_event *event, uint32_t timeout);
+
+/*
+ * Dynamic events may be created and destroyed repeatedly during one
+ * osi_thread event-subsystem session. Unlike session-stable osi_event objects,
+ * their storage can be released by delete, so all operations use a separate
+ * API whose post/bind entry points validate the opaque pointer without first
+ * dereferencing it.
+ */
+struct osi_dynamic_event *osi_dynamic_event_create(osi_thread_func_t func, void *context);
+bool osi_dynamic_event_bind(struct osi_dynamic_event *event, osi_thread_t *thread, int queue_idx);
+bool osi_dynamic_event_post(struct osi_dynamic_event *event, uint32_t timeout);
+void osi_dynamic_event_delete(struct osi_dynamic_event *event);
+
+int osi_thread_event_init(void);
+void osi_thread_event_deinit(void);
 
 #endif /* __THREAD_H__ */

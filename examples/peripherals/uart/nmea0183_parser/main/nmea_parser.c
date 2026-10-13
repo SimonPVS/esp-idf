@@ -1,16 +1,8 @@
-// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdlib.h>
 #include <string.h>
@@ -272,7 +264,7 @@ static void parse_rmc(esp_gps_t *esp_gps)
         }
         break;
     case 7: /* Process ground speed in unit m/s */
-        esp_gps->parent.speed = strtof(esp_gps->item_str, NULL) * 1.852;
+        esp_gps->parent.speed = strtof(esp_gps->item_str, NULL) * 0.514444;
         break;
     case 8: /* Process true course over ground */
         esp_gps->parent.cog = strtof(esp_gps->item_str, NULL);
@@ -346,7 +338,7 @@ static void parse_vtg(esp_gps_t *esp_gps)
         esp_gps->parent.variation = strtof(esp_gps->item_str, NULL);
         break;
     case 5:/* Process ground speed in unit m/s */
-        esp_gps->parent.speed = strtof(esp_gps->item_str, NULL) * 1.852;//knots to m/s
+        esp_gps->parent.speed = strtof(esp_gps->item_str, NULL) * 0.514444;//knots to m/s
         break;
     case 7:/* Process ground speed in unit m/s */
         esp_gps->parent.speed = strtof(esp_gps->item_str, NULL) / 3.6;//km/h to m/s
@@ -683,7 +675,7 @@ nmea_parser_handle_t nmea_parser_init(const nmea_parser_config_t *config)
         .parity = config->uart.parity,
         .stop_bits = config->uart.stop_bits,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_APB,
+        .source_clk = UART_SCLK_DEFAULT,
     };
     if (uart_driver_install(esp_gps->uart_port, CONFIG_NMEA_PARSER_RING_BUFFER_SIZE, 0,
                             config->uart.event_queue_size, &esp_gps->event_queue, 0) != ESP_OK) {
@@ -710,7 +702,7 @@ nmea_parser_handle_t nmea_parser_init(const nmea_parser_config_t *config)
         .task_name = NULL
     };
     if (esp_event_loop_create(&loop_args, &esp_gps->event_loop_hdl) != ESP_OK) {
-        ESP_LOGE(GPS_TAG, "create event loop faild");
+        ESP_LOGE(GPS_TAG, "create event loop failed");
         goto err_eloop;
     }
     /* Create NMEA Parser task */

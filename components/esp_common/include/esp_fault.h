@@ -1,21 +1,13 @@
-// Copyright 2020 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-#include "sdkconfig.h"
-#include "soc/rtc_cntl_reg.h"
-#include "esp_rom_sys.h"
-
+/*
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #pragma once
+
+#include <stdbool.h>
+#include "sdkconfig.h"
+#include "esp_rom_sys.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,6 +20,10 @@ extern "C" {
  * - Expands CONDITION multiple times (condition must have no side effects)
  * - Compiler is told all registers are invalid before evaluating CONDITION each time, to avoid a fault
  *   causing a misread of a register used in all three evaluations of CONDITION.
+ * - The result of each evaluation is stored into a volatile variable and re-read before the branch.
+ *   This prevents the compiler from constant-folding CONDITION and deleting the whole check when it
+ *   has already proven the value - e.g. when this macro follows a normal "if (!cond) { ... }" check
+ *   of the same value, which would otherwise silently remove the fault-injection protection.
  * - If CONDITION is ever false, a system reset is triggered.
  *
  * @note Place this macro after a "normal" check of CONDITION that will fail with a normal error
@@ -49,15 +45,31 @@ extern "C" {
  * @param CONDITION A condition which will evaluate true unless an attacker used fault injection to skip or corrupt some other critical system calculation.
  *
  */
-#define ESP_FAULT_ASSERT(CONDITION) do {                \
-        asm volatile ("" ::: "memory");                 \
-        if(!(CONDITION)) _ESP_FAULT_RESET();            \
-        asm volatile ("" ::: "memory");                 \
-        if(!(CONDITION)) _ESP_FAULT_RESET();            \
-        asm volatile ("" ::: "memory");                 \
-        if(!(CONDITION)) _ESP_FAULT_RESET();            \
+#define ESP_FAULT_ASSERT(CONDITION) do {                       \
+        bool esp_fault_assert_chk;                             \
+        asm volatile ("" ::: "memory");                        \
+        esp_fault_assert_chk = (CONDITION);                    \
+        asm volatile ("" : "+r"(esp_fault_assert_chk));        \
+        if(!esp_fault_assert_chk) _ESP_FAULT_RESET();          \
+        asm volatile ("" ::: "memory");                        \
+        esp_fault_assert_chk = (CONDITION);                    \
+        asm volatile ("" : "+r"(esp_fault_assert_chk));        \
+        if(!esp_fault_assert_chk) _ESP_FAULT_RESET();          \
+        asm volatile ("" ::: "memory");                        \
+        esp_fault_assert_chk = (CONDITION);                    \
+        asm volatile ("" : "+r"(esp_fault_assert_chk));        \
+        if(!esp_fault_assert_chk) _ESP_FAULT_RESET();          \
 } while(0)
 
+#if CONFIG_IDF_TARGET_ARCH_XTENSA
+#define _ESP_FAULT_ILLEGAL_INSTRUCTION asm volatile("ill.n; ill.n; ill.n; ill.n; ill.n; ill.n; ill.n;")
+#elif CONFIG_IDF_TARGET_ARCH_RISCV
+#define _ESP_FAULT_ILLEGAL_INSTRUCTION asm volatile("unimp; unimp; unimp; unimp; unimp;")
+#elif CONFIG_IDF_TARGET_LINUX
+#define _ESP_FAULT_ILLEGAL_INSTRUCTION
+#else
+#error "_ESP_FAULT_ILLEGAL_INSTRUCTION is not defined for this TARGET"
+#endif
 
 // Uncomment this macro to get debug output if ESP_FAULT_ASSERT() fails
 //
@@ -73,9 +85,9 @@ extern "C" {
 */
 #ifndef ESP_FAULT_ASSERT_DEBUG
 
-#define _ESP_FAULT_RESET()  do {                                \
-        REG_WRITE(RTC_CNTL_OPTIONS0_REG, RTC_CNTL_SW_SYS_RST);  \
-        asm volatile("ill; ill; ill;");                         \
+#define _ESP_FAULT_RESET()  do {        \
+        esp_rom_software_reset_system();       \
+        _ESP_FAULT_ILLEGAL_INSTRUCTION; \
     } while(0)
 
 #else // ESP_FAULT_ASSERT_DEBUG
@@ -84,7 +96,7 @@ extern "C" {
 
 #define _ESP_FAULT_RESET()  do {                                        \
         esp_rom_printf("ESP_FAULT_ASSERT %s:%d\n", __FILE__, __LINE__); \
-        asm volatile("ill;");                                           \
+        _ESP_FAULT_ILLEGAL_INSTRUCTION;                                 \
     } while(0)
 
 #endif // ESP_FAULT_ASSERT_DEBUG

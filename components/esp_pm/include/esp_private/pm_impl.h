@@ -1,16 +1,8 @@
-// Copyright 2016-2017 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2016-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
@@ -23,7 +15,6 @@
 
 #include "soc/rtc.h"
 #include "esp_pm.h"
-#include "esp_timer.h"
 #include "sdkconfig.h"
 
 #ifdef __cplusplus
@@ -34,11 +25,11 @@ extern "C" {
  * This is an enum of possible power modes supported by the implementation
  */
 typedef enum {
-    PM_MODE_LIGHT_SLEEP,//!< Light sleep
-    PM_MODE_APB_MIN,    //!< Idle (no CPU frequency or APB frequency locks)
-    PM_MODE_APB_MAX,    //!< Maximum APB frequency mode
-    PM_MODE_CPU_MAX,    //!< Maximum CPU frequency mode
-    PM_MODE_COUNT       //!< Number of items
+    PM_MODE_LIGHT_SLEEP,      //!< Light sleep
+    PM_MODE_APB_MIN,          //!< Idle (no CPU frequency or APB frequency locks)
+    PM_MODE_APB_MAX,          //!< Maximum APB frequency mode
+    PM_MODE_CPU_MAX,          //!< Maximum CPU frequency mode
+    PM_MODE_COUNT             //!< Number of items
 } pm_mode_t;
 
 /**
@@ -48,6 +39,13 @@ typedef enum {
  * @return lowest power consumption mode which meets the constraints of the lock
  */
 pm_mode_t esp_pm_impl_get_mode(esp_pm_lock_type_t type, int arg);
+
+/**
+ * @brief Get CPU clock frequency by power mode
+ * @param mode power mode
+ * @return CPU clock frequency
+ */
+int esp_pm_impl_get_cpu_freq(pm_mode_t mode);
 
 /**
  * If profiling is enabled, this data type will be used to store microsecond
@@ -86,8 +84,10 @@ void esp_pm_impl_switch_mode(pm_mode_t mode, pm_mode_switch_t lock_or_unlock, pm
 void esp_pm_impl_init(void);
 
 /**
- * @brief Hook function for the idle task
- * Must be called from the IDLE task on each CPU before entering waiti state.
+ * @brief Release the per-core RTOS PM lock so DFS can drop frequency while idle.
+ *
+ * Safe to call more than once per idle entry: subsequent calls are no-ops until
+ * an ISR / leave_idle() re-acquires the lock.
  */
 void esp_pm_impl_idle_hook(void);
 
@@ -112,7 +112,17 @@ void esp_pm_impl_dump_stats(FILE* out);
  */
 void esp_pm_impl_waiti(void);
 
-#if CONFIG_IDF_TARGET_ESP32S2
+#if CONFIG_PM_TICKLESS_IDLE_WAITI
+/**
+ * @brief Execute a planned tickless WAITI from the idle task, if any.
+ *
+ * Handles RTOS PM lock release around WFI. Call once from esp_vApplicationIdleHook().
+ *
+ * @return true if tickless WAITI ran (idle hook should return early)
+ */
+bool esp_pm_impl_tickless_waiti(void);
+#endif
+
 /**
  * @brief Callback function type for peripherals to skip light sleep.
  *
@@ -124,7 +134,7 @@ typedef bool (* skip_light_sleep_cb_t)(void);
   *
   * This function allows you to register a callback that gets the result
   * that if light sleep should be skipped by peripherals.
-  * @param cb function to get the result 
+  * @param cb function to get the result
   * @return
   *   - ESP_OK on success
   *   - ESP_ERR_NO_MEM if no more callback slots are available
@@ -132,20 +142,20 @@ typedef bool (* skip_light_sleep_cb_t)(void);
 esp_err_t esp_pm_register_skip_light_sleep_callback(skip_light_sleep_cb_t cb);
 
 /**
-  * @brief  Unregisterperipherals skip light sleep callback 
+  * @brief  Unregisterperipherals skip light sleep callback
   *
   * This function allows you to unregister a callback which was previously
   * registered using esp_register_skip_light_sleep_callback.
-  * @param cb function to get the result 
+  * @param cb function to get the result
   * @return
   *   - ESP_OK on success
   *   - ESP_ERR_INVALID_STATE if the given callback hasn't been registered before
   */
 esp_err_t esp_pm_unregister_skip_light_sleep_callback(skip_light_sleep_cb_t cb);
-#endif
 
 #ifdef CONFIG_PM_PROFILING
 #define WITH_PROFILING
+#include "esp_timer.h"
 #endif
 
 #ifdef WITH_PROFILING

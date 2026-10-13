@@ -1,21 +1,17 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#include "esp_macros.h"
+#include "soc/soc_caps.h"
+
 #include "sdkconfig.h"
 
 #ifdef __cplusplus
@@ -23,6 +19,8 @@ extern "C" {
 #endif
 
 extern bool g_panic_abort;
+extern char *g_panic_abort_details;
+extern void *g_exc_frames[SOC_CPU_CORES_NUM];
 
 // Function to print longer amounts of information such as the details
 // and backtrace field of panic_info_t. These functions should limit themselves
@@ -64,13 +62,51 @@ void panic_print_str(const char *str);
 void panic_print_dec(int d);
 void panic_print_hex(int h);
 #else
-#define panic_print_char(c)
-#define panic_print_str(str)
-#define panic_print_dec(d)
-#define panic_print_hex(h)
+#define panic_print_char(c)     ESP_UNUSED(c)
+#define panic_print_str(str)    ESP_UNUSED(str)
+#define panic_print_dec(d)      ESP_UNUSED(d)
+#define panic_print_hex(h)      ESP_UNUSED(h)
 #endif
 
-void __attribute__((noreturn)) panic_abort(const char *details);
+void __attribute__((__noreturn__)) panic_abort(const char *details);
+
+void panic_arch_fill_info(void *frame, panic_info_t *info);
+
+void panic_soc_fill_info(void *frame, panic_info_t *info);
+
+bool panic_soc_check_pseudo_cause(void *f, panic_info_t *info);
+
+void panic_print_registers(const void *frame, int core);
+
+void panic_print_backtrace(const void *frame, int core);
+
+uint32_t panic_get_address(const void* frame);
+
+void panic_set_address(void *frame, uint32_t addr);
+
+uint32_t panic_get_cause(const void* frame);
+
+void panic_prepare_frame_from_ctx(void* frame);
+
+void panic_clear_active_interrupts(const void* frame);
+
+#if CONFIG_ESP_SYSTEM_MEMPROT && CONFIG_ESP_SYSTEM_MEMPROT_PMS && !CONFIG_IDF_TARGET_ESP32S2
+bool panic_memprot_fill_info(panic_info_t *info);
+#endif
+
+/**
+ * @brief Disable all watchdog timers
+ *
+ * This function disables all watchdog timers (Timer Group WDTs and RTC WDT).
+ * It is intended for use by panic handlers that take over execution (e.g., gdbstub)
+ * or that halt the system.
+ */
+void panic_disable_all_wdts(void);
+
+/**
+ * @brief Stop instruction trace encoders on panic
+ */
+void esp_panic_handler_inst_trace_stop(void) __attribute__((weak));
 
 #ifdef __cplusplus
 }

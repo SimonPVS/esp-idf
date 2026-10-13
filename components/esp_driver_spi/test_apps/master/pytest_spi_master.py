@@ -1,0 +1,112 @@
+# SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+# SPDX-License-Identifier: Apache-2.0
+import pytest
+from pytest_embedded_idf.utils import idf_parametrize
+from pytest_embedded_idf.utils import soc_filtered_targets
+
+
+@pytest.mark.generic
+@pytest.mark.parametrize(
+    'config',
+    [
+        'release',
+        'freertos_flash',
+    ],
+    indirect=True,
+)
+@pytest.mark.temp_skip_ci(targets=['esp32h21'], reason='cannot pass')  # TODO: IDF-16193
+@idf_parametrize(
+    'target', soc_filtered_targets('SOC_GPSPI_SUPPORTED == 1 and IDF_TARGET not in ["esp32c5"]'), indirect=['target']
+)
+def test_master_single_dev(case_tester) -> None:  # type: ignore
+    for case in case_tester.test_menu:
+        if 'test_env' in case.attributes:
+            continue  # If `test_env` is defined, should not run on generic runner
+        case_tester.run_normal_case(case=case, reset=True)
+
+
+@pytest.mark.generic
+@pytest.mark.parametrize(
+    'config',
+    [
+        'freertos_flash',
+    ],
+    indirect=True,
+)
+@idf_parametrize('target', ['esp32c5'], indirect=['target'])
+def test_master_single_dev_esp32c5(case_tester) -> None:  # type: ignore
+    for case in case_tester.test_menu:
+        if 'test_env' in case.attributes:
+            continue  # If `test_env` is defined, should not run on generic runner
+        case_tester.run_normal_case(case=case, reset=True)
+
+
+@pytest.mark.generic
+@pytest.mark.esp32c5_rev1
+@pytest.mark.parametrize(
+    'config',
+    [
+        'release',
+    ],
+    indirect=True,
+)
+@idf_parametrize('target', ['esp32c5'], indirect=['target'])
+def test_master_single_dev_esp32c5_rev1(case_tester) -> None:  # type: ignore
+    for case in case_tester.test_menu:
+        if 'test_env' in case.attributes:
+            continue  # If `test_env` is defined, should not run on generic runner
+        case_tester.run_normal_case(case=case, reset=True)
+
+
+def get_runner_psram_marks(target: str) -> tuple[pytest.MarkDecorator, ...]:
+    if target == 'esp32s3':
+        return (pytest.mark.flash_encryption_f8r8,)
+    return (pytest.mark.flash_encryption,)
+
+
+@pytest.mark.parametrize(
+    'config, target',
+    [
+        pytest.param('flash_enc', target, marks=get_runner_psram_marks(target))
+        for target in soc_filtered_targets('SOC_PSRAM_DMA_CAPABLE == 1 and SOC_GPSPI_SUPPORTED == 1')
+    ],
+    indirect=True,
+)
+def test_spi_master_flash_encryption(case_tester) -> None:  # type: ignore
+    for case in case_tester.test_menu:
+        if 'test_env' in case.attributes:
+            continue  # If `test_env` is defined, should not run on generic runner
+        case_tester.run_normal_case(case=case, reset=True)
+
+
+# Job for test_env `external_flash` just for esp32 only
+@pytest.mark.flash_multi
+@pytest.mark.parametrize(
+    'config',
+    [
+        'release',
+    ],
+    indirect=True,
+)
+@idf_parametrize('target', ['esp32'], indirect=['target'])
+def test_master_esp_flash(case_tester) -> None:  # type: ignore
+    for case in case_tester.test_menu:
+        # test case `spi_bus_lock_with_flash` use difference test env
+        if case.attributes.get('test_env') == 'external_flash':
+            case_tester.run_normal_case(case=case, reset=True)
+
+
+@pytest.mark.generic_multi_device
+@pytest.mark.parametrize(
+    'count, config',
+    [
+        (2, 'release'),
+        (2, 'freertos_flash'),
+        (2, 'iram_safe'),
+    ],
+    indirect=True,
+)
+@pytest.mark.temp_skip_ci(targets=['esp32h21'], reason='lack of runner')  # TODO: IDF-16193
+@idf_parametrize('target', ['supported_targets'], indirect=['target'])
+def test_master_multi_dev(case_tester) -> None:  # type: ignore
+    case_tester.run_all_multi_dev_cases(reset=True, timeout=30)

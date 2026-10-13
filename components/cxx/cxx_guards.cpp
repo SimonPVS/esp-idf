@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdlib.h>
 #include <assert.h>
@@ -34,8 +26,8 @@ static size_t s_static_init_max_waiting_count = 0;          //!< maximum ever va
 #endif
 
 extern "C" int __cxa_guard_acquire(__guard* pg);
-extern "C" void __cxa_guard_release(__guard* pg);
-extern "C" void __cxa_guard_abort(__guard* pg);
+extern "C" void __cxa_guard_release(__guard* pg) throw();
+extern "C" void __cxa_guard_abort(__guard* pg) throw();
 extern "C" void __cxa_guard_dummy(void);
 
 /**
@@ -76,12 +68,13 @@ static void wait_for_guard_obj(guard_t* g)
     s_static_init_waiting_count++;
 #ifndef _NDEBUG
     s_static_init_max_waiting_count = std::max(s_static_init_waiting_count,
-            s_static_init_max_waiting_count);
+                                               s_static_init_max_waiting_count);
 #endif
 
     do {
         auto result = xSemaphoreGive(s_static_init_mutex);
         assert(result);
+        static_cast<void>(result);
         /* Task may be preempted here, but this isn't a problem,
          * as the semaphore will be given exactly the s_static_init_waiting_count
          * number of times; eventually the current task will execute next statement,
@@ -98,7 +91,7 @@ static void wait_for_guard_obj(guard_t* g)
         /* Semaphore may have been given because some other guard object became ready.
          * Check the guard object we need and wait again if it is still pending.
          */
-    } while(g->pending);
+    } while (g->pending);
     s_static_init_waiting_count--;
 }
 
@@ -140,6 +133,7 @@ extern "C" int __cxa_guard_acquire(__guard* pg)
          */
         auto result = xSemaphoreTake(s_static_init_mutex, portMAX_DELAY);
         assert(result);
+        static_cast<void>(result);
         if (g->pending) {
             /* Another task is doing initialization at the moment; wait until it calls
              * __cxa_guard_release or __cxa_guard_abort
@@ -168,17 +162,19 @@ extern "C" int __cxa_guard_acquire(__guard* pg)
     if (scheduler_started) {
         auto result = xSemaphoreGive(s_static_init_mutex);
         assert(result);
+        static_cast<void>(result);
     }
     return ret;
 }
 
-extern "C" void __cxa_guard_release(__guard* pg)
+extern "C" void __cxa_guard_release(__guard* pg) throw()
 {
     guard_t* g = reinterpret_cast<guard_t*>(pg);
     const auto scheduler_started = xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED;
     if (scheduler_started) {
         auto result = xSemaphoreTake(s_static_init_mutex, portMAX_DELAY);
         assert(result);
+        static_cast<void>(result);
     }
     assert(g->pending && "tried to release a guard which wasn't acquired");
     g->pending = 0;
@@ -189,16 +185,18 @@ extern "C" void __cxa_guard_release(__guard* pg)
         signal_waiting_tasks();
         auto result = xSemaphoreGive(s_static_init_mutex);
         assert(result);
+        static_cast<void>(result);
     }
 }
 
-extern "C" void __cxa_guard_abort(__guard* pg)
+extern "C" void __cxa_guard_abort(__guard* pg) throw()
 {
     guard_t* g = reinterpret_cast<guard_t*>(pg);
     const auto scheduler_started = xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED;
     if (scheduler_started) {
         auto result = xSemaphoreTake(s_static_init_mutex, portMAX_DELAY);
         assert(result);
+        static_cast<void>(result);
     }
     assert(!g->ready && "tried to abort a guard which is ready");
     assert(g->pending && "tried to release a guard which is not acquired");
@@ -208,8 +206,15 @@ extern "C" void __cxa_guard_abort(__guard* pg)
         signal_waiting_tasks();
         auto result = xSemaphoreGive(s_static_init_mutex);
         assert(result);
+        static_cast<void>(result);
     }
 }
+
+/* Originally, this should come with crtbegin.o from the toolchain (if GCC is configured with --enable-__cxa_atexit).
+   Since we do not link with crtbegin.o and have not configured GCC with --enable-__cxa_atexit, it is declared here.
+   Note: It should have a unique value in every shared object; in the main program its value is zero. */
+extern "C" void *__dso_handle __attribute__((__visibility__("hidden")));
+void *__dso_handle = 0;
 
 /**
  * Dummy function used to force linking this file instead of the same one in libstdc++.

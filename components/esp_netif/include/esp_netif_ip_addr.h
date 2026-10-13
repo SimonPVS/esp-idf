@@ -1,21 +1,15 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_NETIF_IP_ADDR_H_
 #define _ESP_NETIF_IP_ADDR_H_
 
+#include <stdint.h>
 #include <machine/endian.h>
+#include "sdkconfig.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,27 +79,55 @@ extern "C" {
 
 #define ESP_IP4TOADDR(a,b,c,d) esp_netif_htonl(ESP_IP4TOUINT32(a, b, c, d))
 
+#define ESP_IP4ADDR_INIT(a, b, c, d)  { .u_addr = { .ip4 = { .addr = ESP_IP4TOADDR(a, b, c, d) }}, .type = ESP_IPADDR_TYPE_V4 }
+#define ESP_IP6ADDR_INIT(a, b, c, d)  { .u_addr = { .ip6 = { .addr = { a, b, c, d }, .zone = 0 }}, .type = ESP_IPADDR_TYPE_V6 }
+
+#ifndef IP4ADDR_STRLEN_MAX
+#define IP4ADDR_STRLEN_MAX  16
+#endif
+
+#if defined(CONFIG_LWIP_IPV4) && defined(CONFIG_LWIP_IPV6)
+#define ESP_IP_IS_ANY(addr)    ((addr.type == ESP_IPADDR_TYPE_V4 && ip4_addr_isany_val(addr.u_addr.ip4)) || \
+                                (addr.type == ESP_IPADDR_TYPE_V6 && ip6_addr_isany_val(addr.u_addr.ip6)))
+#elif defined(CONFIG_LWIP_IPV4)
+#define ESP_IP_IS_ANY(addr)    (ip4_addr_isany_val(addr.u_addr.ip4))
+#elif defined(CONFIG_LWIP_IPV6)
+#define ESP_IP_IS_ANY(addr)    (ip6_addr_isany_val(addr.u_addr.ip6))
+#endif
+
+/**
+ * @brief IPv6 address
+ *
+ */
 struct esp_ip6_addr {
-    uint32_t addr[4];
-    uint8_t zone;
+    uint32_t addr[4]; /*!< IPv6 address */
+    uint8_t zone;     /*!< zone ID */
 };
 
+/**
+ * @brief IPv4 address
+ *
+ */
 struct esp_ip4_addr {
-    uint32_t addr;
+    uint32_t addr;  /*!< IPv4 address */
 };
 
 typedef struct esp_ip4_addr esp_ip4_addr_t;
 
 typedef struct esp_ip6_addr esp_ip6_addr_t;
 
+/**
+ * @brief IP address
+ *
+ */
 typedef struct _ip_addr {
     union {
-        esp_ip6_addr_t ip6;
-        esp_ip4_addr_t ip4;
-    } u_addr;
-    uint8_t type;
+        esp_ip6_addr_t ip6; /*!< IPv6 address type */
+        esp_ip4_addr_t ip4; /*!< IPv4 address type */
+    } u_addr;               /*!< IP address union */
+    uint8_t type;           /*!< ipaddress type */
 } esp_ip_addr_t;
- 
+
 typedef enum {
     ESP_IP6_ADDR_IS_UNKNOWN,
     ESP_IP6_ADDR_IS_GLOBAL,
@@ -122,7 +144,31 @@ typedef enum {
  *
  * @return IPv6 type in form of enum esp_ip6_addr_type_t
  */
-esp_ip6_addr_type_t esp_netif_ip6_get_addr_type(esp_ip6_addr_t* ip6_addr);
+esp_ip6_addr_type_t esp_netif_ip6_get_addr_type(const esp_ip6_addr_t* ip6_addr);
+
+/**
+ * @brief  Copy IP addresses
+ *
+ * @param[out] dest destination IP
+ * @param[in]  src source IP
+ */
+static inline void esp_netif_ip_addr_copy(esp_ip_addr_t *dest, const esp_ip_addr_t *src)
+{
+    dest->type = src->type;
+    if (src->type == ESP_IPADDR_TYPE_V6) {
+        dest->u_addr.ip6.addr[0] = src->u_addr.ip6.addr[0];
+        dest->u_addr.ip6.addr[1] = src->u_addr.ip6.addr[1];
+        dest->u_addr.ip6.addr[2] = src->u_addr.ip6.addr[2];
+        dest->u_addr.ip6.addr[3] = src->u_addr.ip6.addr[3];
+        dest->u_addr.ip6.zone = src->u_addr.ip6.zone;
+    } else {
+        dest->u_addr.ip4.addr = src->u_addr.ip4.addr;
+        dest->u_addr.ip6.addr[1] = 0;
+        dest->u_addr.ip6.addr[2] = 0;
+        dest->u_addr.ip6.addr[3] = 0;
+        dest->u_addr.ip6.zone = 0;
+    }
+}
 
 #ifdef __cplusplus
 }

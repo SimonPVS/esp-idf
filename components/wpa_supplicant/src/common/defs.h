@@ -23,7 +23,12 @@ typedef enum { FALSE = 0, TRUE = 1 } Boolean;
 #define WPA_CIPHER_TKIP                 BIT(1)
 #define WPA_CIPHER_CCMP                 BIT(3)
 #define WPA_CIPHER_AES_128_CMAC         BIT(5)
-#define WPA_CIPHER_GCMP                 BIT(6)
+#define WPA_CIPHER_SMS4                 BIT(10)
+#define WPA_CIPHER_GCMP                 BIT(11)
+#define WPA_CIPHER_GCMP_256             BIT(12)
+#define WPA_CIPHER_BIP_GMAC_128         BIT(13)
+#define WPA_CIPHER_BIP_GMAC_256         BIT(14)
+#define WPA_CIPHER_GTK_NOT_USED 	BIT(15)
 
 #define WPA_KEY_MGMT_IEEE8021X BIT(0)
 #define WPA_KEY_MGMT_PSK BIT(1)
@@ -43,9 +48,15 @@ typedef enum { FALSE = 0, TRUE = 1 } Boolean;
 #define WPA_KEY_MGMT_OSEN BIT(15)
 #define WPA_KEY_MGMT_IEEE8021X_SUITE_B BIT(16)
 #define WPA_KEY_MGMT_IEEE8021X_SUITE_B_192 BIT(17)
+#define WPA_KEY_MGMT_OWE BIT(22)
+#define WPA_KEY_MGMT_SAE_EXT_KEY BIT(26)
+#define WPA_KEY_MGMT_DPP BIT(23)
+#define WPA_KEY_MGMT_FT_IEEE8021X_SHA384 BIT(24)
+#define WPA_KEY_MGMT_PASN BIT(25)
 
 static inline int wpa_key_mgmt_wpa_ieee8021x(int akm)
 {
+#ifdef CONFIG_ESP_WIFI_ENTERPRISE_SUPPORT
 	return !!(akm & (WPA_KEY_MGMT_IEEE8021X |
 			 WPA_KEY_MGMT_FT_IEEE8021X |
 			 WPA_KEY_MGMT_CCKM |
@@ -53,6 +64,9 @@ static inline int wpa_key_mgmt_wpa_ieee8021x(int akm)
 			 WPA_KEY_MGMT_IEEE8021X_SHA256 |
 			 WPA_KEY_MGMT_IEEE8021X_SUITE_B |
 			 WPA_KEY_MGMT_IEEE8021X_SUITE_B_192));
+#else
+        return 0;
+#endif
 }
 
 static inline int wpa_key_mgmt_wpa_psk(int akm)
@@ -61,6 +75,7 @@ static inline int wpa_key_mgmt_wpa_psk(int akm)
 			 WPA_KEY_MGMT_FT_PSK |
 			 WPA_KEY_MGMT_PSK_SHA256 |
 			 WPA_KEY_MGMT_SAE |
+			 WPA_KEY_MGMT_SAE_EXT_KEY |
 			 WPA_KEY_MGMT_FT_SAE));
 }
 
@@ -74,7 +89,13 @@ static inline int wpa_key_mgmt_ft(int akm)
 static inline int wpa_key_mgmt_sae(int akm)
 {
 	return !!(akm & (WPA_KEY_MGMT_SAE |
+			 WPA_KEY_MGMT_SAE_EXT_KEY |
 			 WPA_KEY_MGMT_FT_SAE));
+}
+
+static inline int wpa_key_mgmt_sae_ext_key(int akm)
+{
+	return !!(akm & (WPA_KEY_MGMT_SAE_EXT_KEY));
 }
 
 static inline int wpa_key_mgmt_sha256(int akm)
@@ -83,7 +104,9 @@ static inline int wpa_key_mgmt_sha256(int akm)
 			 WPA_KEY_MGMT_IEEE8021X_SHA256 |
 			 WPA_KEY_MGMT_OSEN |
 			 WPA_KEY_MGMT_SAE |
-			 WPA_KEY_MGMT_IEEE8021X_SUITE_B));
+			 WPA_KEY_MGMT_IEEE8021X_SUITE_B |
+			 WPA_KEY_MGMT_OWE |
+			 WPA_KEY_MGMT_DPP));
 }
 
 static inline int wpa_key_mgmt_sha384(int akm)
@@ -97,11 +120,22 @@ static inline int wpa_key_mgmt_suite_b(int akm)
 			 WPA_KEY_MGMT_IEEE8021X_SUITE_B_192));
 }
 
+static inline int wpa_key_mgmt_owe(int akm)
+{
+	return akm == WPA_KEY_MGMT_OWE;
+}
+
+static inline int wpa_key_mgmt_dpp(int akm)
+{
+	return akm == WPA_KEY_MGMT_DPP;
+}
+
 static inline int wpa_key_mgmt_wpa(int akm)
 {
 	return wpa_key_mgmt_wpa_ieee8021x(akm) ||
 		wpa_key_mgmt_wpa_psk(akm) ||
-		wpa_key_mgmt_sae(akm);
+		wpa_key_mgmt_sae(akm) ||
+		wpa_key_mgmt_owe(akm);
 }
 
 static inline int wpa_key_mgmt_wpa_any(int akm)
@@ -114,6 +148,15 @@ static inline int wpa_key_mgmt_cckm(int akm)
 	return akm == WPA_KEY_MGMT_CCKM;
 }
 
+#ifdef ESP_SUPPLICANT
+static inline int wpa_key_mgmt_supports_caching(int akm)
+{
+        return wpa_key_mgmt_wpa_ieee8021x(akm) ||
+		wpa_key_mgmt_sae(akm) ||
+		wpa_key_mgmt_owe(akm) ||
+		wpa_key_mgmt_dpp(akm);
+}
+#endif
 
 #define WPA_PROTO_WPA BIT(0)
 #define WPA_PROTO_RSN BIT(1)
@@ -134,19 +177,6 @@ enum wifi_key_alg {
 	ALG_AES_CMAC,
 };
 
-enum wpa_alg {
-	WPA_ALG_NONE =0,
-	WPA_ALG_WEP40 = 1,
-	WPA_ALG_TKIP = 2,
-	WPA_ALG_CCMP = 3,
-	WPA_ALG_WAPI = 4,
-	WPA_ALG_WEP104 = 5,
-	WPA_ALG_WEP,
-	WPA_ALG_IGTK,
-	WPA_ALG_PMK,
-	WPA_ALG_GCMP
-};
-
 /**
  * enum wpa_cipher - Cipher suites
  */
@@ -155,7 +185,9 @@ enum wpa_cipher {
 	CIPHER_WEP40,
 	CIPHER_TKIP,
 	CIPHER_CCMP,
-	CIPHER_WEP104
+	CIPHER_WEP104,
+	CIPHER_SMS4,
+	CIPHER_GCMP_256,
 };
 
 /**
@@ -340,6 +372,7 @@ enum wpa_ctrl_req_type {
 	WPA_CTRL_REQ_EAP_PASSPHRASE,
 	WPA_CTRL_REQ_SIM,
 	WPA_CTRL_REQ_PSK_PASSPHRASE,
+	WPA_CTRL_REQ_EXT_CERT_CHECK,
 	NUM_WPA_CTRL_REQS
 };
 
@@ -360,6 +393,14 @@ enum set_band {
 	WPA_SETBAND_AUTO,
 	WPA_SETBAND_5G,
 	WPA_SETBAND_2G
+};
+
+enum sae_pwe {
+    SAE_PWE_HUNT_AND_PECK = 0,
+    SAE_PWE_HASH_TO_ELEMENT = 1,
+    SAE_PWE_BOTH = 2,
+    SAE_PWE_FORCE_HUNT_AND_PECK = 3,
+    SAE_PWE_NOT_SET = 4,
 };
 
 #endif /* DEFS_H */

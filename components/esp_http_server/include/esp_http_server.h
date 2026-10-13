@@ -1,16 +1,8 @@
-// Copyright 2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2018-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_HTTP_SERVER_H_
 #define _ESP_HTTP_SERVER_H_
@@ -22,10 +14,40 @@
 #include <http_parser.h>
 #include <sdkconfig.h>
 #include <esp_err.h>
+#include <esp_event.h>
+#include <esp_event_base.h>
+#include <net/if.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define ESP_HTTPD_DEF_CTRL_PORT         (32768)    /*!< HTTP Server control socket port*/
+
+#if CONFIG_HTTPD_ENABLE_EVENTS || __DOXYGEN_
+ESP_EVENT_DECLARE_BASE(ESP_HTTP_SERVER_EVENT);
+#endif // CONFIG_HTTPD_ENABLE_EVENTS || __DOXYGEN_
+
+/**
+ * @brief   HTTP Server events id
+ */
+typedef enum {
+    HTTP_SERVER_EVENT_ERROR = 0,       /*!< This event occurs when there are any errors during execution */
+    HTTP_SERVER_EVENT_START,           /*!< This event occurs when HTTP Server is started */
+    HTTP_SERVER_EVENT_ON_CONNECTED,    /*!< Once the HTTP Server has been connected to the client, no data exchange has been performed */
+    HTTP_SERVER_EVENT_ON_HEADER,       /*!< Occurs when receiving each header sent from the client */
+    HTTP_SERVER_EVENT_HEADERS_SENT,     /*!< After sending all the headers to the client */
+    HTTP_SERVER_EVENT_ON_DATA,         /*!< Occurs when receiving data from the client */
+    HTTP_SERVER_EVENT_SENT_DATA,       /*!< Occurs when an ESP HTTP server session is finished */
+    HTTP_SERVER_EVENT_DISCONNECTED,    /*!< The connection has been disconnected */
+    HTTP_SERVER_EVENT_STOP,            /*!< This event occurs when HTTP Server is stopped */
+} esp_http_server_event_id_t;
+
+/** Argument structure for HTTP_SERVER_EVENT_ON_DATA and HTTP_SERVER_EVENT_SENT_DATA event */
+typedef struct {
+    int fd;         /*!< Session socket file descriptor */
+    int data_len;   /*!< Data length */
+} esp_http_server_event_data;
 
 /*
 note: esp_https_server.h includes a customized copy of this
@@ -35,8 +57,11 @@ initializer that should be kept in sync
         .task_priority      = tskIDLE_PRIORITY+5,       \
         .stack_size         = 4096,                     \
         .core_id            = tskNO_AFFINITY,           \
+        .task_caps          = (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),       \
+        .max_req_hdr_len    = CONFIG_HTTPD_MAX_REQ_HDR_LEN,    \
+        .max_uri_len        = CONFIG_HTTPD_MAX_URI_LEN,        \
         .server_port        = 80,                       \
-        .ctrl_port          = 32768,                    \
+        .ctrl_port          = ESP_HTTPD_DEF_CTRL_PORT,  \
         .max_open_sockets   = 7,                        \
         .max_uri_handlers   = 8,                        \
         .max_resp_headers   = 8,                        \
@@ -48,6 +73,13 @@ initializer that should be kept in sync
         .global_user_ctx_free_fn = NULL,                \
         .global_transport_ctx = NULL,                   \
         .global_transport_ctx_free_fn = NULL,           \
+        .enable_so_linger = false,                      \
+        .linger_timeout = 0,                            \
+        .keep_alive_enable = false,                     \
+        .keep_alive_idle = 0,                           \
+        .keep_alive_interval = 0,                       \
+        .keep_alive_count = 0,                          \
+        .if_name = NULL,                                \
         .open_fn = NULL,                                \
         .close_fn = NULL,                               \
         .uri_match_fn = NULL                            \
@@ -59,7 +91,7 @@ initializer that should be kept in sync
 #define ESP_ERR_HTTPD_INVALID_REQ       (ESP_ERR_HTTPD_BASE +  3)   /*!< Invalid request pointer */
 #define ESP_ERR_HTTPD_RESULT_TRUNC      (ESP_ERR_HTTPD_BASE +  4)   /*!< Result string truncated */
 #define ESP_ERR_HTTPD_RESP_HDR          (ESP_ERR_HTTPD_BASE +  5)   /*!< Response header field larger than supported */
-#define ESP_ERR_HTTPD_RESP_SEND         (ESP_ERR_HTTPD_BASE +  6)   /*!< Error occured while sending response packet */
+#define ESP_ERR_HTTPD_RESP_SEND         (ESP_ERR_HTTPD_BASE +  6)   /*!< Error occurred while sending response packet */
 #define ESP_ERR_HTTPD_ALLOC_MEM         (ESP_ERR_HTTPD_BASE +  7)   /*!< Failed to dynamically allocate memory for resource */
 #define ESP_ERR_HTTPD_TASK              (ESP_ERR_HTTPD_BASE +  8)   /*!< Failed to launch server task/thread */
 
@@ -85,6 +117,8 @@ typedef void* httpd_handle_t;
  *          available in "http_parser" library
  */
 typedef enum http_method httpd_method_t;
+
+#define HTTP_ANY INT_MAX
 
 /**
  * @brief  Prototype for freeing context data (if any)
@@ -143,6 +177,14 @@ typedef struct httpd_config {
     unsigned    task_priority;      /*!< Priority of FreeRTOS task which runs the server */
     size_t      stack_size;         /*!< The maximum stack size allowed for the server task */
     BaseType_t  core_id;            /*!< The core the HTTP server task will run on */
+    uint32_t    task_caps;          /*!< The memory capabilities to use when allocating the HTTP server task's stack */
+
+    /**
+     * Size limits for the header and URI buffers respectively.
+     * These are just limits, allocation would depend upon actual size of URI/header.
+     */
+    size_t max_req_hdr_len;    /*!< Size limit for the header buffer (By default this value is set to CONFIG_HTTPD_MAX_REQ_HDR_LEN, overwrite is possible) */
+    size_t max_uri_len;    /*!< Size limit for the URI buffer By default this value is set to CONFIG_HTTPD_MAX_URI_LEN, overwrite is possible) */
 
     /**
      * TCP Port number for receiving and transmitting HTTP traffic
@@ -155,7 +197,7 @@ typedef struct httpd_config {
      */
     uint16_t    ctrl_port;
 
-    uint16_t    max_open_sockets;   /*!< Max number of sockets/clients connected at any time*/
+    uint16_t    max_open_sockets;   /*!< Max number of sockets/clients connected at any time (3 sockets are reserved for internal working of the HTTP server) */
     uint16_t    max_uri_handlers;   /*!< Maximum allowed uri handlers */
     uint16_t    max_resp_headers;   /*!< Maximum allowed additional headers in HTTP response */
     uint16_t    backlog_conn;       /*!< Number of backlog connections */
@@ -193,6 +235,16 @@ typedef struct httpd_config {
      */
     httpd_free_ctx_fn_t global_transport_ctx_free_fn;
 
+    bool enable_so_linger;  /*!< bool to enable/disable linger */
+    int linger_timeout;     /*!< linger timeout (in seconds) */
+    bool keep_alive_enable; /*!< Enable keep-alive timeout */
+    int keep_alive_idle;    /*!< Keep-alive idle time. Default is 5 (second) */
+    int keep_alive_interval;/*!< Keep-alive interval time. Default is 5 (second) */
+    int keep_alive_count;   /*!< Keep-alive packet retry send count. Default is 3 counts */
+    struct ifreq *if_name;  /*!< Bind server to a specific network interface.
+                               If NULL, server listens on all interfaces (INADDR_ANY).
+                               The pointer only needs to remain valid for the duration of
+                               httpd_start() -- it is not referenced after that call returns. */
     /**
      * Custom session opening callback.
      *
@@ -213,6 +265,9 @@ typedef struct httpd_config {
      *
      * Called when a session is deleted, before freeing user and transport contexts and before
      * closing the socket. This is a place for custom de-init code common to all sockets.
+     *
+     * The server will only close the socket if no custom session closing callback is set.
+     * If a custom callback is used, `close(sockfd)` should be called in here for most cases.
      *
      * Set the user or transport context to NULL if it was freed here, so the server does not
      * try to free it again.
@@ -279,7 +334,7 @@ typedef struct httpd_config {
  *  - ESP_ERR_HTTPD_ALLOC_MEM  : Failed to allocate memory for instance
  *  - ESP_ERR_HTTPD_TASK       : Failed to launch server task
  */
-esp_err_t  httpd_start(httpd_handle_t *handle, const httpd_config_t *config);
+esp_err_t httpd_start(httpd_handle_t *handle, const httpd_config_t *config);
 
 /**
  * @brief Stops the web server
@@ -320,19 +375,13 @@ esp_err_t httpd_stop(httpd_handle_t handle);
  * @{
  */
 
-/* Max supported HTTP request header length */
-#define HTTPD_MAX_REQ_HDR_LEN CONFIG_HTTPD_MAX_REQ_HDR_LEN
-
-/* Max supported HTTP request URI length */
-#define HTTPD_MAX_URI_LEN CONFIG_HTTPD_MAX_URI_LEN
-
 /**
  * @brief HTTP Request Data Structure
  */
 typedef struct httpd_req {
     httpd_handle_t  handle;                     /*!< Handle to server instance */
-    int             method;                     /*!< The type of HTTP request, -1 if unsupported method */
-    const char      uri[HTTPD_MAX_URI_LEN + 1]; /*!< The URI of this request (1 byte extra for null termination) */
+    int             method;                     /*!< The type of HTTP request (enum http_method); a request with an unrecognized method is rejected with 501 before any URI handler runs */
+    const char      uri[CONFIG_HTTPD_MAX_URI_LEN + 1]; /*!< The URI of this request (1 byte extra for null termination) */
     size_t          content_len;                /*!< Length of the request body */
     void           *aux;                        /*!< Internally used members */
 
@@ -382,12 +431,19 @@ typedef struct httpd_req {
     bool ignore_sess_ctx_changes;
 } httpd_req_t;
 
+#if CONFIG_HTTPD_WS_SUPPORT
+/* Forward declaration of the WebSocket frame type. The full definition appears
+ * later in this header; only a pointer to it is needed here so that httpd_uri_t
+ * can carry an optional WebSocket control-frame handler. */
+typedef struct httpd_ws_frame httpd_ws_frame_t;
+#endif
+
 /**
  * @brief Structure for URI handler
  */
 typedef struct httpd_uri {
     const char       *uri;    /*!< The URI to handle */
-    httpd_method_t    method; /*!< Method supported by the URI */
+    httpd_method_t    method; /*!< Method supported by the URI, HTTP_ANY for wildcard method to support all methods*/
 
     /**
      * Handler to call for supported request method. This must
@@ -400,7 +456,7 @@ typedef struct httpd_uri {
      */
     void *user_ctx;
 
-#ifdef CONFIG_HTTPD_WS_SUPPORT
+#if CONFIG_HTTPD_WS_SUPPORT || __DOXYGEN__
     /**
      * Flag for indicating a WebSocket endpoint.
      * If this flag is true, then method must be HTTP_GET. Otherwise the handshake will not be handled.
@@ -412,7 +468,55 @@ typedef struct httpd_uri {
      * This is used if a custom processing of the control frames is needed
      */
     bool handle_ws_control_frames;
-#endif
+
+    /**
+     * Pointer to subprotocol supported by URI
+     */
+    const char *supported_subprotocol;
+
+#if CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT || __DOXYGEN__
+    /**
+     * Pointer to WebSocket pre-handshake callback. This will be called before the WebSocket handshake is processed,
+     * i.e. before the server responds with the WebSocket handshake response or before switching to the WebSocket handler.
+     */
+    esp_err_t (*ws_pre_handshake_cb)(httpd_req_t *req);
+#endif /* CONFIG_HTTPD_WS_PRE_HANDSHAKE_CB_SUPPORT */
+#if CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT || __DOXYGEN__
+    /**
+     * Pointer to WebSocket post-handshake callback. This will be called after the WebSocket handshake is processed,
+     * i.e. after the server responds with the WebSocket handshake response or after switching to the WebSocket handler.
+     */
+    esp_err_t (*ws_post_handshake_cb)(httpd_req_t *req);
+#endif /* CONFIG_HTTPD_WS_POST_HANDSHAKE_CB_SUPPORT */
+
+    /**
+     * Optional dedicated handler for WebSocket control frames (PING, PONG, CLOSE).
+     *
+     * Only takes effect when handle_ws_control_frames is true. When set, control
+     * frames are delivered to this handler instead of the data handler, so the data
+     * handler only ever sees data frames (CONTINUE, TEXT, BINARY).
+     *
+     * The server has already received the frame body for you - no allocation or
+     * httpd_ws_recv_frame() call is needed - but it does *not* reply. Consistent with
+     * handle_ws_control_frames being true, this handler owns the protocol reply:
+     * answer a PING with a PONG echoing the payload and a CLOSE with a CLOSE
+     * (RFC 6455 section 5.5); a PONG needs no reply. The frame may be reused for the
+     * reply by overwriting frame->type and passing it to httpd_ws_send_frame().
+     *
+     * The frame and its payload are owned by the server and are only valid for the
+     * duration of the call: the handler must not free or retain them, and must not
+     * grow frame->len beyond the received length, as the payload buffer is sized for
+     * a control frame only. Returning an error closes the connection.
+     *
+     * If left NULL, control frames continue to be delivered to the data handler,
+     * which remains responsible for receiving and replying to them (unchanged
+     * behavior).
+     *
+     * Placed at the end of the struct to keep positional initialization of existing
+     * fields backward compatible.
+     */
+    esp_err_t (*ws_control_handler)(httpd_req_t *req, httpd_ws_frame_t *frame);
+#endif /* CONFIG_HTTPD_WS_SUPPORT */
 } httpd_uri_t;
 
 /**
@@ -444,7 +548,7 @@ typedef struct httpd_uri {
  * // URI handler structure
  * httpd_uri_t my_uri {
  *     .uri      = "/my_uri/path/xyz",
- *     .method   = HTTPD_GET,
+ *     .method   = HTTP_GET,
  *     .handler  = my_uri_handler,
  *     .user_ctx = NULL
  * };
@@ -519,21 +623,33 @@ typedef enum {
      */
     HTTPD_500_INTERNAL_SERVER_ERROR = 0,
 
-    /* For methods not supported by http_parser. Presently
-     * http_parser halts parsing when such methods are
-     * encountered and so the server responds with 400 Bad
-     * Request error instead.
+    /* For request methods that http_parser does not recognize,
+     * and for requests carrying a Transfer-Encoding header (no
+     * transfer coding is implemented). Parsing aborted mid-request
+     * in both cases, so the server closes the session after the
+     * response regardless of what a custom error handler returns.
      */
     HTTPD_501_METHOD_NOT_IMPLEMENTED,
 
-    /* When HTTP version is not 1.1 */
+    /* When HTTP version is not 1.1 or 1.0*/
     HTTPD_505_VERSION_NOT_SUPPORTED,
 
     /* Returned when http_parser halts parsing due to incorrect
-     * syntax of request, unsupported method in request URI or
-     * due to chunked encoding / upgrade field present in headers
+     * syntax of request or due to an upgrade field present in
+     * headers that the server does not handle
      */
     HTTPD_400_BAD_REQUEST,
+
+    /* This response means the client must authenticate itself
+     * to get the requested response.
+     */
+    HTTPD_401_UNAUTHORIZED,
+
+    /* The client does not have access rights to the content,
+     * so the server is refusing to give the requested resource.
+     * Unlike 401, the client's identity is known to the server.
+     */
+    HTTPD_403_FORBIDDEN,
 
     /* When requested URI is not found */
     HTTPD_404_NOT_FOUND,
@@ -554,10 +670,13 @@ typedef enum {
      */
     HTTPD_411_LENGTH_REQUIRED,
 
-    /* URI length greater than CONFIG_HTTPD_MAX_URI_LEN */
+    /* Incoming payload is too large */
+    HTTPD_413_CONTENT_TOO_LARGE,
+
+    /* URI length greater than CONFIG_CONFIG_HTTPD_MAX_URI_LEN */
     HTTPD_414_URI_TOO_LONG,
 
-    /* Headers section larger than CONFIG_HTTPD_MAX_REQ_HDR_LEN */
+    /* Headers section larger than CONFIG_CONFIG_HTTPD_MAX_REQ_HDR_LEN */
     HTTPD_431_REQ_HDR_FIELDS_TOO_LARGE,
 
     /* Used internally for retrieving the total count of errors */
@@ -582,8 +701,10 @@ typedef enum {
  *    guaranteed as the HTTP request may be partially received/parsed.
  *  - The function must return ESP_OK if underlying socket needs to
  *    be kept open. Any other value will ensure that the socket is
- *    closed. The return value is ignored when error is of type
- *    `HTTPD_500_INTERNAL_SERVER_ERROR` and the socket closed anyway.
+ *    closed. The return value is ignored, and the socket is closed
+ *    anyway, when the error is `HTTPD_500_INTERNAL_SERVER_ERROR` or
+ *    `HTTPD_501_METHOD_NOT_IMPLEMENTED` (for 501 the request is only
+ *    partially parsed, so the session cannot continue safely).
  *
  * @param[in] req    HTTP request for which the error needs to be handled
  * @param[in] error  Error type
@@ -614,6 +735,32 @@ typedef esp_err_t (*httpd_err_handler_func_t)(httpd_req_t *req,
 esp_err_t httpd_register_err_handler(httpd_handle_t handle,
                                      httpd_err_code_t error,
                                      httpd_err_handler_func_t handler_fn);
+
+/**
+ * @brief   For handling HTTP errors by invoking registered
+ *          error handler function
+ *
+ * This function can be called from within a URI handler to manually
+ * trigger error handling. It will invoke the registered error handler
+ * for the specified error code if one exists, otherwise it will send
+ * the default HTTP error response.
+ *
+ * @note
+ *  - This API is supposed to be called only from the context of
+ *    a URI handler where httpd_req_t* request pointer is valid.
+ *  - If a custom error handler is registered and returns ESP_OK,
+ *    the socket will remain open. If it returns ESP_FAIL or no
+ *    handler is registered, the socket will be closed.
+ *  - For HTTPD_500_INTERNAL_SERVER_ERROR, the API returns ESP_FAIL
+ *
+ * @param[in] req     Pointer to the HTTP request for which error occurred
+ * @param[in] error   Error type
+ *
+ * @return
+ *  - ESP_OK    : error handled successfully (socket may remain open)
+ *  - ESP_FAIL  : failure indicates that the underlying socket needs to be closed
+ */
+esp_err_t httpd_req_handle_err(httpd_req_t *req, httpd_err_code_t error);
 
 /** End of HTTP Error
  * @}
@@ -763,6 +910,41 @@ esp_err_t httpd_sess_set_send_override(httpd_handle_t hd, int sockfd, httpd_send
 esp_err_t httpd_sess_set_pending_override(httpd_handle_t hd, int sockfd, httpd_pending_func_t pending_func);
 
 /**
+ * @brief   Start an asynchronous request. This function can be called
+ *          in a request handler to get a request copy that can be used on a async thread.
+ *
+ * @note
+ * - This function is necessary in order to handle multiple requests simultaneously.
+ * See examples/async_requests for example usage.
+ * - You must call httpd_req_async_handler_complete() when you are done with the request
+ * and also on any error conditions.
+ *
+ * @param[in]   r       The request to create an async copy of
+ * @param[out]  out     A newly allocated request which can be used on an async thread
+ *
+ * @return
+ *  - ESP_OK : async request object created
+ */
+esp_err_t httpd_req_async_handler_begin(httpd_req_t *r, httpd_req_t **out);
+
+/**
+ * @brief   Mark an asynchronous request as completed. This will
+ *  - free the request memory
+ *  - relinquish ownership of the underlying socket, so it can be reused.
+ *  - allow the http server to close our socket if needed (lru_purge_enable)
+ *
+ * @note If async requests are not marked completed, eventually the server
+ * will no longer accept incoming connections. The server will log a
+ * "httpd_accept_conn: error in accept (23)" message if this happens.
+ *
+ * @param[in]   r   The request to mark async work as completed
+ *
+ * @return
+ *  - ESP_OK : async request was marked completed
+ */
+esp_err_t httpd_req_async_handler_complete(httpd_req_t *r);
+
+/**
  * @brief   Get the Socket Descriptor from the HTTP request
  *
  * This API will return the socket descriptor of the session for
@@ -864,6 +1046,33 @@ size_t httpd_req_get_hdr_value_len(httpd_req_t *r, const char *field);
 esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *r, const char *field, char *val, size_t val_size);
 
 /**
+ * @brief   Similar to httpd_req_get_hdr_value_str() but avoids the string copy
+ *
+ * @note
+ *  - This API is meant to be used with std::string_view or similar
+ *  - The returned pointer references the header value kept in the request's
+ *    internal scratch buffer. It is NULL-terminated; val_len is provided for
+ *    convenience (e.g. constructing a std::string_view without a strlen()).
+ *  - This API is supposed to be called only from the context of
+ *    a URI handler where httpd_req_t* request pointer is valid.
+ *  - The returned pointer must only be used within the URI handler and not
+ *    after, since it will lead to use after free errors. In particular, once
+ *    httpd_resp_send() is called all request headers are purged.
+ *
+ * @param[in]  r        The request being responded to
+ * @param[in]  field    The field to be searched in the header
+ * @param[out] val      Pointer to a pointer that will be updated to the value string
+ * @param[out] val_len  Pointer to a length that will be updated with the value length
+ *
+ * @return
+ *  - ESP_OK : Field found; *val points to the value string and *val_len holds its length
+ *  - ESP_ERR_NOT_FOUND          : Key not found
+ *  - ESP_ERR_INVALID_ARG        : Null arguments
+ *  - ESP_ERR_HTTPD_INVALID_REQ  : Invalid HTTP request pointer
+ */
+esp_err_t httpd_req_get_hdr_value_str_ptr(httpd_req_t *r, const char *field, const char **val, size_t *val_len);
+
+/**
  * @brief   Get Query string length from the request URL
  *
  * @note    This API is supposed to be called only from the context of
@@ -873,7 +1082,7 @@ esp_err_t httpd_req_get_hdr_value_str(httpd_req_t *r, const char *field, char *v
  *
  * @return
  *  - Length    : Query is found in the request URL
- *  - Zero      : Query not found / Null arguments / Invalid request
+ *  - Zero      : Query not found / Null arguments / Invalid request / uri is empty
  */
 size_t httpd_req_get_url_query_len(httpd_req_t *r);
 
@@ -901,12 +1110,43 @@ size_t httpd_req_get_url_query_len(httpd_req_t *r);
  *
  * @return
  *  - ESP_OK : Query is found in the request URL and copied to buffer
+ *  - ESP_FAIL                   : uri is empty
  *  - ESP_ERR_NOT_FOUND          : Query not found
  *  - ESP_ERR_INVALID_ARG        : Null arguments
  *  - ESP_ERR_HTTPD_INVALID_REQ  : Invalid HTTP request pointer
  *  - ESP_ERR_HTTPD_RESULT_TRUNC : Query string truncated
  */
 esp_err_t httpd_req_get_url_query_str(httpd_req_t *r, char *buf, size_t buf_len);
+
+/**
+ * @brief   Similar to httpd_req_get_url_query_str() but avoids the string copy
+ *
+ * @note
+ *  - This API is meant to be used with std::string_view or similar
+ *  - Presently, the user can fetch the full URL query string, but decoding
+ *    will have to be performed by the user. Request headers can be read using
+ *    httpd_req_get_hdr_value_str() to know the 'Content-Type' (eg. Content-Type:
+ *    application/x-www-form-urlencoded) and then the appropriate decoding
+ *    algorithm needs to be applied.
+ *  - This API is supposed to be called only from the context of
+ *    a URI handler where httpd_req_t* request pointer is valid
+ *  - The byte range between buf and buf_len should only be used within
+ *    the URI handler and not after since it will lead to use after free
+ *    errors
+ *
+ * @param[in]  r         The request being responded to
+ * @param[out] buf       Pointer to a pointer that should be updated to the beginning of
+ *                       the query string within the request URL
+ * @param[out] buf_len   Pointer to a length that will be updated with the query length
+ *
+ * @return
+ *  - ESP_OK : Query found; *buf points to the query string and *buf_len holds its length
+ *  - ESP_FAIL                   : uri is empty
+ *  - ESP_ERR_NOT_FOUND          : Query not found
+ *  - ESP_ERR_INVALID_ARG        : Null arguments
+ *  - ESP_ERR_HTTPD_INVALID_REQ  : Invalid HTTP request pointer
+ */
+esp_err_t httpd_req_get_url_query_str_ptr(httpd_req_t *r, const char **buf, size_t *buf_len);
 
 /**
  * @brief   Helper function to get a URL query tag from a query
@@ -934,19 +1174,37 @@ esp_err_t httpd_req_get_url_query_str(httpd_req_t *r, char *buf, size_t buf_len)
 esp_err_t httpd_query_key_value(const char *qry, const char *key, char *val, size_t val_size);
 
 /**
+ * @brief   Get the value string of a cookie value from the "Cookie" request headers by cookie name.
+ *
+ * @param[in]       req             Pointer to the HTTP request
+ * @param[in]       cookie_name     The cookie name to be searched in the request
+ * @param[out]      val             Pointer to the buffer into which the value of cookie will be copied if the cookie is found
+ * @param[inout]    val_size        Pointer to size of the user buffer "val". This variable will contain cookie length if
+ *                                  ESP_OK is returned and required buffer length in case ESP_ERR_HTTPD_RESULT_TRUNC is returned.
+ *
+ * @return
+ *  - ESP_OK : Key is found in the cookie string and copied to buffer
+ *  - ESP_ERR_NOT_FOUND          : Key not found
+ *  - ESP_ERR_INVALID_ARG        : Null arguments
+ *  - ESP_ERR_HTTPD_RESULT_TRUNC : Value string truncated
+ *  - ESP_ERR_NO_MEM             : Memory allocation failure
+ */
+esp_err_t httpd_req_get_cookie_val(httpd_req_t *req, const char *cookie_name, char *val, size_t *val_size);
+
+/**
  * @brief Test if a URI matches the given wildcard template.
  *
- * Template may end with "?" to make the previous character optional (typically a slash),
- * "*" for a wildcard match, and "?*" to make the previous character optional, and if present,
+ * Template may end with '?' to make the previous character optional (typically a slash),
+ * '*' for a wildcard match, and '?*' to make the previous character optional, and if present,
  * allow anything to follow.
  *
  * Example:
  *   - * matches everything
- *   - /foo/? matches /foo and /foo/
- *   - /foo/\* (sans the backslash) matches /foo/ and /foo/bar, but not /foo or /fo
- *   - /foo/?* or /foo/\*?  (sans the backslash) matches /foo/, /foo/bar, and also /foo, but not /foox or /fo
+ *   - /api/? matches /api and /api/
+ *   - /api/\* (sans the backslash) matches /api/ and /api/status, but not /api or /ap
+ *   - /api/?* or /api/\*?  (sans the backslash) matches /api/, /api/status, and also /api, but not /apix or /ap
  *
- * The special characters "?" and "*" anywhere else in the template will be taken literally.
+ * The special characters '?' and '*' anywhere else in the template will be taken literally.
  *
  * @param[in] uri_template   URI template (pattern)
  * @param[in] uri_to_match   URI to be matched
@@ -1038,7 +1296,7 @@ esp_err_t httpd_resp_send_chunk(httpd_req_t *r, const char *buf, ssize_t buf_len
 /**
  * @brief   API to send a complete string as HTTP response.
  *
- * This API simply calls http_resp_send with buffer length
+ * This API simply calls httpd_resp_send with buffer length
  * set to string length assuming the buffer contains a null
  * terminated string
  *
@@ -1059,7 +1317,7 @@ static inline esp_err_t httpd_resp_sendstr(httpd_req_t *r, const char *str) {
 /**
  * @brief   API to send a string as an HTTP response chunk.
  *
- * This API simply calls http_resp_send_chunk with buffer length
+ * This API simply calls httpd_resp_send_chunk with buffer length
  * set to string length assuming the buffer contains a null
  * terminated string
  *
@@ -1190,6 +1448,30 @@ esp_err_t httpd_resp_set_hdr(httpd_req_t *r, const char *field, const char *valu
 esp_err_t httpd_resp_send_err(httpd_req_t *req, httpd_err_code_t error, const char *msg);
 
 /**
+ * @brief   For sending out custom error code in response to HTTP request.
+ *
+ * @note
+ *  - This API is supposed to be called only from the context of
+ *    a URI handler where httpd_req_t* request pointer is valid.
+ *  - Once this API is called, all request headers are purged, so
+ *    request headers need be copied into separate buffers if
+ *    they are required later.
+ *  - If you wish to send additional data in the body of the
+ *    response, please use the lower-level functions directly.
+ *
+ * @param[in] req     Pointer to the HTTP request for which the response needs to be sent
+ * @param[in] status  Error status to send
+ * @param[in] msg     Error message string
+ *
+ * @return
+ *  - ESP_OK : On successfully sending the response packet
+ *  - ESP_ERR_INVALID_ARG : Null arguments
+ *  - ESP_ERR_HTTPD_RESP_SEND   : Error in raw send
+ *  - ESP_ERR_HTTPD_INVALID_REQ : Invalid request pointer
+ */
+esp_err_t httpd_resp_send_custom_err(httpd_req_t *req, const char *status, const char *msg);
+
+/**
  * @brief   Helper function for HTTP 404
  *
  * Send HTTP 404 message. If you wish to send additional data in the body of the
@@ -1270,7 +1552,7 @@ static inline esp_err_t httpd_resp_send_500(httpd_req_t *r) {
  * Call this API if you wish to construct your custom response packet.
  * When using this, all essential header, eg. HTTP version, Status Code,
  * Content Type and Length, Encoding, etc. will have to be constructed
- * manually, and HTTP delimeters (CRLF) will need to be placed correctly
+ * manually, and HTTP delimiters (CRLF) will need to be placed correctly
  * for separating sub-sections of the HTTP response packet.
  *
  * If the send override function is set, this API will end up
@@ -1476,13 +1758,17 @@ esp_err_t httpd_sess_update_lru_counter(httpd_handle_t handle, int sockfd);
  * @brief   Returns list of current socket descriptors of active sessions
  *
  * @param[in] handle    Handle to server returned by httpd_start
- * @param[in,out] fds   In: Number of fds allocated in the supplied structure client_fds
+ * @param[in,out] fds   In: Size of provided client_fds array
  *                      Out: Number of valid client fds returned in client_fds,
  * @param[out] client_fds  Array of client fds
  *
+ * @note Size of provided array has to be equal or greater then maximum number of opened
+ *       sockets, configured upon initialization with max_open_sockets field in
+ *       httpd_config_t structure.
+ *
  * @return
  *  - ESP_OK              : Successfully retrieved session list
- *  - ESP_ERR_INVALID_ARG : Wrong arguments or list is longer than allocated
+ *  - ESP_ERR_INVALID_ARG : Wrong arguments or list is longer than provided array
  */
 esp_err_t httpd_get_client_list(httpd_handle_t handle, size_t *fds, int *client_fds);
 
@@ -1532,18 +1818,18 @@ esp_err_t httpd_queue_work(httpd_handle_t handle, httpd_work_fn_t work, void *ar
  * Functions and structs for WebSocket server
  * @{
  */
-#ifdef CONFIG_HTTPD_WS_SUPPORT
+#if CONFIG_HTTPD_WS_SUPPORT || __DOXYGEN__
 /**
  * @brief Enum for WebSocket packet types (Opcode in the header)
  * @note Please refer to RFC6455 Section 5.4 for more details
  */
 typedef enum {
-    HTTPD_WS_TYPE_CONTINUE   = 0x0,
-    HTTPD_WS_TYPE_TEXT       = 0x1,
-    HTTPD_WS_TYPE_BINARY     = 0x2,
-    HTTPD_WS_TYPE_CLOSE      = 0x8,
-    HTTPD_WS_TYPE_PING       = 0x9,
-    HTTPD_WS_TYPE_PONG       = 0xA
+    HTTPD_WS_TYPE_CONTINUE        = 0x0,
+    HTTPD_WS_TYPE_TEXT            = 0x1,
+    HTTPD_WS_TYPE_BINARY          = 0x2,
+    HTTPD_WS_TYPE_CLOSE           = 0x8,
+    HTTPD_WS_TYPE_PING            = 0x9,
+    HTTPD_WS_TYPE_PONG            = 0xA,
 } httpd_ws_type_t;
 
 /**
@@ -1571,10 +1857,55 @@ typedef struct httpd_ws_frame {
     httpd_ws_type_t type;       /*!< WebSocket frame type */
     uint8_t *payload;           /*!< Pre-allocated data buffer */
     size_t len;                 /*!< Length of the WebSocket data */
+    size_t left_len;            /*!< Length of the WebSocket data that is yet to be received.
+                                     This field should not be modified by user. */
 } httpd_ws_frame_t;
 
 /**
+ * @brief Transfer complete callback
+ */
+typedef void (*transfer_complete_cb)(esp_err_t err, int socket, void *arg);
+
+/**
  * @brief Receive and parse a WebSocket frame
+ *
+ * @note    Calling httpd_ws_recv_frame() with max_len as 0 will give actual frame size in pkt->len.
+ *          The user can dynamically allocate space for pkt->payload as per this length and call httpd_ws_recv_frame() again to get the actual data.
+ *
+ * @note    Fragmented messages (RFC 6455 §5.4) are not supported. Each frame is
+ *          returned on its own; the library never joins the fragments of one
+ *          message, and it does not validate the fragment sequence. Read pkt->final
+ *          and pkt->type to detect a fragment, and join the payloads in the
+ *          application. UTF-8 validation of a TEXT message that arrives in
+ *          fragments is the caller's responsibility; see httpd_ws_validate_utf8().
+ *          Please refer to the corresponding example for usage.
+ *
+ * @param[in]   req         Current request
+ * @param[out]  pkt         WebSocket packet
+ * @param[in]   max_len     Maximum length for receive
+ * @return
+ *  - ESP_OK                    : On successful
+ *  - ESP_FAIL                  : Socket errors occurs
+ *  - ESP_ERR_INVALID_SIZE      : max_len is too small to fit the entire payload
+ *  - ESP_ERR_INVALID_STATE     : Handshake was already done beforehand
+ *  - ESP_ERR_INVALID_ARG       : Argument is invalid (null or non-WebSocket)
+ */
+esp_err_t httpd_ws_recv_frame(httpd_req_t *req, httpd_ws_frame_t *pkt, size_t max_len);
+
+/**
+ * @brief Receive and parse a WebSocket frame part
+ *
+ * @note    Calling httpd_ws_recv_frame_part() with max_len as 0 will give actual frame size in pkt->len.
+ *          The user can dynamically allocate space for pkt->payload or user defined chunk size and call httpd_ws_recv_frame_part() again to get the actual data.
+ *          In contrast to httpd_ws_recv_frame, this method is able to read frame payload partially. The amount of data that is yet to be received is stored in pkt->left_len
+ *
+ * @note    UTF-8 validation required by RFC 6455 §8.1 for TEXT frames is only
+ *          performed by the library when a whole frame is consumed in a single
+ *          call (which includes a httpd_ws_recv_frame_part() call whose max_len
+ *          covers the entire payload). Callers that assemble a TEXT payload
+ *          across multiple calls are responsible for validating the assembled
+ *          buffer themselves; see httpd_ws_validate_utf8().
+ *
  * @param[in]   req         Current request
  * @param[out]  pkt         WebSocket packet
  * @param[in]   max_len     Maximum length for receive
@@ -1584,7 +1915,23 @@ typedef struct httpd_ws_frame {
  *  - ESP_ERR_INVALID_STATE     : Handshake was already done beforehand
  *  - ESP_ERR_INVALID_ARG       : Argument is invalid (null or non-WebSocket)
  */
-esp_err_t httpd_ws_recv_frame(httpd_req_t *req, httpd_ws_frame_t *pkt, size_t max_len);
+esp_err_t httpd_ws_recv_frame_part(httpd_req_t *req, httpd_ws_frame_t *pkt, size_t max_len);
+
+/**
+ * @brief Validate that a byte buffer is well-formed UTF-8 per RFC 3629.
+ *
+ * Intended for application code that assembles a WebSocket TEXT message
+ * across multiple httpd_ws_recv_frame_part() calls and needs to enforce
+ * RFC 6455 §8.1 on the assembled payload before processing it.
+ *
+ * @param[in] data Pointer to the buffer to validate. May be NULL only if len is 0.
+ * @param[in] len  Length of the buffer in bytes.
+ * @return
+ *  - ESP_OK                : Buffer is valid UTF-8 (an empty buffer is always valid).
+ *  - ESP_ERR_INVALID_ARG   : data is NULL with non-zero len, or the buffer is not
+ *                            well-formed UTF-8 (overlong, surrogate, or beyond U+10FFFF).
+ */
+esp_err_t httpd_ws_validate_utf8(const uint8_t *data, size_t len);
 
 /**
  * @brief Construct and send a WebSocket frame
@@ -1628,10 +1975,104 @@ esp_err_t httpd_ws_send_frame_async(httpd_handle_t hd, int fd, httpd_ws_frame_t 
  */
 httpd_ws_client_info_t httpd_ws_get_fd_info(httpd_handle_t hd, int fd);
 
-#endif /* CONFIG_HTTPD_WS_SUPPORT */
+/**
+ * @brief Sends data to to specified websocket synchronously
+ *
+ * @param[in] handle  Server instance data
+ * @param[in] socket  Socket descriptor
+ * @param[in] frame   Websocket frame
+ * @return
+ *  - ESP_OK                    : On successful
+ *  - ESP_FAIL                  : When socket errors occurs
+ *  - ESP_ERR_NO_MEM            : Unable to allocate memory
+ */
+esp_err_t httpd_ws_send_data(httpd_handle_t handle, int socket, httpd_ws_frame_t *frame);
+
+/**
+ * @brief Sends data to to specified websocket asynchronously
+ *
+ * @param[in] handle    Server instance data
+ * @param[in] socket    Socket descriptor
+ * @param[in] frame     Websocket frame
+ * @param[in] callback  Callback invoked after sending data
+ * @param[in] arg       User data passed to provided callback
+ * @return
+ *  - ESP_OK                    : On successful
+ *  - ESP_FAIL                  : When socket errors occurs
+ *  - ESP_ERR_NO_MEM            : Unable to allocate memory
+ */
+esp_err_t httpd_ws_send_data_async(httpd_handle_t handle, int socket, httpd_ws_frame_t *frame,
+                                   transfer_complete_cb callback, void *arg);
+
+/**
+ * @brief Initiate a graceful WebSocket close handshake on a session.
+ *
+ * Sends a CLOSE frame with the given status code and optional UTF-8 reason,
+ * marks the session as closing (which blocks any further outbound data
+ * frames per RFC 6455 §1.4), and lets the underlying TCP socket be torn
+ * down at the next dispatch boundary. The call is idempotent: if the
+ * session was already closing it returns ESP_OK without emitting a second
+ * CLOSE frame, and the code and reason arguments are not validated.
+ *
+ * @param[in] hd     Server handle.
+ * @param[in] fd     Socket descriptor of the session to close.
+ * @param[in] code   Status code per RFC 6455 §7.4 (e.g., 1000 for normal
+ *                   closure). Reserved codes (1005, 1006) and out-of-range
+ *                   values are rejected.
+ * @param[in] reason Optional NUL-terminated UTF-8 reason, or NULL. Must be
+ *                   at most 123 bytes so the total control frame payload
+ *                   (2-byte code + reason) fits in 125 bytes.
+ * @return
+ *  - ESP_OK                : CLOSE sent (or session was already closing).
+ *  - ESP_ERR_INVALID_ARG   : Invalid fd, invalid code, reason exceeds 123 bytes,
+ *                            or reason is not valid UTF-8.
+ *  - ESP_ERR_INVALID_STATE : Socket is not an established WebSocket session.
+ *  - ESP_FAIL              : Underlying transport send failed.
+ */
+esp_err_t httpd_ws_close_session(httpd_handle_t hd, int fd, uint16_t code, const char *reason);
+
+#endif /* CONFIG_HTTPD_WS_SUPPORT || __DOXYGEN__ */
 /** End of WebSocket related stuff
  * @}
  */
+
+/**
+ * @brief Get the length of the raw request data received from the client.
+ *
+ * @param[in] req     Current request
+ * @return
+ *  - 0      : If req is NULL
+ *  - size_t : The length of the buffer containing raw HTTP request data
+ */
+size_t httpd_get_raw_req_data_len(httpd_req_t *req);
+
+/**
+ * @brief Get the raw HTTP request data received from the client.
+ *
+ *        NOTE - This function returns different data for different http server states.
+ * 1. HTTP_SERVER_EVENT_ON_CONNECTED - Returns the data containing information related to URI and headers.
+ * 2. HTTP_SERVER_EVENT_ON_HEADER - Returns the data containing information related to only headers.
+ * 3. HTTP_SERVER_EVENT_ON_DATA - Returns the data containing information related to only headers.
+ * 4. HTTP_SERVER_EVENT_SENT_DATA - Returns the data containing information related to only headers.
+ * 5. HTTP_SERVER_EVENT_DISCONNECTED - Returns the data containing information related to only headers.
+ * 6. HTTP_SERVER_EVENT_STOP - Returns the data containing information related to only headers.
+ *
+ * @param[in] req     Current request
+ * @param[out] buf    Buffer to store the raw request data
+ * @param[in] buf_len The length of the buffer.
+ * @return
+ *  - ESP_OK                : On successful copy of raw request data
+ *  - ESP_ERR_INVALID_ARG   : If req or buf is NULL, or buf_len is 0
+ */
+esp_err_t httpd_get_raw_req_data(httpd_req_t *req, char *buf, size_t buf_len);
+
+/**
+ * @brief Get the HTTPD server state
+ *
+ * @param[in] handle    Handle to server returned by httpd_start
+ * @return HTTPD server state
+ */
+esp_http_server_event_id_t httpd_get_server_state(httpd_handle_t handle);
 
 #ifdef __cplusplus
 }

@@ -1,12 +1,9 @@
 /* SPIFFS Image Generation on Build Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
+ *
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense or CC0-1.0
+ */
 #include <stdio.h>
 #include <string.h>
 #include <sys/unistd.h>
@@ -14,7 +11,7 @@
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_spiffs.h"
-#include "mbedtls/md5.h"
+#include "psa/crypto.h"
 
 static const char *TAG = "example";
 
@@ -53,20 +50,36 @@ static void compute_alice_txt_md5(void)
     #define MD5_MAX_LEN 16
 
     char buf[64];
-    mbedtls_md5_context ctx;
-    unsigned char digest[MD5_MAX_LEN];
+    psa_status_t status;
+    psa_hash_operation_t operation = PSA_HASH_OPERATION_INIT;
+    psa_algorithm_t alg = PSA_ALG_MD5;
+    status = psa_hash_setup(&operation, alg);
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to setup hash operation");
+        return;
+    }
 
-    mbedtls_md5_init(&ctx);
-    mbedtls_md5_starts_ret(&ctx);
+    size_t md5_len = PSA_HASH_LENGTH(alg);
+
+    unsigned char digest[md5_len];
 
     size_t read;
 
     do {
         read = fread((void*) buf, 1, sizeof(buf), f);
-        mbedtls_md5_update_ret(&ctx, (unsigned const char*) buf, read);
+        status = psa_hash_update(&operation, (unsigned const char*) buf, read);
+        if (status != PSA_SUCCESS) {
+            ESP_LOGE(TAG, "Failed to update hash operation");
+            return;
+        }
     } while(read == sizeof(buf));
 
-    mbedtls_md5_finish_ret(&ctx, digest);
+    size_t md5len = 0;
+    status = psa_hash_finish(&operation, digest, md5_len, &md5len);
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(TAG, "Failed to finish hash operation");
+        return;
+    }
 
     // Create a string of the digest
     char digest_str[MD5_MAX_LEN * 2];
@@ -122,7 +135,7 @@ void app_main(void)
     // Read and display the contents of a small text file (hello.txt)
     read_hello_txt();
 
-    // Compute and display the MD5 hash of a large text file (alice.txt) 
+    // Compute and display the MD5 hash of a large text file (alice.txt)
     compute_alice_txt_md5();
 
     // All done, unmount partition and disable SPIFFS

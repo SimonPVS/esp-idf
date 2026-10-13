@@ -48,6 +48,9 @@
 #define HFP_VERSION_1_1         0x0101
 #define HFP_VERSION_1_5         0x0105
 #define HFP_VERSION_1_6         0x0106
+#define HFP_VERSION_1_7         0x0107
+#define HFP_VERSION_1_8         0x0108
+#define HFP_VERSION_1_9         0x0109
 
 #define HSP_VERSION_1_0         0x0100
 #define HSP_VERSION_1_2         0x0102
@@ -74,17 +77,40 @@
 #define BTA_AG_ACP              0       /* accepted connection */
 #define BTA_AG_INT              1       /* initiating connection */
 
-/* feature mask that matches spec */
-#define BTA_AG_BSRF_FEAT_SPEC        (BTA_AG_FEAT_3WAY | BTA_AG_FEAT_ECNR    | \
-                                      BTA_AG_FEAT_VREC | BTA_AG_FEAT_INBAND  | \
-                                      BTA_AG_FEAT_VTAG | BTA_AG_FEAT_REJECT  | \
-                                      BTA_AG_FEAT_ECS  | BTA_AG_FEAT_ECC     | \
-                                      BTA_AG_FEAT_EXTERR | BTA_AG_FEAT_CODEC | \
-                                      BTA_AG_FEAT_VOIP)
+#if BT_HF_AG_BQB_INCLUDED
+/* feature mask that matches spec for BQB test */
+#define BTA_AG_BQB_BRSF_FEAT_SPEC    (BTA_AG_FEAT_VOIP    |                     \
+                                      BTA_AG_FEAT_VTAG    | BTA_AG_FEAT_CODEC | \
+                                      BTA_AG_FEAT_ECS     | BTA_AG_FEAT_ECC   | \
+                                      BTA_AG_FEAT_ESCO_S4 | BTA_AG_FEAT_EXTERR)
+#endif /* BT_HF_AG_BQB_INCLUDED */
 
-#define BTA_AG_SDP_FEAT_SPEC         (BTA_AG_FEAT_3WAY | BTA_AG_FEAT_ECNR    | \
-                                      BTA_AG_FEAT_VREC | BTA_AG_FEAT_INBAND  | \
+/* feature mask that matches spec */
+#define BTA_AG_BRSF_FEAT_SPEC        (BTA_AG_FEAT_3WAY    | BTA_AG_FEAT_ECNR   | \
+                                      BTA_AG_FEAT_VREC    | BTA_AG_FEAT_INBAND | \
+                                      BTA_AG_FEAT_VTAG    | BTA_AG_FEAT_REJECT | \
+                                      BTA_AG_FEAT_ECS     | BTA_AG_FEAT_ECC    | \
+                                      BTA_AG_FEAT_EXTERR  | BTA_AG_FEAT_CODEC  | \
+                                      BTA_AG_FEAT_ESCO_S4 | BTA_AG_FEAT_VOIP)
+
+#define BTA_AG_SDP_FEAT_SPEC         (BTA_AG_FEAT_3WAY | BTA_AG_FEAT_ECNR   | \
+                                      BTA_AG_FEAT_VREC | BTA_AG_FEAT_INBAND | \
                                       BTA_AG_FEAT_VTAG)
+
+#if (BTM_SCO_HCI_INCLUDED == TRUE)
+/* 1 (offset can not be 0) + HCI_SCO_PREAMBLE */
+#define BTA_AG_BUFF_OFFSET_MIN              (1 + HCI_SCO_PREAMBLE_SIZE)
+/* mSBC H2 header length */
+#define BTA_AG_H2_HEADER_LEN                2
+/* mSBC frame size not include H1/H2 header */
+#define BTA_AG_MSBC_FRAME_PAYLOAD_SIZE              57
+#define BTA_AG_LC3_FRAME_PAYLOAD_SIZE               58
+#define BTA_AG_LC3_VOHCI_FRAME_SIZE         60
+/* max user data len of sco packet type EV3 */
+#define BTA_AG_SCO_OUT_PKT_LEN_EV3          30
+/* max user data len of sco packet type 2-EV3 */
+#define BTA_AG_SCO_OUT_PKT_LEN_2EV3         60
+#endif
 
 enum
 {
@@ -97,6 +123,7 @@ enum
     BTA_AG_API_AUDIO_CLOSE_EVT,
     BTA_AG_API_RESULT_EVT,
     BTA_AG_API_SETCODEC_EVT,
+    BTA_AG_API_SCO_DATA_SEND_EVT,
     BTA_AG_RFC_OPEN_EVT,
     BTA_AG_RFC_CLOSE_EVT,
     BTA_AG_RFC_SRV_CLOSE_EVT,
@@ -112,6 +139,7 @@ enum
     BTA_AG_SVC_TOUT_EVT,
     BTA_AG_CI_SCO_DATA_EVT,
     BTA_AG_CI_SLC_READY_EVT,
+    BTA_AG_PKT_STAT_NUMS_GET_EVT,
     BTA_AG_MAX_EVT,
 
     /* these events are handled outside of the state machine */
@@ -217,6 +245,13 @@ typedef struct
     char            p_data[BTA_AG_MTU+1];
 } tBTA_AG_CI_RX_WRITE;
 
+/* data type for BTA_AG_PKT_STAT_NUMS_GET_EVT */
+typedef struct
+{
+    BT_HDR          hdr;
+    UINT16          sync_conn_handle;
+} tBTA_AG_PKT_STAT_GET;
+
 /* union of all event datatypes */
 typedef union
 {
@@ -231,6 +266,7 @@ typedef union
     tBTA_AG_DISC_RESULT     disc_result;
     tBTA_AG_RFC             rfc;
     tBTA_AG_CI_RX_WRITE     ci_rx_write;
+    tBTA_AG_PKT_STAT_GET    pkt_stat;
 } tBTA_AG_DATA;
 
 /* type for each profile */
@@ -275,7 +311,8 @@ typedef struct
     tBTA_AG_SCO_MSBC_SETTINGS codec_msbc_settings; /* settings to be used for the impending eSCO */
     TIMER_LIST_ENT      cn_timer;       /* codec negotiation timer */
 #endif
-    UINT16              sco_idx;        /* SCO handle */
+    UINT16              sco_idx;        /* SCO connection index */
+    BT_HDR              *p_sco_data;    /* remaining SCO data of last sending operation */
     BOOLEAN             in_use;         /* scb in use */
     BOOLEAN             dealloc;        /* TRUE if service shutting down */
     BOOLEAN             clip_enabled;   /* set to TRUE if HF enables CLIP reporting */
@@ -333,6 +370,7 @@ typedef struct
     tBTA_AG_CBACK       *p_cback;                   /* application callback */
     tBTA_AG_PARSE_MODE  parse_mode;                 /* parse/pass-through mode */
     BOOLEAN             msbc_enabled;
+    BOOLEAN             disabling;
 } tBTA_AG_CB;
 
 /*****************************************************************************
@@ -433,9 +471,13 @@ extern void bta_ag_result(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
 extern void bta_ag_setcodec(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
 extern void bta_ag_send_ring(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
 extern void bta_ag_ci_sco_data(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
+extern void bta_ag_sco_data_send(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
+extern void bta_ag_sco_data_free(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
 extern void bta_ag_set_esco_param(BOOLEAN set_reset, tBTM_ESCO_PARAMS *param);
 extern void bta_ag_ci_rx_data(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
 extern void bta_ag_rcvd_slc_ready(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
+extern void bta_ag_pkt_stat_nums(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data);
+extern void bta_ag_h2_header(UINT16 *p_buf);
 
 #endif /* #if (BTA_AG_INCLUDED == TRUE) */
 

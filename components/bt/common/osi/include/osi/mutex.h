@@ -30,7 +30,7 @@
 #define osi_mutex_valid( x ) ( ( ( *x ) == NULL) ? pdFALSE : pdTRUE )
 #define osi_mutex_set_invalid( x ) ( ( *x ) = NULL )
 
-typedef xSemaphoreHandle osi_mutex_t;
+typedef SemaphoreHandle_t osi_mutex_t;
 
 int osi_mutex_new(osi_mutex_t *mutex);
 
@@ -50,4 +50,3 @@ void osi_mutex_global_lock(void);
 void osi_mutex_global_unlock(void);
 
 #endif /* __MUTEX_H__ */
-

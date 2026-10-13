@@ -1,29 +1,21 @@
-/* HTTP Restful API Server
+/*
+ * SPDX-FileCopyrightText: 2010-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: CC0-1.0
+ */
 
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
 #include <string.h>
 #include <fcntl.h>
 #include "esp_http_server.h"
-#include "esp_system.h"
+#include "esp_chip_info.h"
+#include "esp_random.h"
 #include "esp_log.h"
+#include "esp_check.h"
 #include "esp_vfs.h"
-#include "cJSON.h"
+#include "json_parser.h"
+#include "json_generator.h"
 
-static const char *REST_TAG = "esp-rest";
-#define REST_CHECK(a, str, goto_tag, ...)                                              \
-    do                                                                                 \
-    {                                                                                  \
-        if (!(a))                                                                      \
-        {                                                                              \
-            ESP_LOGE(REST_TAG, "%s(%d): " str, __FUNCTION__, __LINE__, ##__VA_ARGS__); \
-            goto goto_tag;                                                             \
-        }                                                                              \
-    } while (0)
+static const char *TAG = "esp-rest";
 
 #define FILE_PATH_MAX (ESP_VFS_PATH_MAX + 128)
 #define SCRATCH_BUFSIZE (10240)
@@ -35,6 +27,7 @@ typedef struct rest_server_context {
 
 #define CHECK_FILE_EXTENSION(filename, ext) (strcasecmp(&filename[strlen(filename) - strlen(ext)], ext) == 0)
 
+#if CONFIG_EXAMPLE_DEPLOY_WEB_PAGES
 /* Set HTTP response content type according to file extension */
 static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filepath)
 {
@@ -69,7 +62,7 @@ static esp_err_t rest_common_get_handler(httpd_req_t *req)
     }
     int fd = open(filepath, O_RDONLY, 0);
     if (fd == -1) {
-        ESP_LOGE(REST_TAG, "Failed to open file : %s", filepath);
+        ESP_LOGE(TAG, "Failed to open file : %s", filepath);
         /* Respond with 500 Internal Server Error */
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
         return ESP_FAIL;
@@ -83,12 +76,12 @@ static esp_err_t rest_common_get_handler(httpd_req_t *req)
         /* Read file in chunks into the scratch buffer */
         read_bytes = read(fd, chunk, SCRATCH_BUFSIZE);
         if (read_bytes == -1) {
-            ESP_LOGE(REST_TAG, "Failed to read file : %s", filepath);
+            ESP_LOGE(TAG, "Failed to read file : %s", filepath);
         } else if (read_bytes > 0) {
             /* Send the buffer contents as HTTP response chunk */
             if (httpd_resp_send_chunk(req, chunk, read_bytes) != ESP_OK) {
                 close(fd);
-                ESP_LOGE(REST_TAG, "File sending failed!");
+                ESP_LOGE(TAG, "File sending failed!");
                 /* Abort sending file */
                 httpd_resp_sendstr_chunk(req, NULL);
                 /* Respond with 500 Internal Server Error */
@@ -99,11 +92,12 @@ static esp_err_t rest_common_get_handler(httpd_req_t *req)
     } while (read_bytes > 0);
     /* Close file after sending complete */
     close(fd);
-    ESP_LOGI(REST_TAG, "File sending complete");
+    ESP_LOGI(TAG, "File sending complete");
     /* Respond with an empty chunk to signal HTTP response completion */
     httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 }
+#endif // CONFIG_EXAMPLE_DEPLOY_WEB_PAGES
 
 /* Simple handler for light brightness control */
 static esp_err_t light_brightness_post_handler(httpd_req_t *req)
@@ -128,12 +122,21 @@ static esp_err_t light_brightness_post_handler(httpd_req_t *req)
     }
     buf[total_len] = '\0';
 
-    cJSON *root = cJSON_Parse(buf);
-    int red = cJSON_GetObjectItem(root, "red")->valueint;
-    int green = cJSON_GetObjectItem(root, "green")->valueint;
-    int blue = cJSON_GetObjectItem(root, "blue")->valueint;
-    ESP_LOGI(REST_TAG, "Light control: red = %d, green = %d, blue = %d", red, green, blue);
-    cJSON_Delete(root);
+    jparse_ctx_t jctx;
+    if (json_parse_start(&jctx, buf, total_len) != OS_SUCCESS) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Body is not a JSON object");
+        return ESP_FAIL;
+    }
+    int red, green, blue;
+    bool ok = json_obj_get_int(&jctx, "red", &red) == OS_SUCCESS &&
+              json_obj_get_int(&jctx, "green", &green) == OS_SUCCESS &&
+              json_obj_get_int(&jctx, "blue", &blue) == OS_SUCCESS;
+    json_parse_end(&jctx);
+    if (!ok) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "red, green and blue must be integers");
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Light control: red = %d, green = %d, blue = %d", red, green, blue);
     httpd_resp_sendstr(req, "Post control value successfully");
     return ESP_OK;
 }
@@ -142,15 +145,21 @@ static esp_err_t light_brightness_post_handler(httpd_req_t *req)
 static esp_err_t system_info_get_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
-    cJSON *root = cJSON_CreateObject();
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
-    cJSON_AddStringToObject(root, "version", IDF_VER);
-    cJSON_AddNumberToObject(root, "cores", chip_info.cores);
-    const char *sys_info = cJSON_Print(root);
-    httpd_resp_sendstr(req, sys_info);
-    free((void *)sys_info);
-    cJSON_Delete(root);
+    char *buf = ((rest_server_context_t *)(req->user_ctx))->scratch;
+    json_gen_str_t jstr;
+    json_gen_str_start(&jstr, buf, SCRATCH_BUFSIZE, NULL, NULL);
+    json_gen_start_object(&jstr);
+    json_gen_obj_set_string(&jstr, "chip", CONFIG_IDF_TARGET);
+    json_gen_obj_set_string(&jstr, "idf_version", IDF_VER);
+    json_gen_obj_set_int(&jstr, "cores", chip_info.cores);
+    json_gen_end_object(&jstr);
+    if (json_gen_str_end(&jstr) < 0) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to generate system info");
+        return ESP_FAIL;
+    }
+    httpd_resp_sendstr(req, buf);
     return ESP_OK;
 }
 
@@ -158,28 +167,35 @@ static esp_err_t system_info_get_handler(httpd_req_t *req)
 static esp_err_t temperature_data_get_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "raw", esp_random() % 20);
-    const char *sys_info = cJSON_Print(root);
-    httpd_resp_sendstr(req, sys_info);
-    free((void *)sys_info);
-    cJSON_Delete(root);
+    char *buf = ((rest_server_context_t *)(req->user_ctx))->scratch;
+    json_gen_str_t jstr;
+    json_gen_str_start(&jstr, buf, SCRATCH_BUFSIZE, NULL, NULL);
+    json_gen_start_object(&jstr);
+    // Note: we're simulating temperature data with a random number for demonstration purposes
+    json_gen_obj_set_int(&jstr, "raw", esp_random() % 20);
+    json_gen_end_object(&jstr);
+    if (json_gen_str_end(&jstr) < 0) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to generate temperature data");
+        return ESP_FAIL;
+    }
+    httpd_resp_sendstr(req, buf);
     return ESP_OK;
 }
 
 esp_err_t start_rest_server(const char *base_path)
 {
-    REST_CHECK(base_path, "wrong base path", err);
+    esp_err_t ret = ESP_OK;
+    ESP_RETURN_ON_FALSE(base_path && strlen(base_path) < ESP_VFS_PATH_MAX, ESP_ERR_INVALID_ARG, TAG, "Invalid base path");
     rest_server_context_t *rest_context = calloc(1, sizeof(rest_server_context_t));
-    REST_CHECK(rest_context, "No memory for rest context", err);
+    ESP_RETURN_ON_FALSE(rest_context, ESP_ERR_NO_MEM, TAG, "No memory for rest context");
     strlcpy(rest_context->base_path, base_path, sizeof(rest_context->base_path));
 
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
 
-    ESP_LOGI(REST_TAG, "Starting HTTP Server");
-    REST_CHECK(httpd_start(&server, &config) == ESP_OK, "Start server failed", err_start);
+    ESP_LOGI(TAG, "Starting HTTP Server");
+    ESP_GOTO_ON_ERROR(httpd_start(&server, &config), err, TAG, "Failed to start http server");
 
     /* URI handler for fetching system info */
     httpd_uri_t system_info_get_uri = {
@@ -208,6 +224,7 @@ esp_err_t start_rest_server(const char *base_path)
     };
     httpd_register_uri_handler(server, &light_brightness_post_uri);
 
+#if CONFIG_EXAMPLE_DEPLOY_WEB_PAGES
     /* URI handler for getting web server files */
     httpd_uri_t common_get_uri = {
         .uri = "/*",
@@ -216,10 +233,12 @@ esp_err_t start_rest_server(const char *base_path)
         .user_ctx = rest_context
     };
     httpd_register_uri_handler(server, &common_get_uri);
+#endif // CONFIG_EXAMPLE_DEPLOY_WEB_PAGES
 
     return ESP_OK;
-err_start:
-    free(rest_context);
 err:
-    return ESP_FAIL;
+    if (rest_context) {
+        free(rest_context);
+    }
+    return ret;
 }

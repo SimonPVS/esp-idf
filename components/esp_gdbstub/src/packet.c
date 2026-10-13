@@ -1,17 +1,10 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
+#include <assert.h>
 #include "esp_gdbstub_common.h"
 
 // GDB command input buffer
@@ -40,6 +33,16 @@ void esp_gdbstub_send_char(char c)
     }
 }
 
+// Send a string of limited length as part of a packet
+void esp_gdbstub_send_str_n(const char *c, size_t len)
+{
+    while (*c != 0 && len != 0) {
+        esp_gdbstub_send_char(*c);
+        c++;
+        len--;
+    }
+}
+
 // Send a string as part of a packet
 void esp_gdbstub_send_str(const char *c)
 {
@@ -53,7 +56,9 @@ void esp_gdbstub_send_str(const char *c)
 // 'bits'/4 dictates the number of hex chars sent.
 void esp_gdbstub_send_hex(int val, int bits)
 {
-    const char* hex_chars = "0123456789abcdef";
+    // sanity check, in case the following (i - 4) is a negative value
+    assert(bits >= 4);
+    const char *hex_chars = "0123456789abcdef";
     for (int i = bits; i > 0; i -= 4) {
         esp_gdbstub_send_char(hex_chars[(val >> (i - 4)) & 0xf]);
     }
@@ -64,10 +69,11 @@ void esp_gdbstub_send_end(void)
 {
     esp_gdbstub_putchar('#');
     esp_gdbstub_send_hex(s_chsum, 8);
+    esp_gdbstub_flush();
 }
 
 // Send a packet with a string as content
-void esp_gdbstub_send_str_packet(const char* str)
+void esp_gdbstub_send_str_packet(const char *str)
 {
     esp_gdbstub_send_start();
     if (str != NULL) {
@@ -88,7 +94,7 @@ uint32_t esp_gdbstub_gethex(const unsigned char **ptr, int bits)
     char c;
     no = bits / 4;
     if (bits == -1) {
-        no = 64;
+        no = 32 / 4;
     }
     for (i = 0; i < no; i++) {
         c = **ptr;
@@ -163,7 +169,7 @@ int esp_gdbstub_read_command(unsigned char **out_cmd, size_t *out_size)
     // A # has been received. Get and check the received chsum.
     sentchs[0] = esp_gdbstub_getchar();
     sentchs[1] = esp_gdbstub_getchar();
-    const unsigned char* c_ptr = &sentchs[0];
+    const unsigned char *c_ptr = &sentchs[0];
     unsigned char rchsum = esp_gdbstub_gethex(&c_ptr, 8);
     if (rchsum != chsum) {
         esp_gdbstub_putchar('-');

@@ -1,4 +1,9 @@
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 | ESP32-S31 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- | --------- |
+
 # SPIFFS example
+
+**Note:** SPIFFS is not recommended for new designs. Use FATFS or LittleFS instead.
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
 
@@ -14,11 +19,20 @@ This example demonstrates how to use SPIFFS with ESP32. Example does the followi
 
 SPIFFS partition size is set in partitions_example.csv file. See [Partition Tables](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/partition-tables.html) documentation for more information.
 
+## When to use this example
+
+- You need to work with a legacy SPIFFS image.
+
 ## How to use example
 
 ### Hardware required
 
 This example does not require any special hardware, and can be run on any common development board.
+
+### Configure the project
+
+* Open the project configuration menu (`idf.py menuconfig`)
+* Configure SPIFFS settings under "SPIFFS Example menu". See note about `esp_spiffs_check` function on [SPIFFS Filesystem](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/spiffs.html) page.
 
 ### Build and flash
 
@@ -48,4 +62,4 @@ I (19584) example: Read from file: 'Hello World!'
 I (19584) example: SPIFFS unmounted
 ```
 
-To erase the contents of SPIFFS partition, run `idf.py erase_flash` command. Then upload the example again as described above.
+To erase the contents of SPIFFS partition, run `idf.py erase-flash` command. Then upload the example again as described above.

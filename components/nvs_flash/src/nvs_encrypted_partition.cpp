@@ -1,38 +1,52 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//         http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
+/*
+ * SPDX-FileCopyrightText: 2019-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <cstring>
 #include "nvs_encrypted_partition.hpp"
 #include "nvs_types.hpp"
+#include "nvs_constants.h"
+#include "nvs_xts_aes.h"
 
 namespace nvs {
 
+#ifdef CONFIG_NVS_BDL_STACK
+NVSEncryptedPartition::NVSEncryptedPartition(const char* label, const esp_blockdev_handle_t bdl, const bool managed_bdl)
+    : NVSPartition(label, bdl, managed_bdl)
+{
+    XTS_FUNC(xts_init)(&mEctxt);
+    XTS_FUNC(xts_init)(&mDctxt);
+}
+#else
 NVSEncryptedPartition::NVSEncryptedPartition(const esp_partition_t *partition)
-    : NVSPartition(partition) { }
+    : NVSPartition(partition)
+{
+    XTS_FUNC(xts_init)(&mEctxt);
+    XTS_FUNC(xts_init)(&mDctxt);
+}
+#endif // CONFIG_NVS_BDL_STACK
+
+NVSEncryptedPartition::~NVSEncryptedPartition()
+{
+    /* Wipe AES round keys derived from the NVS encryption key so they are not
+     * left in DRAM after the partition object is destroyed. */
+    XTS_FUNC(xts_free)(&mEctxt);
+    XTS_FUNC(xts_free)(&mDctxt);
+}
 
 esp_err_t NVSEncryptedPartition::init(nvs_sec_cfg_t* cfg)
 {
     uint8_t* eky = reinterpret_cast<uint8_t*>(cfg);
 
-    mbedtls_aes_xts_init(&mEctxt);
-    mbedtls_aes_xts_init(&mDctxt);
+    XTS_FUNC(xts_init)(&mEctxt);
+    XTS_FUNC(xts_init)(&mDctxt);
 
-    if (mbedtls_aes_xts_setkey_enc(&mEctxt, eky, 2 * NVS_KEY_SIZE * 8) != 0) {
+    if (XTS_FUNC(xts_setkey_enc)(&mEctxt, eky, 2 * NVS_KEY_SIZE * 8) != 0) {
         return ESP_ERR_NVS_XTS_CFG_FAILED;
     }
 
-    if (mbedtls_aes_xts_setkey_dec(&mDctxt, eky, 2 * NVS_KEY_SIZE * 8) != 0) {
+    if (XTS_FUNC(xts_setkey_dec)(&mDctxt, eky, 2 * NVS_KEY_SIZE * 8) != 0) {
         return ESP_ERR_NVS_XTS_CFG_FAILED;
     }
 
@@ -41,19 +55,20 @@ esp_err_t NVSEncryptedPartition::init(nvs_sec_cfg_t* cfg)
 
 esp_err_t NVSEncryptedPartition::read(size_t src_offset, void* dst, size_t size)
 {
-    /** Currently upper layer of NVS reads entries one by one even for variable size
-    * multi-entry data types. So length should always be equal to size of an entry.*/
-    if (size != sizeof(Item)) return ESP_ERR_INVALID_SIZE;
+    // Currently upper layer of NVS reads entries one by one even for variable size
+    // multi-entry data types. So length should always be equal to size of an entry.
+    // here we make sure that the size is really compliant with the minimal encryption block size.
+    if (size % NVS_ENCRYPT_BLOCK_SIZE != 0) return ESP_ERR_INVALID_SIZE;
 
     // read data
-    esp_err_t read_result = esp_partition_read(mESPPartition, src_offset, dst, size);
+    esp_err_t read_result = NVSPartition::read(src_offset, dst, size);
     if (read_result != ESP_OK) {
         return read_result;
     }
 
     // decrypt data
     //sector num required as an arr by mbedtls. Should have been just uint64/32.
-    uint8_t data_unit[16];
+    uint8_t data_unit[NVS_ENCRYPT_BLOCK_SIZE];
 
     uint32_t relAddr = src_offset;
 
@@ -63,7 +78,7 @@ esp_err_t NVSEncryptedPartition::read(size_t src_offset, void* dst, size_t size)
 
     uint8_t *destination = reinterpret_cast<uint8_t*>(dst);
 
-    if (mbedtls_aes_crypt_xts(&mDctxt, MBEDTLS_AES_DECRYPT, size, data_unit, destination, destination) != 0)  {
+    if (XTS_FUNC(crypt_xts)(&mDctxt, XTS_MODE(DECRYPT), size, data_unit, destination, destination) != 0)  {
         return ESP_ERR_NVS_XTS_DECR_FAILED;
     }
 
@@ -72,7 +87,7 @@ esp_err_t NVSEncryptedPartition::read(size_t src_offset, void* dst, size_t size)
 
 esp_err_t NVSEncryptedPartition::write(size_t addr, const void* src, size_t size)
 {
-    if (size % ESP_ENCRYPT_BLOCK_SIZE != 0) return ESP_ERR_INVALID_SIZE;
+    if (size % NVS_ENCRYPT_BLOCK_SIZE != 0) return ESP_ERR_INVALID_SIZE;
 
     // copy data to buffer for encryption
     uint8_t* buf = new (std::nothrow) uint8_t [size];
@@ -85,7 +100,7 @@ esp_err_t NVSEncryptedPartition::write(size_t addr, const void* src, size_t size
     uint8_t entrySize = sizeof(Item);
 
     //sector num required as an arr by mbedtls. Should have been just uint64/32.
-    uint8_t data_unit[16];
+    uint8_t data_unit[NVS_ENCRYPT_BLOCK_SIZE];
 
     /* Use relative address instead of absolute address (relocatable), so that host-generated
      * encrypted nvs images can be used*/
@@ -99,24 +114,23 @@ esp_err_t NVSEncryptedPartition::write(size_t addr, const void* src, size_t size
         uint32_t *addr_loc = (uint32_t*) &data_unit[0];
 
         *addr_loc = relAddr + offset;
-        if (mbedtls_aes_crypt_xts(&mEctxt,
-                                  MBEDTLS_AES_ENCRYPT,
+        if (XTS_FUNC(crypt_xts)(&mEctxt,
+                                  XTS_MODE(ENCRYPT),
                                   entrySize,
                                   data_unit,
                                   buf + offset,
                                   buf + offset) != 0)  {
-            delete buf;
+            delete [] buf;
             return ESP_ERR_NVS_XTS_ENCR_FAILED;
         }
     }
 
     // write data
-    esp_err_t result = esp_partition_write(mESPPartition, addr, buf, size);
+    esp_err_t result = NVSPartition::write(addr, buf, size);
 
-    delete buf;
+    delete [] buf;
 
     return result;
 }
 
 } // nvs
-

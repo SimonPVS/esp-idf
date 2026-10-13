@@ -2,8 +2,8 @@
 # BSD Socket API Examples
 
 This directory contains simple examples demonstrating BSD Socket API. 
-Each example, contains README.md file with mode detailed informations about that particular example.
-For more general informations about all examples, see the README.md file in the upper level 'examples' directory.
+Each example, contains README.md file with mode detailed information about that particular example.
+For more general information about all examples, see the README.md file in the upper level 'examples' directory.
 Examples:
 
 * UDP Client - The application creates UDP socket and sends message to the predefined port and IP address. After the server's reply, the application prints received reply as ASCII text, waits for 2 seconds and sends another message.
@@ -30,7 +30,38 @@ There are many host-side tools which can be used to interact with the UDP/TCP se
 One command line tool is [netcat](http://netcat.sourceforge.net) which can send and receive many kinds of packets. 
 Note: please replace `192.168.0.167 3333` with desired IPV4/IPV6 address (displayed in monitor console) and port number in the following commands.
 
-In addition to those tools, simple Python scripts can be found under sockets/scripts directory. Every script is designed to interact with one of the examples.
+In addition to those tools, There are some python scripts under `examples/protocols/sockets/scripts`. 
+And scripts for automated tests named `pytest_xxx.py` can be found under each example directory. 
+
+
+### Python Scripts Socket Tools
+
+Python scripts under `examples/protocols/sockets/scripts` could be used to exercise the socket communication. 
+Command line arguments such as IP version and IP address shall be supplied. Use `python xxxx.py --help` to see how to use these scripts. 
+
+Examples:
+```bash
+# python run_tcp_client.py --help
+python run_tcp_client.py 192.168.1.2 [--port=3333] [--message="Data to ESP"]
+python run_tcp_client.py fe80::2%eth0 [--port=3333] [--message="Data to ESP"]
+# python run_tcp_server.py --help
+python run_tcp_server.py [--port=3333] [--ipv6]
+```
+
+### Python Scripts For Automated Tests
+
+Script named `pytest_xxxx` in the application directory can be used for automated tests. 
+They can also be run locally. Ref: [ESP-IDF Tests with Pytest Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/contribute/esp-idf-tests-with-pytest.html).
+
+Example:
+```bash
+$ cd $IDF_PATH
+$ bash install.sh --enable-ci
+$ . ./export.sh
+$ cd examples/protocols/sockets/tcp_client
+$ idf-ci build run --target esp32 --only-test-related
+$ pytest --target esp32
+```
 
 ### Send UDP packet via netcat
 ```
@@ -62,16 +93,6 @@ nc 192.168.0.167 3333
 nc -l 192.168.0.167 -p 3333
 ```
 
-### Python scripts
-Each script in the application directory could be used to exercise the socket communication. 
-Command line arguments such as IP version (IPv4 or IPv6) and IP address and payload data (only clients) shall be supplied.
-In addition to that, port number and interface id are hardcoded in the scripts and might need to be altered to match the values used by the application. Example:
-
-```
-PORT = 3333
-INTERFACE = 'en0'
-```
-
 ### Note about IPv6 addresses
 
 Examples are configured to obtain multiple IPv6 addresses. The actual behavior may differ depending on the local network, typically the ESP gets assigned these two addresses
@@ -91,7 +112,7 @@ Please make sure that when using the Local Link address, an interface id is incl
 * On the host
 
    - Interface name suffix is present when passing the address as a string, for example `fe80::260a:XXX:XXX:XXX%en0`
-   - The interface id is present when passing the endpoint as tupple, for example `socket.connect(('fd00::260a:XXXX:XXXX:XXXX', 3333, 0, 3))`
+   - The interface id is present when passing the endpoint as tuple, for example `socket.connect(('fd00::260a:XXXX:XXXX:XXXX', 3333, 0, 3))`
 
 ## Hardware Required
 

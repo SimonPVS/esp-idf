@@ -39,6 +39,7 @@
 ** HCI type(1), len(2), handle(2), L2CAP len(2) and CID(2) => 9
 */
 #define L2CAP_MIN_OFFSET    13     /* plus control(2), SDU length(2) */
+#define L2CAP_FCS_LEN       2      /* FCS 0 or 2 bytes */
 
 /* Minimum offset for broadcast needs another two bytes for the PSM */
 #define L2CAP_BCST_MIN_OFFSET       11
@@ -120,7 +121,7 @@ typedef UINT8 tL2CAP_CHNL_DATA_RATE;
 #define L2CAP_FCR_CHAN_OPT_ALL_MASK (L2CAP_FCR_CHAN_OPT_BASIC | L2CAP_FCR_CHAN_OPT_ERTM | L2CAP_FCR_CHAN_OPT_STREAM)
 
 /* Validity check for PSM.  PSM values must be odd.  Also, all PSM values must
-** be assigned such that the least significant bit of the most sigificant
+** be assigned such that the least significant bit of the most significant
 ** octet equals zero.
 */
 #define L2C_INVALID_PSM(psm)    (((psm) & 0x0101) != 0x0001)
@@ -276,6 +277,15 @@ typedef void (tL2CA_ECHO_DATA_CB) (BD_ADDR, UINT16, UINT8 *);
 */
 typedef void (tL2CA_CONGESTION_STATUS_CB) (UINT16, BOOLEAN);
 
+#if (BLE_L2CAP_ENHANCED_COC_INCLUDED == TRUE)
+/* LE CoC reconfiguration indication. Parameters are:
+**              Local CID
+**              Result (0 = L2CAP_LE_RECONFIG_OK)
+**              TRUE if peer initiated the reconfiguration
+*/
+typedef void (tL2CA_LE_RECONFIG_IND_CB) (UINT16, UINT16, BOOLEAN);
+#endif
+
 /* Callback prototype for number of packets completed events.
 ** This callback notifies the application when Number of Completed Packets
 ** event has been received.
@@ -311,6 +321,9 @@ typedef struct {
     tL2CA_DATA_IND_CB           *pL2CA_DataInd_Cb;
     tL2CA_CONGESTION_STATUS_CB  *pL2CA_CongestionStatus_Cb;
     tL2CA_TX_COMPLETE_CB        *pL2CA_TxComplete_Cb;
+#if (BLE_L2CAP_ENHANCED_COC_INCLUDED == TRUE)
+    tL2CA_LE_RECONFIG_IND_CB    *pL2CA_LeReconfigInd_Cb;
+#endif
 
 } tL2CAP_APPL_INFO;
 
@@ -500,6 +513,7 @@ extern BOOLEAN L2CA_DisconnectReq (UINT16 cid);
 extern BOOLEAN L2CA_DisconnectRsp (UINT16 cid);
 #endif  ///CLASSIC_BT_INCLUDED == TRUE
 
+#if (BLE_L2CAP_COC_INCLUDED == TRUE)
 /*******************************************************************************
 **
 ** Function         L2CA_RegisterLECoc
@@ -556,6 +570,12 @@ extern UINT16 L2CA_ConnectLECocReq (UINT16 psm, BD_ADDR p_bd_addr, tL2CAP_LE_CFG
 extern BOOLEAN L2CA_ConnectLECocRsp (BD_ADDR p_bd_addr, UINT8 id, UINT16 lcid, UINT16 result,
                                          UINT16 status, tL2CAP_LE_CFG_INFO *p_cfg);
 
+#if (BLE_L2CAP_ENHANCED_COC_INCLUDED == TRUE)
+extern UINT8 L2CA_ConnectLEEcocReq(UINT16 psm, BD_ADDR p_bd_addr, tL2CAP_LE_CFG_INFO *p_cfg,
+                                   UINT8 num_chan, UINT16 *p_lcids);
+extern BOOLEAN L2CA_LEEcocReconfig(UINT16 lcids[], UINT8 num, UINT16 new_mtu, UINT16 new_mps);
+#endif
+
 /*******************************************************************************
 **
 **  Function         L2CA_GetPeerLECocConfig
@@ -566,6 +586,14 @@ extern BOOLEAN L2CA_ConnectLECocRsp (BD_ADDR p_bd_addr, UINT8 id, UINT16 lcid, U
 **
 *******************************************************************************/
 extern BOOLEAN L2CA_GetPeerLECocConfig (UINT16 lcid, tL2CAP_LE_CFG_INFO* peer_cfg);
+
+extern UINT8   L2CA_LECocDataWrite (UINT16 lcid, BT_HDR *p_data);
+extern BOOLEAN L2CA_LECocIsCongested (UINT16 lcid);
+extern BOOLEAN L2CA_LECocGiveCredits (UINT16 lcid, UINT16 credits);
+extern BOOLEAN L2CA_LECocSetAutoCredit (UINT16 lcid, BOOLEAN enable);
+extern BOOLEAN L2CA_LECocDisconnect (UINT16 lcid);
+
+#endif // (BLE_L2CAP_COC_INCLUDED == TRUE)
 
 /*******************************************************************************
 **
@@ -934,7 +962,7 @@ typedef struct {
 **
 **  Parameters:     tL2CAP_UCD_CB_INFO
 **
-**  Return value:   TRUE if successs
+**  Return value:   TRUE if success
 **
 *******************************************************************************/
 extern BOOLEAN L2CA_UcdRegister ( UINT16 psm, tL2CAP_UCD_CB_INFO *p_cb_info );
@@ -947,7 +975,7 @@ extern BOOLEAN L2CA_UcdRegister ( UINT16 psm, tL2CAP_UCD_CB_INFO *p_cb_info );
 **
 **  Parameters:     PSM
 **
-**  Return value:   TRUE if successs
+**  Return value:   TRUE if success
 **
 *******************************************************************************/
 extern BOOLEAN L2CA_UcdDeregister ( UINT16 psm );
@@ -964,7 +992,7 @@ extern BOOLEAN L2CA_UcdDeregister ( UINT16 psm );
 **                              L2CAP_UCD_INFO_TYPE_MTU
 **
 **
-**  Return value:   TRUE if successs
+**  Return value:   TRUE if success
 **
 *******************************************************************************/
 extern BOOLEAN L2CA_UcdDiscover ( UINT16 psm, BD_ADDR rem_bda, UINT8 info_type );
@@ -997,7 +1025,7 @@ extern UINT16 L2CA_UcdDataWrite (UINT16 psm, BD_ADDR rem_bda, BT_HDR *p_buf, UIN
 **  Parameters:     BD Addr
 **                  Timeout in second
 **
-**  Return value:   TRUE if successs
+**  Return value:   TRUE if success
 **
 *******************************************************************************/
 extern BOOLEAN L2CA_UcdSetIdleTimeout ( BD_ADDR rem_bda, UINT16 timeout );
@@ -1085,7 +1113,8 @@ extern BOOLEAN  L2CA_RegisterFixedChannel (UINT16 fixed_cid, tL2CAP_FIXED_CHNL_R
 **  Return value:   TRUE if connection started
 **
 *******************************************************************************/
-extern BOOLEAN L2CA_ConnectFixedChnl (UINT16 fixed_cid, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_type);
+extern BOOLEAN L2CA_ConnectFixedChnl (UINT16 fixed_cid, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_type, BOOLEAN is_aux,
+                                        BOOLEAN is_pawr_synced, UINT8 adv_handle, UINT8 subevent);
 
 /*******************************************************************************
 **
@@ -1211,6 +1240,19 @@ extern BOOLEAN L2CA_EnableUpdateBleConnParams (BD_ADDR rem_bda, BOOLEAN enable);
 **
 *******************************************************************************/
 extern UINT8 L2CA_GetBleConnRole (BD_ADDR bd_addr);
+
+/*******************************************************************************
+**
+** Function         L2CA_BleDisconnect
+**
+** Description      This function use to disconnect LE connection.
+**
+** Parameters       BD Address of remote
+**
+** Returns          TRUE if disconnect successfully.
+**
+*******************************************************************************/
+extern BOOLEAN L2CA_BleDisconnect (BD_ADDR rem_bda);
 #endif /* (BLE_INCLUDED == TRUE) */
 
 /*******************************************************************************
@@ -1227,7 +1269,7 @@ extern UINT8 L2CA_GetBleConnRole (BD_ADDR bd_addr);
 *******************************************************************************/
 extern UINT16 L2CA_GetDisconnectReason (BD_ADDR remote_bda, tBT_TRANSPORT transport);
 
-extern BOOLEAN L2CA_CheckIsCongest(UINT16 fixed_cid, UINT16 handle);
+extern BOOLEAN L2CA_CheckIsCongest(UINT16 fixed_cid, BD_ADDR addr);
 
 #define  L2CA_GET_ATT_NUM      0
 #define  L2CA_ADD_BTC_NUM      1
@@ -1236,6 +1278,7 @@ extern BOOLEAN L2CA_CheckIsCongest(UINT16 fixed_cid, UINT16 handle);
 #define  L2CA_DECREASE_BTU_NUM 4
 #define  L2CA_BUFF_INI         5
 #define  L2CA_BUFF_DEINIT      6
+#define  L2CA_BUFF_FREE        7
 
 typedef struct {
     UINT16 conn_id;

@@ -197,7 +197,7 @@ enum {
 };
 typedef UINT8 tSMP_BR_STATE;
 
-/* random and encrption activity state */
+/* random and encryption activity state */
 enum {
     SMP_GEN_COMPARE = 1,
     SMP_GEN_CONFIRM,
@@ -338,6 +338,12 @@ typedef struct {
     UINT32          static_passkey;
     BOOLEAN         accept_specified_sec_auth;
     tSMP_AUTH_REQ   origin_loc_auth_req;
+#if (BLE_INCLUDED == TRUE && BLE_SMP_HARDENED_REPAIRING == TRUE)
+    BOOLEAN         sec_req_rcvd;       /* peer asked for security through a Security Request */
+    tSMP_AUTH_REQ   sec_req_auth_req;   /* AuthReq of that Security Request, peer_auth_req gets
+                                           overwritten by the Pairing Response that follows */
+    BOOLEAN         keep_bond_on_fail;  /* set when smp_repairing_is_allowed() refuses the procedure */
+#endif
 } tSMP_CB;
 
 /* Server Action functions are of this type */
@@ -362,6 +368,9 @@ extern tSMP_CB *smp_cb_ptr;
 
 /* Functions provided by att_main.c */
 extern void smp_init (void);
+
+/* SMP command sizes per spec - defined in smp_utils.c */
+extern const UINT8 smp_cmd_size_per_spec[];
 
 /* smp main */
 extern void smp_sm_event(tSMP_CB *p_cb, tSMP_EVENT event, void *p_data);
@@ -456,7 +465,7 @@ extern void smp_process_secure_connection_long_term_key(void);
 extern void smp_set_local_oob_keys(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
 extern void smp_set_local_oob_random_commitment(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
 extern void smp_set_derive_link_key(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
-extern void smp_derive_link_key_from_long_term_key(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
+extern BOOLEAN smp_derive_link_key_from_long_term_key(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
 extern void smp_br_process_pairing_command(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
 extern void smp_br_process_security_grant(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
 extern void smp_br_process_slave_keys_response(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
@@ -484,6 +493,9 @@ extern BOOLEAN smp_encrypt_data (UINT8 *key, UINT8 key_len,
                                  UINT8 *plain_text, UINT8 pt_len,
                                  tSMP_ENC *p_out);
 extern BOOLEAN smp_command_has_invalid_parameters(tSMP_CB *p_cb);
+#if (BLE_INCLUDED == TRUE && BLE_SMP_HARDENED_REPAIRING == TRUE)
+extern BOOLEAN smp_repairing_is_allowed(tSMP_CB *p_cb, UINT8 *p_reason);
+#endif
 extern void smp_reject_unexpected_pairing_command(BD_ADDR bd_addr);
 extern tSMP_ASSO_MODEL smp_select_association_model(tSMP_CB *p_cb);
 extern void smp_reverse_array(UINT8 *arr, UINT8 len);
@@ -507,7 +519,7 @@ extern void smp_generate_passkey (tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
 extern void smp_generate_rand_cont(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
 extern void smp_create_private_key(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
 extern void smp_use_oob_private_key(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
-extern void smp_compute_dhkey(tSMP_CB *p_cb);
+extern BOOLEAN smp_compute_dhkey(tSMP_CB *p_cb);
 extern void smp_calculate_local_commitment(tSMP_CB *p_cb);
 extern void smp_calculate_peer_commitment(tSMP_CB *p_cb, BT_OCTET16 output_buf);
 extern void smp_calculate_numeric_comparison_display_number(tSMP_CB *p_cb, tSMP_INT_DATA *p_data);
@@ -527,6 +539,9 @@ extern BOOLEAN smp_calculate_f5_key(UINT8 *w, UINT8 *t);
 extern BOOLEAN smp_calculate_f6(UINT8 *w, UINT8 *n1, UINT8 *n2, UINT8 *r, UINT8 *iocap,
                                 UINT8 *a1, UINT8 *a2, UINT8 *f3);
 extern BOOLEAN smp_calculate_h6(UINT8 *w, UINT8 *keyid, UINT8 *h2);
+extern void smp_save_local_oob_data(tSMP_CB *p_cb);
+extern void smp_clear_local_oob_data(void);
+extern tSMP_LOC_OOB_DATA *smp_get_local_oob_data(void);
 #if SMP_DEBUG == TRUE
 extern void smp_debug_print_nbyte_little_endian (UINT8 *p, const UINT8 *key_name,
         UINT8 len);

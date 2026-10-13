@@ -1,12 +1,127 @@
+menu "Optional and Experimental SPI Flash Features (READ DOCS FIRST)"
+    depends on !APP_BUILD_TYPE_PURE_RAM_APP
+
+    comment "Features here require specific hardware (READ DOCS FIRST!)"
+
+    config SPI_FLASH_AUTO_SUSPEND
+        bool "Auto suspend long erase/write operations (READ DOCS FIRST)"
+        default n
+        depends on SOC_SPI_MEM_SUPPORT_AUTO_SUSPEND && !SPI_FLASH_ROM_IMPL
+        help
+            This option is disabled by default because it is supported only
+            for specific flash chips and for specific Espressif chips.
+            To evaluate if you can use this feature refer to
+            `Optional Features for Flash` > `Auto Suspend & Resume` of the `ESP-IDF Programming Guide`.
+
+            CAUTION: If you want to OTA to an app with this feature turned on, please make
+            sure the bootloader has the support for it. (later than IDF v4.3)
+
+            If you are using an official Espressif module, please contact Espressif Business support
+            to check if the module has the flash that support this feature installed.
+            Also refer to `Concurrency Constraints for Flash on SPI1` > `Flash Auto Suspend Feature`
+            before enabling this option.
+
+    config SPI_FLASH_SUSPEND_TSUS_VAL_US
+        int "SPI flash tSUS value (refer to chapter AC CHARACTERISTICS)"
+        default 50
+        range 20 100
+        help
+            This config is used for setting Tsus parameter. Tsus means CS# high to next command after
+            suspend. You can refer to the chapter of AC CHARACTERISTICS of flash datasheet.
+
+    config SPI_FLASH_SUSPEND_TRS_VAL_US
+        int "SPI flash tRS value (refer to chapter AC CHARACTERISTICS)"
+        default 50
+        range 20 200
+        depends on SOC_SPI_MEM_SUPPORT_TSUS_TRES_SEPERATE_CTR && (!ESP32P4_SELECTS_REV_LESS_V3)
+        help
+            This config is used for setting Trs parameter. Trs means CS Latency Between Resume And Next Suspend.
+            You can refer to the chapter of AC CHARACTERISTICS of flash datasheet.
+            For high-performance scenarios, some flash chips allow this set value to be smaller than the
+            given value in the datasheet without causing errors in the flash state machine.
+            When you have any related needs, please contact espressif business team.
+
+    config SPI_FLASH_FORCE_ENABLE_XMC_C_SUSPEND
+        bool "Enable XMC-C series flash chip suspend feature anyway"
+        default n
+        help
+            XMC-C series is regarded as not qualified for the Suspend feature, since its specification
+            has a tRS >= 1ms restriction. We strongly do not suggest using it for the Suspend feature.
+            However, if your product in field has enabled this feature, you may still enable this
+            config option to keep the legacy behavior.
+
+            For new users, DO NOT enable this config.
+
+    config SPI_FLASH_FORCE_ENABLE_C6_H2_SUSPEND
+        bool "Enable chip suspend feature on c6 or h2 anyway (DO NOT ENABLE FOR NEW USERS OR APPLICATIONS)"
+        default n
+        help
+            Flash suspend has a defect on ESP32C6 until v0.2 and ESP32H2 until v1.2. If you already use suspend
+            feature for mass production, you can enable this for bypassing check after knowing the risk.
+            But if you are new users, or developing new applications, or producing a new batch,
+            please DO NOT enable this config option.
+
+            For more information, please refer to errata or connect to Espressif business support team.
+
+    config SPI_FLASH_SOFTWARE_RESUME
+        bool "Resume flash program/erase form suspend state by software control"
+        default n
+        depends on SPI_FLASH_AUTO_SUSPEND && FREERTOS_UNICORE && IDF_EXPERIMENTAL_FEATURES
+        help
+            Enable this config will disable auto-resume from hardware. Thus the software will resume the chip
+            after any higher priority task/interrupt which suspend the chip. The benefit is that the suspend-resume
+            will not disturb the higher priority task and interrupt.
+
+            This currently is only valid on single core chip.
+
+    config SPI_FLASH_DISABLE_SCHEDULER_IN_SUSPEND
+        bool "Disable task scheduler when suspend is enabled when SPI1 operation is ongoing"
+        default n
+        # Only valid on single core because no protection is supported on multi core
+        depends on SPI_FLASH_AUTO_SUSPEND && FREERTOS_UNICORE
+        help
+            Disable freertos task scheduler when CONFIG_SPI_FLASH_AUTO_SUSPEND is enabled.
+            Thus only interrupt can trigger a suspend. When SPI_FLASH_AUTO_SUSPEND is enabled,
+            default behavior is not disable the task scheduler, so both interrupt and high priority
+            task can suspend the erase/program operation. When this option is enabled, task
+            scheduler is disabled, only interrupt can suspend erase/program operation.
+
+    config SPI_FLASH_AUTO_CHECK_SUSPEND_STATUS
+        bool "Check flash status automatically after flash suspend"
+        default n
+        depends on SPI_FLASH_AUTO_SUSPEND
+        help
+            Majority flash supports to use flash register to judge if flash suspend status is
+            done or not. So enable this config, the behavior would use flash register WIP bit to judge
+            whether suspend is valid instead of waiting for a specific long time, which can save a
+            lot of time and benefit for performance improvement.
+
+    config SPI_FLASH_PLACE_FUNCTIONS_IN_IRAM
+        bool "Place spi_flash operation functions into IRAM" if SPI_FLASH_AUTO_SUSPEND
+        default y
+        help
+            When disabled, certain functions in `spi_flash` component will be placed into Flash memory
+            instead of IRAM. Disabling this option will save almost 10KB of IRAM depending on which
+            functions are used.
+
+            When enabled, these functions will be placed in internal RAM, with better performance.
+
+            For more information please refer to programming guide.
+endmenu
+
 menu "SPI Flash driver"
+    depends on !APP_BUILD_TYPE_PURE_RAM_APP
 
     config SPI_FLASH_VERIFY_WRITE
         bool "Verify SPI flash writes"
+        depends on !SPI_FLASH_ROM_IMPL
         default n
         help
             If this option is enabled, any time SPI flash is written then the data will be read
             back and verified. This can catch hardware problems with SPI flash, or flash which
             was not erased before verification.
+
+            This will slightly influence the write performance.
 
     config SPI_FLASH_LOG_FAILED_WRITE
         bool "Log errors if verification fails"
@@ -33,28 +148,40 @@ menu "SPI Flash driver"
 
     config SPI_FLASH_ENABLE_COUNTERS
         bool "Enable operation counters"
-        default 0
+        default n
         help
             This option enables the following APIs:
 
-            - spi_flash_reset_counters
-            - spi_flash_dump_counters
-            - spi_flash_get_counters
+            - esp_flash_reset_counters
+            - esp_flash_dump_counters
+            - esp_flash_get_counters
 
             These APIs may be used to collect performance data for spi_flash APIs
             and to help understand behaviour of libraries which use SPI flash.
 
-    config SPI_FLASH_ROM_DRIVER_PATCH
-        bool "Enable SPI flash ROM driver patched functions"
-        default y
+
+
+    config SPI_FLASH_ROM_IMPL
+        bool "Use esp_flash implementation in ROM"
+        depends on ESP_ROM_HAS_SPI_FLASH && !ESPTOOLPY_OCT_FLASH
+        # ROM never supports octal flash before. Future if ROM supports it we can use a ESP_ROM_x macro
+        default n
         help
-            Enable this flag to use patched versions of SPI flash ROM driver functions.
-            This option should be enabled, if any one of the following is true: (1) need to write
-            to flash on ESP32-D2WD; (2) main SPI flash is connected to non-default pins; (3) main
-            SPI flash chip is manufactured by ISSI.
+            Enable this flag to use new SPI flash driver functions from ROM instead of ESP-IDF.
+
+            If keeping this as "n" in your project, you will have less free IRAM.
+            But you can use all of our flash features.
+
+            If making this as "y" in your project, you will increase free IRAM.
+            But you may miss out on some flash features and support for new flash chips.
+
+            Currently the ROM cannot support the following features:
+
+            - SPI_FLASH_AUTO_SUSPEND (C3, S3)
 
     choice SPI_FLASH_DANGEROUS_WRITE
         bool  "Writing to dangerous flash regions"
+        default SPI_FLASH_DANGEROUS_WRITE_ALLOWED if APP_BUILD_TYPE_RAM
         default SPI_FLASH_DANGEROUS_WRITE_ABORTS
         help
             SPI flash APIs can optionally abort or return a failure code
@@ -78,20 +205,11 @@ menu "SPI Flash driver"
             bool "Allowed"
     endchoice
 
-    config SPI_FLASH_USE_LEGACY_IMPL
-        bool "Use the legacy implementation before IDF v4.0"
-        default n
-        help
-            The implementation of SPI flash has been greatly changed in IDF v4.0.
-            Enable this option to use the legacy implementation.
-
     config SPI_FLASH_SHARE_SPI1_BUS
         bool  "Support other devices attached to SPI1 bus"
         default n
-        # The bus lock on SPI1 is meaningless when the legacy implementation is used, or the SPI
-        # driver does not support SPI1.
-        depends on !SPI_FLASH_USE_LEGACY_IMPL && !IDF_TARGET_ESP32S2
-        select FREERTOS_SUPPORT_STATIC_ALLOCATION
+        depends on IDF_TARGET_ESP32 && !CONFIG_APP_BUILD_TYPE_RAM
+        select SPI_MASTER_ISR_IN_IRAM
         help
             Each SPI bus needs a lock for arbitration among devices. This allows multiple
             devices on a same bus, but may reduce the speed of esp_flash driver access to the
@@ -115,6 +233,11 @@ menu "SPI Flash driver"
         help
             This allows to yield the CPUs between erase commands.
             Prevents starvation of other tasks.
+            Please use this configuration together with ``SPI_FLASH_ERASE_YIELD_DURATION_MS`` and
+            ``SPI_FLASH_ERASE_YIELD_TICKS`` after carefully checking flash datasheet to avoid a
+            watchdog timeout.
+            For more information, please check `SPI Flash API` reference documentation
+            under section `OS Function`.
 
     config SPI_FLASH_ERASE_YIELD_DURATION_MS
         int "Duration of erasing to yield CPUs (ms)"
@@ -125,7 +248,7 @@ menu "SPI Flash driver"
             then it will yield CPUs after finishing a current command.
 
     config SPI_FLASH_ERASE_YIELD_TICKS
-        int "CPU release time (tick)"
+        int "CPU release time (tick) for an erase operation"
         depends on SPI_FLASH_YIELD_DURING_ERASE
         default 1
         help
@@ -151,17 +274,31 @@ menu "SPI Flash driver"
 
     config SPI_FLASH_CHECK_ERASE_TIMEOUT_DISABLED
         bool "Flash timeout checkout disabled"
-        depends on !SPI_FLASH_USE_LEGACY_IMPL
         default n
         help
             This option is helpful if you are using a flash chip whose timeout is quite large or unpredictable.
 
+    config SPI_FLASH_OVERRIDE_CHIP_DRIVER_LIST
+        bool "Override default chip driver list"
+        default n
+        help
+            This option allows the chip driver list to be customized, instead of using the default list provided by
+            ESP-IDF.
+
+            When this option is enabled, the default list is no longer compiled or linked. Instead, the
+            `default_registered_chips` structure must be provided by the user.
+
+            See example: custom_chip_driver under examples/storage for more details.
 
     menu "Auto-detect flash chips"
+        visible if !SPI_FLASH_OVERRIDE_CHIP_DRIVER_LIST
+
+        orsource "./$IDF_TARGET/Kconfig.soc_caps.in"
 
         config SPI_FLASH_SUPPORT_ISSI_CHIP
             bool "ISSI"
-            default y
+            default y if SPI_FLASH_VENDOR_ISSI_SUPPORT_ENABLED
+            default n
             help
                 Enable this to support auto detection of ISSI chips if chip vendor not directly
                 given by ``chip_drv`` member of the chip struct. This adds support for variant
@@ -169,7 +306,8 @@ menu "SPI Flash driver"
 
         config SPI_FLASH_SUPPORT_MXIC_CHIP
             bool "MXIC"
-            default y
+            default y if SPI_FLASH_VENDOR_MXIC_SUPPORT_ENABLED
+            default n
             help
                 Enable this to support auto detection of MXIC chips if chip vendor not directly
                 given by ``chip_drv`` member of the chip struct. This adds support for variant
@@ -177,7 +315,8 @@ menu "SPI Flash driver"
 
         config SPI_FLASH_SUPPORT_GD_CHIP
             bool "GigaDevice"
-            default y
+            default y if SPI_FLASH_VENDOR_GD_SUPPORT_ENABLED
+            default n
             help
                 Enable this to support auto detection of GD (GigaDevice) chips if chip vendor not
                 directly given by ``chip_drv`` member of the chip struct. If you are using Wrover
@@ -188,6 +327,60 @@ menu "SPI Flash driver"
                 size. Note that the default chip driver supports the GD chips with product ID
                 60H.
 
+        config SPI_FLASH_SUPPORT_WINBOND_CHIP
+            bool "Winbond"
+            default y if SPI_FLASH_VENDOR_WINBOND_SUPPORT_ENABLED
+            default n
+            help
+                Enable this to support auto detection of Winbond chips if chip vendor not directly
+                given by ``chip_drv`` member of the chip struct. This adds support for variant
+                chips, however will extend detecting time.
+
+        config SPI_FLASH_SUPPORT_BOYA_CHIP
+            bool "BOYA"
+            # ESP32 doesn't usually use this chip, default n to save iram.
+            default y if SPI_FLASH_VENDOR_BOYA_SUPPORT_ENABLED
+            default n
+            help
+                Enable this to support auto detection of BOYA chips if chip vendor not directly
+                given by ``chip_drv`` member of the chip struct. This adds support for variant
+                chips, however will extend detecting time.
+
+        config SPI_FLASH_SUPPORT_TH_CHIP
+            bool "TH"
+            # ESP32 doesn't usually use this chip, default n to save iram.
+            default y if SPI_FLASH_VENDOR_TH_SUPPORT_ENABLED
+            default n
+            help
+                Enable this to support auto detection of TH chips if chip vendor not directly
+                given by ``chip_drv`` member of the chip struct. This adds support for variant
+                chips, however will extend detecting time.
+
+        config SPI_FLASH_SUPPORT_MXIC_OPI_CHIP
+            bool "mxic (opi)"
+            depends on IDF_TARGET_ESP32S3
+            default y
+            help
+                Enable this to support auto detection of Octal MXIC chips if chip vendor not directly
+                given by ``chip_drv`` member of the chip struct. This adds support for variant
+                chips, however will extend detecting time.
+
     endmenu #auto detect flash chips
+
+    config SPI_FLASH_ENABLE_ENCRYPTED_READ_WRITE
+        bool "Enable encrypted partition read/write operations"
+        default y
+        help
+            This option enables flash read/write operations to encrypted partition/s. This option
+            is kept enabled irrespective of state of flash encryption feature. However, in case
+            application is not using flash encryption feature and is in need of some additional
+            memory from IRAM region (~1KB) then this config can be disabled.
+
+    config SPI_FLASH_FREQ_LIMIT_C5_240MHZ
+        bool
+        default y if IDF_TARGET_ESP32C5 && ESP_DEFAULT_CPU_FREQ_MHZ_240
+        help
+            Enable frequency limit workaround for encrypted flash writes on ESP32-C5 at 240MHz default CPU frequency.
+            This is an internal configuration, automatically set based on target chip and CPU frequency.
 
 endmenu

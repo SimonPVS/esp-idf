@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2006 Uwe Stuehler <uwe@openbsd.org>
- * Adaptations to ESP-IDF Copyright (c) 2016-2018 Espressif Systems (Shanghai) PTE LTD
+ * Adaptations to ESP-IDF Copyright (c) 2016-2024 Espressif Systems (Shanghai) PTE LTD
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "sdmmc_common.h"
+#include <inttypes.h>
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "esp_rom_sys.h"
+#include "esp_timer.h"
+#include "esp_private/sdmmc_common.h"
 
 static const char* TAG = "sdmmc_common";
 
@@ -28,17 +33,37 @@ esp_err_t sdmmc_init_ocr(sdmmc_card_t* card)
      */
 
     uint32_t host_ocr = get_host_ocr(card->host.io_voltage);
-    if ((card->ocr & SD_OCR_SDHC_CAP) != 0) {
-        host_ocr |= SD_OCR_SDHC_CAP;
+
+    /* In SPI mode, the only non-zero bit of ACMD41 is HCS (bit 30)
+     * In SD mode, bits 23:8 contain the supported voltage mask
+     */
+    uint32_t acmd41_arg = 0;
+    if (!host_is_spi(card)) {
+        acmd41_arg = host_ocr;
     }
+
+    if ((card->ocr & SD_OCR_SDHC_CAP) != 0) {
+        acmd41_arg |= SD_OCR_SDHC_CAP;
+    }
+
+    bool to_set_to_uhs1 = false;
+    if (card->host.is_slot_set_to_uhs1) {
+        ESP_RETURN_ON_ERROR(card->host.is_slot_set_to_uhs1(card->host.slot, &to_set_to_uhs1), TAG, "failed to get slot info");
+    }
+    if (to_set_to_uhs1) {
+        acmd41_arg |= SD_OCR_S18_RA;
+        acmd41_arg |= SD_OCR_XPC;
+    }
+    ESP_LOGV(TAG, "%s: acmd41_arg=0x%08" PRIx32, __func__, card->ocr);
+
     /* Send SEND_OP_COND (ACMD41) command to the card until it becomes ready. */
-    err = sdmmc_send_cmd_send_op_cond(card, host_ocr, &card->ocr);
+    err = sdmmc_send_cmd_send_op_cond(card, acmd41_arg, &card->ocr);
 
     /* If time-out, re-try send_op_cond as MMC */
     if (err == ESP_ERR_TIMEOUT && !host_is_spi(card)) {
         ESP_LOGD(TAG, "send_op_cond timeout, trying MMC");
         card->is_mmc = 1;
-        err = sdmmc_send_cmd_send_op_cond(card, host_ocr, &card->ocr);
+        err = sdmmc_send_cmd_send_op_cond(card, acmd41_arg, &card->ocr);
     }
 
     if (err != ESP_OK) {
@@ -52,14 +77,14 @@ esp_err_t sdmmc_init_ocr(sdmmc_card_t* card)
             return err;
         }
     }
-    ESP_LOGD(TAG, "host_ocr=0x%x card_ocr=0x%x", host_ocr, card->ocr);
+    ESP_LOGD(TAG, "host_ocr=0x%" PRIx32 " card_ocr=0x%" PRIx32, host_ocr, card->ocr);
 
     /* Clear all voltage bits in host's OCR which the card doesn't support.
      * Don't touch CCS bit because in SPI mode cards don't report CCS in ACMD41
      * response.
      */
     host_ocr &= (card->ocr | (~SD_OCR_VOL_MASK));
-    ESP_LOGD(TAG, "sdmmc_card_init: host_ocr=%08x, card_ocr=%08x", host_ocr, card->ocr);
+    ESP_LOGD(TAG, "sdmmc_card_init: host_ocr=%08" PRIx32 ", card_ocr=%08" PRIx32, host_ocr, card->ocr);
     return ESP_OK;
 }
 
@@ -157,8 +182,10 @@ esp_err_t sdmmc_init_card_hs_mode(sdmmc_card_t* card)
     esp_err_t err = ESP_ERR_NOT_SUPPORTED;
     if (card->is_mem && !card->is_mmc) {
         err = sdmmc_enable_hs_mode_and_check(card);
+#if CONFIG_SD_ENABLE_SDIO_SUPPORT
     } else if (card->is_sdio) {
         err = sdmmc_io_enable_hs_mode(card);
+#endif
     } else if (card->is_mmc){
         err = sdmmc_mmc_enable_hs_mode(card);
     }
@@ -168,6 +195,26 @@ esp_err_t sdmmc_init_card_hs_mode(sdmmc_card_t* card)
     } else if (err != ESP_OK) {
         return err;
     }
+    return ESP_OK;
+}
+
+esp_err_t sdmmc_init_sd_driver_strength(sdmmc_card_t *card)
+{
+    return sdmmc_select_driver_strength(card, card->host.driver_strength);
+}
+
+esp_err_t sdmmc_init_sd_current_limit(sdmmc_card_t *card)
+{
+    return sdmmc_select_current_limit(card, card->host.current_limit);
+}
+
+esp_err_t sdmmc_init_sd_timing_tuning(sdmmc_card_t *card)
+{
+    ESP_RETURN_ON_ERROR(sdmmc_do_timing_tuning(card, SDMMC_DELAY_MODE_PHASE), TAG, "failed to do phase timing tuning");
+    if (card->host.max_freq_khz == SDMMC_FREQ_SDR104) {
+        ESP_RETURN_ON_ERROR(sdmmc_do_timing_tuning(card, SDMMC_DELAY_MODE_LINE), TAG, "failed to do delayline timing tuning");
+    }
+
     return ESP_OK;
 }
 
@@ -195,36 +242,42 @@ esp_err_t sdmmc_init_host_bus_width(sdmmc_card_t* card)
 
 esp_err_t sdmmc_init_host_frequency(sdmmc_card_t* card)
 {
+    esp_err_t err;
     assert(card->max_freq_khz <= card->host.max_freq_khz);
 
-    /* Find highest frequency in the following list,
-     * which is below card->max_freq_khz.
-     */
-    const uint32_t freq_values[] = {
-            SDMMC_FREQ_52M,
-            SDMMC_FREQ_HIGHSPEED,
-            SDMMC_FREQ_26M,
-            SDMMC_FREQ_DEFAULT
-            //NOTE: in sdspi mode, 20MHz may not work. in that case, add 10MHz here.
-    };
-    const int n_freq_values = sizeof(freq_values) / sizeof(freq_values[0]);
+#if !SOC_SDMMC_UHS_I_SUPPORTED
+    ESP_RETURN_ON_FALSE(card->host.input_delay_phase != SDMMC_DELAY_PHASE_AUTO, ESP_ERR_INVALID_ARG, TAG, "auto tuning not supported");
+#endif
 
-    uint32_t selected_freq = SDMMC_FREQ_PROBING;
-    for (int i = 0; i < n_freq_values; ++i) {
-        uint32_t freq = freq_values[i];
-        if (card->max_freq_khz >= freq) {
-            selected_freq = freq;
-            break;
-        }
+    if (card->host.input_delay_phase == SDMMC_DELAY_PHASE_AUTO) {
+        ESP_RETURN_ON_FALSE((card->host.max_freq_khz == SDMMC_FREQ_SDR50 || card->host.max_freq_khz == SDMMC_FREQ_SDR104), ESP_ERR_INVALID_ARG, TAG, "auto tuning only supported for SDR50 / SDR104");
     }
 
-    ESP_LOGD(TAG, "%s: using %d kHz bus frequency", __func__, selected_freq);
-    if (selected_freq > SDMMC_FREQ_PROBING) {
-        esp_err_t err = (*card->host.set_card_clk)(card->host.slot, selected_freq);
+    if (card->max_freq_khz > SDMMC_FREQ_PROBING) {
+        err = (*card->host.set_card_clk)(card->host.slot, card->max_freq_khz);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "failed to switch bus frequency (0x%x)", err);
             return err;
         }
+    }
+
+    if (card->host.input_delay_phase != SDMMC_DELAY_PHASE_0) {
+        if (card->host.set_input_delay) {
+            err = (*card->host.set_input_delay)(card->host.slot, card->host.input_delay_phase);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "host.set_input_delay failed (0x%x)", err);
+                return err;
+            }
+        } else {
+            ESP_LOGE(TAG, "input phase delay feature isn't supported");
+            return ESP_ERR_NOT_SUPPORTED;
+        }
+    }
+
+    err = (*card->host.get_real_freq)(card->host.slot, &(card->real_freq_khz));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to get real working frequency (0x%x)", err);
+        return err;
     }
 
     if (card->is_ddr) {
@@ -232,7 +285,7 @@ esp_err_t sdmmc_init_host_frequency(sdmmc_card_t* card)
             ESP_LOGE(TAG, "host doesn't support DDR mode or voltage switching");
             return ESP_ERR_NOT_SUPPORTED;
         }
-        esp_err_t err = (*card->host.set_bus_ddr_mode)(card->host.slot, true);
+        err = (*card->host.set_bus_ddr_mode)(card->host.slot, true);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "failed to switch bus to DDR mode (0x%x)", err);
             return err;
@@ -258,7 +311,9 @@ void sdmmc_card_print_info(FILE* stream, const sdmmc_card_t* card)
     bool print_scr = false;
     bool print_csd = false;
     const char* type;
+
     fprintf(stream, "Name: %s\n", card->cid.name);
+
     if (card->is_sdio) {
         type = "SDIO";
         print_scr = true;
@@ -267,21 +322,40 @@ void sdmmc_card_print_info(FILE* stream, const sdmmc_card_t* card)
         type = "MMC";
         print_csd = true;
     } else {
-        type = (card->ocr & SD_OCR_SDHC_CAP) ? "SDHC/SDXC" : "SDSC";
+        if ((card->ocr & SD_OCR_SDHC_CAP) == 0) {
+            type = "SDSC";
+        } else {
+            if (card->ocr & SD_OCR_S18_RA) {
+                type = "SDHC/SDXC (UHS-I)";
+            } else {
+                type = "SDHC";
+            }
+        }
+        print_csd = true;
     }
     fprintf(stream, "Type: %s\n", type);
-    if (card->max_freq_khz < 1000) {
-        fprintf(stream, "Speed: %d kHz\n", card->max_freq_khz);
+
+    if (card->real_freq_khz == 0) {
+        fprintf(stream, "Speed: N/A\n");
     } else {
-        fprintf(stream, "Speed: %d MHz%s\n", card->max_freq_khz / 1000,
-                card->is_ddr ? ", DDR" : "");
+        const char *freq_unit = card->real_freq_khz < 1000 ? "kHz" : "MHz";
+        const float freq = card->real_freq_khz < 1000 ? card->real_freq_khz : card->real_freq_khz / 1000.0;
+        const char *max_freq_unit = card->max_freq_khz < 1000 ? "kHz" : "MHz";
+        const float max_freq = card->max_freq_khz < 1000 ? card->max_freq_khz : card->max_freq_khz / 1000.0;
+        fprintf(stream, "Speed: %.2f %s (limit: %.2f %s)%s\n", freq, freq_unit, max_freq, max_freq_unit, card->is_ddr ? ", DDR" : "");
     }
+
     fprintf(stream, "Size: %lluMB\n", ((uint64_t) card->csd.capacity) * card->csd.sector_size / (1024 * 1024));
 
     if (print_csd) {
         fprintf(stream, "CSD: ver=%d, sector_size=%d, capacity=%d read_bl_len=%d\n",
-                card->csd.csd_ver,
+                (int) (card->is_mmc ? card->csd.csd_ver : card->csd.csd_ver + 1),
                 card->csd.sector_size, card->csd.capacity, card->csd.read_block_len);
+        if (card->is_mmc) {
+            fprintf(stream, "EXT CSD: bus_width=%" PRIu32 "\n", (uint32_t) (1 << card->log_bus_width));
+        } else if (!card->is_sdio){ // make sure card is SD
+            fprintf(stream, "SSR: bus_width=%" PRIu32 "\n", (uint32_t) (card->ssr.cur_bus_width ? 4 : 1));
+        }
     }
     if (print_scr) {
         fprintf(stream, "SCR: sd_spec=%d, bus_width=%d\n", card->scr.sd_spec, card->scr.bus_width);
@@ -310,5 +384,108 @@ esp_err_t sdmmc_fix_host_flags(sdmmc_card_t* card)
             card->host.flags |= width_4bit;
         }
     }
+
+    if (card->host.flags & SDMMC_HOST_FLAG_SPI_IGNORE_DATA_CRC) {
+        ESP_LOGW(TAG, "SDMMC_HOST_FLAG_SPI_IGNORE_DATA_CRC flag is set on non-SPI host");
+    }
+
+#if !SOC_SDMMC_UHS_I_SUPPORTED
+    if ((card->host.max_freq_khz == SDMMC_FREQ_SDR50) ||
+        (card->host.max_freq_khz == SDMMC_FREQ_DDR50) ||
+        (card->host.max_freq_khz == SDMMC_FREQ_SDR104)) {
+        ESP_RETURN_ON_FALSE(false, ESP_ERR_NOT_SUPPORTED, TAG, "UHS-I is not supported");
+    }
+#else
+    if (card->host.max_freq_khz == SDMMC_FREQ_DDR50) {
+        ESP_RETURN_ON_FALSE(((card->host.flags & SDMMC_HOST_FLAG_DDR) != 0), ESP_ERR_INVALID_ARG, TAG, "DDR is not selected");
+    }
+#endif
+
     return ESP_OK;
+}
+
+esp_err_t sdmmc_allocate_aligned_buf(sdmmc_card_t* card)
+{
+    if (card->host.flags & SDMMC_HOST_FLAG_ALLOC_ALIGNED_BUF) {
+        void* buf = NULL;
+
+        size_t actual_size = 0;
+        buf = heap_caps_malloc(SDMMC_IO_BLOCK_SIZE, MALLOC_CAP_DMA);
+        if (!buf) {
+            ESP_LOGE(TAG, "%s: not enough mem, err=0x%x", __func__, ESP_ERR_NO_MEM);
+            return ESP_ERR_NO_MEM;
+        }
+        actual_size = heap_caps_get_allocated_size(buf);
+
+        assert(actual_size == SDMMC_IO_BLOCK_SIZE);
+        (void)actual_size;
+        card->host.dma_aligned_buffer = buf;
+    }
+    return ESP_OK;
+}
+
+esp_err_t sdmmc_check_host_function_ptr_integrity(sdmmc_card_t *card)
+{
+    if (!card->host.check_buffer_alignment) {
+        ESP_LOGE(TAG, "%s: host drv check_buffer_alignment not initialised, err=0x%x", __func__, ESP_ERR_INVALID_ARG);
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
+uint32_t sdmmc_get_erase_timeout_ms(const sdmmc_card_t* card, int arg, size_t erase_size_kb)
+{
+    if (card->is_mmc) {
+        return sdmmc_mmc_get_erase_timeout_ms(card, arg, erase_size_kb);
+    } else {
+        return sdmmc_sd_get_erase_timeout_ms(card, arg, erase_size_kb);
+    }
+}
+
+void sdmmc_poll_delay_and_backoff(uint32_t* period_us)
+{
+    const uint32_t us_per_tick = portTICK_PERIOD_MS * 1000;
+    /* Clamp on entry as well: a configured start period longer than a tick would
+     * otherwise be used as-is and never brought back down to the cap. */
+    uint32_t delay_us = MIN(*period_us, us_per_tick);
+
+    if (delay_us < us_per_tick) {
+        /* No blocking sleep with sub-tick resolution is available, busy-wait instead.
+         * The point of the delay is to keep CMD13 off the bus, which this still does. */
+        esp_rom_delay_us(delay_us);
+    } else {
+        vTaskDelay(1);
+    }
+
+    /* Stop growing once the delay reaches one tick period. At that point vTaskDelay()
+     * already yields and one command per tick is not a storm, so a longer delay would
+     * only add overshoot to the time the card is detected as ready. */
+    *period_us = MIN(delay_us * 2, us_per_tick);
+}
+
+esp_err_t sdmmc_wait_for_idle(sdmmc_card_t* card, uint32_t status)
+{
+    assert(!host_is_spi(card));
+    esp_err_t err = ESP_OK;
+    size_t count = 0;
+    uint32_t poll_period_us = SDMMC_READY_POLL_PERIOD_START_US;
+    int64_t t0 = esp_timer_get_time();
+    int64_t t1 = 0;
+    /* SD mode: wait for the card to become idle based on R1 status */
+    while (!sdmmc_ready_for_data(status)) {
+        t1 = esp_timer_get_time();
+        if (t1 - t0 > SDMMC_READY_FOR_DATA_TIMEOUT_US) {
+            return ESP_ERR_TIMEOUT;
+        }
+        sdmmc_poll_delay_and_backoff(&poll_period_us);
+        err = sdmmc_send_cmd_send_status(card, &status);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "%s: sdmmc_send_cmd_send_status returned 0x%x", __func__, err);
+            return err;
+        }
+        if (++count % 16 == 0) {
+            ESP_LOGV(TAG, "waiting for card to become ready (%" PRIu32 ")", (uint32_t) count);
+        }
+    }
+    return err;
 }

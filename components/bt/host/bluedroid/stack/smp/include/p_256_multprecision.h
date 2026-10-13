@@ -24,6 +24,9 @@
 #pragma once
 
 #include "stack/bt_types.h"
+#include "common/bt_target.h"
+
+#if (SMP_CRYPTO_STACK_NATIVE == TRUE)
 
 /* Type definitions */
 typedef unsigned long  DWORD;
@@ -59,4 +62,4 @@ void multiprecision_mult(DWORD *c, DWORD *a, DWORD *b, uint32_t keyLength);
 void multiprecision_fast_mod(DWORD *c, DWORD *a);
 void multiprecision_fast_mod_P256(DWORD *c, DWORD *a);
 
-
+#endif /* SMP_CRYPTO_STACK_NATIVE == TRUE */

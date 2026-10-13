@@ -25,6 +25,7 @@
 
 #include <string.h>
 #include "bta_ag_int.h"
+#include "common/bt_target.h"
 #include "bta/bta_ag_api.h"
 #include "bta/bta_sys.h"
 #include "bta/bta_ag_api.h"
@@ -92,6 +93,10 @@ static void bta_ag_sdp_cback(UINT16 status, UINT8 idx)
             p_buf->hdr.layer_specific = idx;
             p_buf->status = status;
             bta_sys_sendmsg(p_buf);
+        } else {
+            APPL_TRACE_ERROR("bta_ag_sdp_cback: ENOMEM");
+            bta_ag_free_db(p_scb, NULL);
+            bta_ag_sm_execute(p_scb, BTA_AG_DISC_FAIL_EVT, NULL);
         }
     }
 }
@@ -157,7 +162,11 @@ BOOLEAN bta_ag_add_record(UINT16 service_uuid, char *p_service_name, UINT8 scn,
     /* add profile descriptor list */
     if (service_uuid == UUID_SERVCLASS_AG_HANDSFREE) {
         profile_uuid = UUID_SERVCLASS_HF_HANDSFREE;
-        version = HFP_VERSION_1_6;
+#if UC_BT_HFP_LC3_ENABLE
+        version = HFP_VERSION_1_9;
+#else
+        version = HFP_VERSION_1_8;
+#endif
     } else {
         profile_uuid = UUID_SERVCLASS_HEADSET;
         version = HSP_VERSION_1_2;
@@ -184,6 +193,11 @@ BOOLEAN bta_ag_add_record(UINT16 service_uuid, char *p_service_name, UINT8 scn,
         if (codec_supported) {
             features |= 0x0020;
         }
+#if UC_BT_HFP_LC3_ENABLE
+        if (codec_supported) {
+            features |= 0x0100; /* SWB supported in SDP */
+        }
+#endif
         UINT16_TO_BE_FIELD(buf, features);
         result &= SDP_AddAttribute(sdp_handle, ATTR_ID_SUPPORTED_FEATURES, UINT_DESC_TYPE, 2, buf);
     }
@@ -243,7 +257,7 @@ void bta_ag_del_records(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data)
     UNUSED(p_data);
 
     /* get services of all other registered servers */
-    for (i = 0; i < BTA_AG_NUM_IDX; i++, p++) {
+    for (i = 0; i < BTA_AG_NUM_SCB; i++, p++) {
         if (p_scb == p) {
             continue;
         }
@@ -262,7 +276,10 @@ void bta_ag_del_records(tBTA_AG_SCB *p_scb, tBTA_AG_DATA *p_data)
                 SDP_DeleteRecord(bta_ag_cb.profile[i].sdp_handle);
                 bta_ag_cb.profile[i].sdp_handle = 0;
             }
-            BTM_FreeSCN(bta_ag_cb.profile[i].scn);
+            if (bta_ag_cb.profile[i].scn != 0) {
+                BTM_FreeSCN(bta_ag_cb.profile[i].scn);
+                bta_ag_cb.profile[i].scn = 0;
+            }
             BTM_SecClrService(bta_ag_sec_id[i]);
             bta_sys_remove_uuid(bta_ag_uuid[i]);
         }
@@ -401,12 +418,19 @@ void bta_ag_do_disc(tBTA_AG_SCB *p_scb, tBTA_SERVICE_MASK service)
         return;
     }
 
+    if (p_scb->p_disc_db) {
+        APPL_TRACE_ERROR("Discovery already in progress... returning.");
+        return;
+    }
+
     /* allocate buffer for sdp database */
     p_scb->p_disc_db = (tSDP_DISCOVERY_DB *) osi_malloc(BTA_AG_DISC_BUF_SIZE);
     if(p_scb->p_disc_db) {
         /* set up service discovery database; attr happens to be attr_list len */
         uuid_list[0].len = LEN_UUID_16;
-        uuid_list[1].len = LEN_UUID_16;
+        if (num_uuid >= 2) {
+            uuid_list[1].len = LEN_UUID_16;
+        }
         db_inited = SDP_InitDiscoveryDb(p_scb->p_disc_db, BTA_AG_DISC_BUF_SIZE, num_uuid,
                             uuid_list, num_attr, attr_list);
     }

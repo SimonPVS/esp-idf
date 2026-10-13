@@ -1,20 +1,13 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdlib.h>
-#include "spi_flash_chip_generic.h"
 #include "spi_flash_defs.h"
+#include "esp_flash_chips/spi_flash_chip_generic.h"
+#include "esp_flash_chips/spi_flash_chip_issi.h"
 
 /* Driver for ISSI flash chip, as used in ESP32 D2WD */
 
@@ -57,6 +50,15 @@ esp_err_t spi_flash_chip_issi_get_io_mode(esp_flash_t *chip, esp_flash_io_mode_t
     return ret;
 }
 
+spi_flash_caps_t spi_flash_chip_issi_get_caps(esp_flash_t *chip)
+{
+    spi_flash_caps_t caps_flags = 0;
+    // 32-bit-address flash is not supported
+    // flash-suspend is not supported
+    // flash read unique id.
+    caps_flags |= SPI_FLASH_CHIP_CAP_UNIQUE_ID;
+    return caps_flags;
+}
 
 static const char chip_name[] = "issi";
 
@@ -77,7 +79,6 @@ const spi_flash_chip_t esp_flash_chip_issi = {
     .get_chip_write_protect = spi_flash_chip_generic_get_write_protect,
     .set_chip_write_protect = spi_flash_chip_generic_set_write_protect,
 
-    // TODO support protected regions on ISSI flash
     .num_protectable_regions = 0,
     .protectable_regions = NULL,
     .get_protected_regions = NULL,
@@ -92,4 +93,11 @@ const spi_flash_chip_t esp_flash_chip_issi = {
     .wait_idle = spi_flash_chip_generic_wait_idle,
     .set_io_mode = spi_flash_chip_issi_set_io_mode,
     .get_io_mode = spi_flash_chip_issi_get_io_mode,
+
+    .read_reg = spi_flash_chip_generic_read_reg,
+    .yield = spi_flash_chip_generic_yield,
+    .sus_setup = spi_flash_chip_generic_suspend_cmd_conf,
+    .read_unique_id = spi_flash_chip_generic_read_unique_id,
+    .get_chip_caps = spi_flash_chip_issi_get_caps,
+    .config_host_io_mode = spi_flash_chip_generic_config_host_io_mode,
 };

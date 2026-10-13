@@ -1,159 +1,194 @@
-| Supported Targets | ESP32 |
-| ----------------- | ----- |
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 | ESP32-S31 | Linux |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- | --------- | ----- |
 
-# High Resolution Timer Example (`esp_timer`) 
+# ESP Timer Example (High Resolution Timer)
 
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+(For general overview of examples and their usage, see the [README](../../README.md) file in the upper level `examples` directory.)
 
-The [High Resolution Timer (`esp_timer`)](https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/system/esp_timer.html) APIs allow an application to create multiple timers using a single hardware timer, and hides complexity associated with managing multiple timers, invoking callbacks, accounting for APB frequency changes (if dynamic frequency scaling is enabled), and maintaining correct time after light sleep.
+> [!NOTE]
+> After you click any link to [ESP-IDF Programming Guide](https://docs.espressif.com/projects/esp-idf/en/latest/index.html), go to the top of the sidebar, then make sure you have the appropriate **Espressif chip** (target) and **ESP-IDF version** selected in the dropdown menus.
 
-This example illustrates the usage of the [`esp_timer` API](https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/system/esp_timer.html#api-reference) to create one-shot and periodic software timers.
+This example shows how to use the [ESP Timer](https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/system/esp_timer.html) feature to create timers and execute callback functions. On the linked page, you will find detailed information about the feature as well as the functions and procedures used in this example.
 
-The `esp_timer` API also provides the `esp_timer_get_time()` function which returns the time since boot in microseconds. This can be useful for fine-grained timing in tasks and ISRs thus is also demonstrated in this example.
+In addition, the [Sleep Modes](https://docs.espressif.com/projects/esp-idf/en/stable/api-reference/system/sleep_modes.html) feature is used to briefly enter light sleep. This demonstrates that timekeeping continues correctly after light sleep.
 
-## How to use example
+The example starts by creating and starting a periodic and a one-shot timer. Their callback functions print the time elapsed since the example was booted. Then the `oneshot_timer_callback()` function redefines the period of the periodic timer and restarts it.
+
+After that, the chip enters light sleep for 0.5 seconds. Once the chip wakes up, the timers execute a couple of more callback functions, then the timers are stopped and deleted to free up memory.
+
+
+## Usage
+
+The subsections below give only absolutely necessary information. For full steps to configure ESP-IDF and use it to build and run projects, see [ESP-IDF Getting Started](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/index.html#get-started).
+
 
 ### Hardware Required
 
-This example should be able to run on any commonly available ESP32 development board.
+* An Espressif development board based on a chip listed in supported targets
+* A USB cable for power supply and serial communication
+* Computer with ESP-IDF installed and configured
 
-### Configure the project
+
+### Set Chip Target
+
+First of all, your target must be supported by both:
+
+- **By your ESP-IDF version**: For the full list of supported targets, run:
+  ```
+  idf.py --list-targets
+  ```
+- **By this example**: For the full list of supported targets,  refer to the supported targets table at the top of this README.
+
+After you make sure that your target is supported, go to your example project directory and [set the chip target](https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/tools/idf-py.html#select-the-target-chip-set-target):
+
+```
+idf.py set-target <target>
+```
+
+For example, to set esp32 as the chip target, run:
+
+```
+idf.py set-target esp32
+```
+
+
+### Configure the Project
+
+This example does not need configuration. The required Kconfig options differing from the ESP-IDF defaults are pre-set for this particular example in [sdkconfig.defaults](./sdkconfig.defaults).
+
+For more information about those and other Kconfig options, see [Project Configuration](https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/kconfig.html#esp-timer-high-resolution-timer) > ESP Timer (High Resolution Timer).
+
+To conveniently check or modify Kconfig options for this example in a project configuration menu, run:
 
 ```
 idf.py menuconfig
 ```
 
-Under `Component config > Common ESP-related` are the following `esp_timer` related configurations
-
-* `High-resolution timer task stack size` can be increased if timer callbacks require a larger stack
-* `Enable esp_timer profiling features` will cause `esp_timer_dump()` to include more information.
 
 ### Build and Flash
 
-Build the project and flash it to the board, then run monitor tool to view serial output:
+Execute the following command to build the project, flash it to your development board, and run the monitor tool to view the serial output:
 
 ```
-idf.py -p PORT flash monitor
+idf.py build flash monitor
 ```
 
-(Replace PORT with the name of the serial port to use.)
+This command can be reduced to `idf.py flash monitor`.
 
-(To exit the serial monitor, type ``Ctrl-]``.)
+If the above command fails, check the log on the serial monitor which usually provides information on the possible cause of the issue.
 
-See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
+To exit the serial monitor, use `Ctrl` + `]`.
+
 
 ## Example Output
 
-The example should have the following log output:
+If you see the following console output, your example should be running correctly:
 
 ```
 ...
-I (294) example: Started timers, time since boot: 9662 us
-periodic            500000        509644          1          0             0
-one-shot                 0       5009654          1          0             0
-I (794) example: Periodic timer called, time since boot: 509694 us
-I (1294) example: Periodic timer called, time since boot: 1009671 us
-I (1794) example: Periodic timer called, time since boot: 1509671 us
-I (2294) example: Periodic timer called, time since boot: 2009671 us
-periodic            500000       2509644          1          4           542
-one-shot                 0       5009654          1          0             0
-I (2794) example: Periodic timer called, time since boot: 2509671 us
-I (3294) example: Periodic timer called, time since boot: 3009671 us
-I (3794) example: Periodic timer called, time since boot: 3509671 us
-I (4294) example: Periodic timer called, time since boot: 4009671 us
-periodic            500000       4509644          1          8          1026
-one-shot                 0       5009654          1          0             0
-I (4794) example: Periodic timer called, time since boot: 4509671 us
-I (5294) example: Periodic timer called, time since boot: 5009669 us
-I (5294) example: One-shot timer called, time since boot: 5009788 us
-I (5294) example: Restarted periodic timer with 1s period, time since boot: 5012675 us
-I (6294) example: Periodic timer called, time since boot: 6012692 us
-periodic           1000000       7012666          2         11          1391
-one-shot                 0             0          1          1         11472
-I (7294) example: Periodic timer called, time since boot: 7012692 us
-I (8294) example: Periodic timer called, time since boot: 8012692 us
-periodic           1000000       9012666          2         13          1639
-one-shot                 0             0          1          1         11472
-I (9294) example: Periodic timer called, time since boot: 9012692 us
-I (10294) example: Periodic timer called, time since boot: 10012692 us
-I (10314) example: Entering light sleep for 0.5s, time since boot: 10024351 us
-I (10314) example: Woke up from light sleep, time since boot: 10525143 us
+I (266) example: Started timers, time since boot: 30808 us
+Timer stats:
+Name                  Period      Alarm         Times_armed   Times_trigg   Times_skip    Cb_exec_time
+periodic              500000      530773        1             0             0             0
+timed periodic        500000      3050000       1             0             0             0
+one-shot              0           5130792       1             0             0             0
+timed one-shot        0           6000000       1             0             0             0
+I (766) example: Periodic timer called, time since boot: 530850 us
+I (1266) example: Periodic timer called, time since boot: 1030802 us
+I (1766) example: Periodic timer called, time since boot: 1530802 us
+I (2266) example: Periodic timer called, time since boot: 2030802 us
+Timer stats:
+Name                  Period      Alarm         Times_armed   Times_trigg   Times_skip    Cb_exec_time
+periodic              500000      2530773       1             4             0             999
+timed periodic        500000      3050000       1             0             0             0
+one-shot              0           5130792       1             0             0             0
+timed one-shot        0           6000000       1             0             0             0
+I (2766) example: Periodic timer called, time since boot: 2530826 us
+I (3286) example: Timed periodic timer called, time since boot: 3050029 us
+I (3266) example: Periodic timer called, time since boot: 3030802 us
+I (3786) example: Timed periodic timer called, time since boot: 3550029 us
+I (3766) example: Periodic timer called, time since boot: 3530802 us
+I (4286) example: Timed periodic timer called, time since boot: 4050029 us
+I (4266) example: Periodic timer called, time since boot: 4030802 us
+Timer stats:
+Name                  Period      Alarm         Times_armed   Times_trigg   Times_skip    Cb_exec_time
+timed periodic        500000      4550000       1             3             0             709
+periodic              500000      4530773       1             8             0             1947
+one-shot              0           5130792       1             0             0             0
+timed one-shot        0           6000000       1             0             0             0
+I (4786) example: Timed periodic timer called, time since boot: 4550053 us
+I (4766) example: Periodic timer called, time since boot: 4530802 us
+I (5286) example: Timed periodic timer called, time since boot: 5050030 us
+I (5266) example: Periodic timer called, time since boot: 5030803 us
+I (5366) example: One-shot timer called, time since boot: 5131025 us
+I (5366) example: Restarted periodic timer with 1s period, time since boot: 5131920 us
+I (5786) example: Timed periodic timer called, time since boot: 5550029 us
+I (6236) example: Timed one-shot timer called, time since boot: 6000028 us
+I (6236) example: Restarted timed periodic timer with 1s period, time since boot: 6000268 us
+I (6366) example: Periodic timer called, time since boot: 6131945 us
+Timer stats:
+Name                  Period      Alarm         Times_armed   Times_trigg   Times_skip    Cb_exec_time
+timed periodic        1000000     7000000       1             6             0             1438
+periodic              1000000     7131916       2             11            0             2644
+timed one-shot        0           0             1             1             0             3722
+one-shot              0           0             1             1             0             8517
+I (7236) example: Timed periodic timer called, time since boot: 7000053 us
+I (7366) example: Periodic timer called, time since boot: 7131945 us
+I (8236) example: Timed periodic timer called, time since boot: 8000029 us
+I (8366) example: Periodic timer called, time since boot: 8131945 us
+Timer stats:
+Name                  Period      Alarm         Times_armed   Times_trigg   Times_skip    Cb_exec_time
+timed periodic        1000000     9000000       1             8             0             1940
+periodic              1000000     9131916       2             13            0             3106
+timed one-shot        0           0             1             1             0             3722
+one-shot              0           0             1             1             0             8517
+I (9236) example: Timed periodic timer called, time since boot: 9000053 us
+I (9366) example: Periodic timer called, time since boot: 9131945 us
+I (10236) example: Timed periodic timer called, time since boot: 10000029 us
+I (10366) example: Periodic timer called, time since boot: 10131945 us
+I (10476) example: Entering light sleep for 0.5s, time since boot: 10239360 us
+I (10476) example: Woke up from light sleep, time since boot: 10739673 us
+I (10736) example: Timed periodic timer called, time since boot: 11000033 us
+I (10866) example: Periodic timer called, time since boot: 11131945 us
+I (11736) example: Timed periodic timer called, time since boot: 12000029 us
+I (11866) example: Periodic timer called, time since boot: 12131945 us
+I (12486) example: Stopped and deleted timers
 ...
 ```
+
 
 ## Example Breakdown
 
-### 1. Creating and starting timers
+The subsections below walk you through the important parts of the application example.
 
-The example starts by creating a periodic and a one shot timer using the `esp_timer_create()` function. Once created, the two timers are started using the `esp_timer_start_periodic()` and `esp_timer_start_once()` functions.
 
-```
-I (265) example: Starting timers, time since boot: 2479 us
-```
+### Creating Callback Functions
 
-### 2. Getting initial timer dump
+Timers are used to execute a callback function as a delayed action. So the callback functions `periodic_timer_callback()`, `timed_periodic_timer_callback()`, `oneshot_timer_callback()` and `timed_oneshot_timer_callback()`, are crucial parts of this application example.
 
-These two repeating lines are the output of `esp_timer_dump()` function. There is one line for each of the timers created. This function can be useful for debugging purposes. Note that such debugging information is available because the example sets `CONFIG_ESP_TIMER_PROFILING` option in sdkconfig. Without this option, less information will be available. See documentation of `esp_timer_dump()` in ESP-IDF programming guide for more details.
 
-```
-timer               period     next time      times        times         callback
-name                            to fire      started       fired       run time (us)
-------------------------------------------------------------------------------------
+### Printing Timer Dumps
 
-periodic            500000        502455          1          0             0
-one-shot                 0       5002469          1          0             0
-```
+The function `esp_timer_dump()` is used to print the timer dumps which can be useful for debugging purposes. For details, see *ESP Timer API Reference* > [Debugging Timers](https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/system/esp_timer.html#debugging-timers).
 
-### 3. Periodic timer keeps running at 500ms period:
+To make the output of the dump function more detailed, this example's file `sdkconfig.defaults` has the option `CONFIG_ESP_TIMER_PROFILING` set (see [Configure the Project](#configure-the-project)).
 
-```
-I (765) example: Periodic timer called, time since boot: 502506 us
-I (1265) example: Periodic timer called, time since boot: 1002478 us
-I (1765) example: Periodic timer called, time since boot: 1502478 us
-I (2265) example: Periodic timer called, time since boot: 2002478 us
-periodic            500000       2502455          1          4           511
-one-shot                 0       5002469          1          0             0
-I (2765) example: Periodic timer called, time since boot: 2502478 us
-I (3265) example: Periodic timer called, time since boot: 3002478 us
-I (3765) example: Periodic timer called, time since boot: 3502478 us
-I (4265) example: Periodic timer called, time since boot: 4002478 us
-periodic            500000       4502455          1          8           971
-one-shot                 0       5002469          1          0             0
-I (4765) example: Periodic timer called, time since boot: 4502478 us
-I (5265) example: Periodic timer called, time since boot: 5002476 us
-```
 
-### 4. One-shot timer runs
+### Entering and Waking Up from Light Sleep
 
-The one-shot timer runs and changes the period of the periodic timer. Now the periodic timer runs with a period of 1 second:
+To demonstrate that timekeeping continues correctly after light sleep, the example briefly enters light sleep using `esp_sleep_enable_timer_wakeup()` and `esp_light_sleep_start()`.
 
-```    
-I (5265) example: One-shot timer called, time since boot: 5002586 us
-I (5265) example: Restarted periodic timer with 1s period, time since boot: 5005475 us
-I (6265) example: Periodic timer called, time since boot: 6005492 us
-periodic           1000000       7005469          2         11          1316
-one-shot                 0             0          1          1         11474
-I (7265) example: Periodic timer called, time since boot: 7005492 us
-I (8265) example: Periodic timer called, time since boot: 8005492 us
-periodic           1000000       9005469          2         13          1550
-one-shot                 0             0          1          1         11474
-I (9265) example: Periodic timer called, time since boot: 9005492 us
-I (10265) example: Periodic timer called, time since boot: 10005492 us
-```
+During light sleep, the CPU is not running, so callbacks cannot be dispatched. On wakeup, the system attempts to execute all unhandled callbacks if any, then ESP Timer resumes its normal operation.
 
-### 5. Continuation through light sleep
 
-To illustrate that timekeeping continues correctly after light sleep, the example enters light sleep for 0.5 seconds. This sleep does not impact timer period, and the timer is executed 1 second after the previous iteration. Note that the timers can not execute during light sleep, since the CPU is not running at that time. Such timers would execute immediately after light sleep, and then continue running with their normal period.
-    
-```
-I (10275) example: Entering light sleep for 0.5s, time since boot: 10011559 us
-I (10275) example: Woke up from light sleep, time since boot: 10512007 us
-I (10765) example: Periodic timer called, time since boot: 11005492 us
-I (11765) example: Periodic timer called, time since boot: 12005492 us
-```
+## Troubleshooting
 
-### 6. Finally, timers are deleted.
+For any technical queries, please open an [issue](https://github.com/espressif/esp-idf/issues) on GitHub.
 
-```
-I (12275) example: Stopped and deleted timers
-```
+
+## Reference
+
+- [ESP-IDF: ESP Timer feature](https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/system/esp_timer.html)
+- [ESP-IDF: Sleep Modes feature](https://docs.espressif.com/projects/esp-idf/en/stable/api-reference/system/sleep_modes.html)
+- [ESP-IDF Getting Started](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/index.html#get-started)
+- [Project Configuration](https://docs.espressif.com/projects/esp-idf/en/latest/api-reference/kconfig.html#esp-timer-high-resolution-timer) (Kconfig Options)

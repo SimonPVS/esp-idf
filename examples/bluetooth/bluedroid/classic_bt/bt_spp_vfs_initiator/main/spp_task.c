@@ -1,21 +1,12 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
-#include "freertos/xtensa_api.h"
 #include "freertos/FreeRTOSConfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -27,10 +18,11 @@ static void spp_task_task_handler(void *arg);
 static bool spp_task_send_msg(spp_task_msg_t *msg);
 static void spp_task_work_dispatched(spp_task_msg_t *msg);
 
-static xQueueHandle spp_task_task_queue = NULL;
-static xTaskHandle spp_task_task_handle = NULL;
+static QueueHandle_t spp_task_task_queue = NULL;
+static TaskHandle_t spp_task_task_handle = NULL;
 
-bool spp_task_work_dispatch(spp_task_cb_t p_cback, uint16_t event, void *p_params, int param_len, spp_task_copy_cb_t p_copy_cback)
+bool spp_task_work_dispatch(spp_task_cb_t p_cback, uint16_t event, void *p_params, int param_len,
+                            spp_task_copy_cb_t p_copy_cback, spp_task_free_cb_t p_free_cback)
 {
     ESP_LOGD(SPP_TASK_TAG, "%s event 0x%x, param len %d", __func__, event, param_len);
 
@@ -40,6 +32,7 @@ bool spp_task_work_dispatch(spp_task_cb_t p_cback, uint16_t event, void *p_param
     msg.sig = SPP_TASK_SIG_WORK_DISPATCH;
     msg.event = event;
     msg.cb = p_cback;
+    msg.free_cb = p_free_cback;
 
     if (param_len == 0) {
         return spp_task_send_msg(&msg);
@@ -50,7 +43,14 @@ bool spp_task_work_dispatch(spp_task_cb_t p_cback, uint16_t event, void *p_param
             if (p_copy_cback) {
                 p_copy_cback(&msg, msg.param, p_params);
             }
-            return spp_task_send_msg(&msg);
+            if (!spp_task_send_msg(&msg)) {
+                if (p_free_cback) {
+                    p_free_cback(msg.param);
+                }
+                free(msg.param);
+                return false;
+            }
+            return true;
         }
     }
 
@@ -63,7 +63,7 @@ static bool spp_task_send_msg(spp_task_msg_t *msg)
         return false;
     }
 
-    if (xQueueSend(spp_task_task_queue, msg, 10 / portTICK_RATE_MS) != pdTRUE) {
+    if (xQueueSend(spp_task_task_queue, msg, 10 / portTICK_PERIOD_MS) != pdTRUE) {
         ESP_LOGE(SPP_TASK_TAG, "%s xQueue send failed", __func__);
         return false;
     }
@@ -81,7 +81,7 @@ static void spp_task_task_handler(void *arg)
 {
     spp_task_msg_t msg;
     for (;;) {
-        if (pdTRUE == xQueueReceive(spp_task_task_queue, &msg, (portTickType)portMAX_DELAY)) {
+        if (pdTRUE == xQueueReceive(spp_task_task_queue, &msg, (TickType_t)portMAX_DELAY)) {
             ESP_LOGD(SPP_TASK_TAG, "%s, sig 0x%x, 0x%x", __func__, msg.sig, msg.event);
             switch (msg.sig) {
             case SPP_TASK_SIG_WORK_DISPATCH:
@@ -93,6 +93,9 @@ static void spp_task_task_handler(void *arg)
             }
 
             if (msg.param) {
+                if (msg.free_cb) {
+                    msg.free_cb(msg.param);
+                }
                 free(msg.param);
             }
         }
@@ -102,7 +105,7 @@ static void spp_task_task_handler(void *arg)
 void spp_task_task_start_up(void)
 {
     spp_task_task_queue = xQueueCreate(10, sizeof(spp_task_msg_t));
-    xTaskCreate(spp_task_task_handler, "SPPAppT", 2048, NULL, 10, &spp_task_task_handle);
+    xTaskCreate(spp_task_task_handler, "SPPAppT", 4 * 1024, NULL, 10, &spp_task_task_handle);
     return;
 }
 
@@ -113,6 +116,15 @@ void spp_task_task_shut_down(void)
         spp_task_task_handle = NULL;
     }
     if (spp_task_task_queue) {
+        spp_task_msg_t msg;
+        while (xQueueReceive(spp_task_task_queue, &msg, 0) == pdTRUE) {
+            if (msg.param) {
+                if (msg.free_cb) {
+                    msg.free_cb(msg.param);
+                }
+                free(msg.param);
+            }
+        }
         vQueueDelete(spp_task_task_queue);
         spp_task_task_queue = NULL;
     }
@@ -120,7 +132,7 @@ void spp_task_task_shut_down(void)
 
 void spp_wr_task_start_up(spp_wr_task_cb_t p_cback, int fd)
 {
-    xTaskCreate(p_cback, "write_read", 2048, (void *)fd, 5, NULL);
+    xTaskCreate(p_cback, "write_read", 4096, (void *)fd, 5, NULL);
 }
 void spp_wr_task_shut_down(void)
 {

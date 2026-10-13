@@ -1,15 +1,9 @@
 /*
  * wpa_supplicant/hostapd / Debug prints
- * Copyright (c) 2002-2007, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2002-2013, Jouni Malinen <j@w1.fi>
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
- *
- * Alternatively, this software may be distributed under the terms of BSD
- * license.
- *
- * See README and COPYING for more details.
+ * This software may be distributed under the terms of the BSD license.
+ * See README for more details.
  */
 #ifdef ESP_SUPPLICANT
 #include "utils/includes.h"
@@ -60,7 +54,7 @@ int  wpa_snprintf_hex(char *buf, size_t buf_size, const u8 *data, size_t len)
 void  wpa_dump_mem(char* desc, uint8_t *addr, uint16_t len)
 {
     char output[50];
-    wpa_printf(MSG_DEBUG, "%s\n", desc);
+    wpa_printf(MSG_DEBUG, "%s", desc);
     if (addr){
         uint16_t i=0;
         for (i = 0; i < len / 16; i++) {
@@ -82,34 +76,34 @@ void  wpa_debug_print_timestamp(void)
     struct os_time tv;
     os_get_time(&tv);
     wpa_printf(MSG_DEBUG, "%ld.%06u: ", (long) tv.sec, (unsigned int) tv.usec);
-#endif	
+#endif
 }
 
 void  wpa_hexdump(int level, const char *title, const u8 *buf, size_t len)
 {
-#ifdef DEBUG_PRINT 
+#ifdef DEBUG_PRINT
 	size_t i;
 	char output[50];
 
-	if (level < MSG_MSGDUMP)
+	if (level < MSG_ERROR)
 		return;
 
-	wpa_printf(MSG_DEBUG, "%s - hexdump(len=%lu):", title, (unsigned long) len);
+	wpa_printf(level, "%s - hexdump(len=%lu):", title, (unsigned long) len);
 	if (buf == NULL) {
-		wpa_printf(MSG_DEBUG, " [NULL]");
+		wpa_printf(level, " [NULL]");
 	} else {
 		for (i = 0; i < len / 16; i++) {
 			_wpa_snprintf_hex(output, 50, buf + i * 16, 16, 0, 1);
-			wpa_printf(MSG_DEBUG, "%s", output);
+			wpa_printf(level, "%s", output);
 		}
 		if (len % 16) {
 			int bytes_printed = (len / 16) * 16;
 			_wpa_snprintf_hex(output, 50, buf + bytes_printed,
 							  len - bytes_printed, 0, 1);
-			wpa_printf(MSG_DEBUG, "%s", output);
+			wpa_printf(level, "%s", output);
 		}
-	} 
-#endif	
+	}
+#endif
 }
 
 void  wpa_hexdump_key(int level, const char *title, const u8 *buf, size_t len)
@@ -118,17 +112,4 @@ void  wpa_hexdump_key(int level, const char *title, const u8 *buf, size_t len)
 }
 #endif
 
-int  eloop_cancel_timeout(eloop_timeout_handler handler,
-			 void *eloop_data, void *user_data)
-{
-    return 0;	
-}
-
-int  eloop_register_timeout(unsigned int secs, unsigned int usecs,
-			   eloop_timeout_handler handler,
-			   void *eloop_data, void *user_data)
-{
-    return 0;
-}
 #endif // ESP_SUPPLICANT
-

@@ -1,16 +1,8 @@
-// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #ifndef _SIMPLE_BLE_
 #define _SIMPLE_BLE_
 
@@ -19,8 +11,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "sdkconfig.h"
 #include <esp_gap_ble_api.h>
 #include <esp_gatts_api.h>
+
+#if CONFIG_BT_BLE_42_ADV_EN
+#define SIMPLE_BLE_LEGACY_ADV 1
+#elif CONFIG_BT_BLE_50_EXTEND_ADV_EN
+#define SIMPLE_BLE_EXT_ADV 1
+#endif
 
 typedef void (simple_ble_cb_t)(esp_gatts_cb_event_t event, esp_gatt_if_t p_gatts_if, esp_ble_gatts_cb_param_t *param);
 
@@ -32,14 +31,21 @@ typedef void (simple_ble_cb_t)(esp_gatts_cb_event_t event, esp_gatt_if_t p_gatts
 typedef struct {
     /** Name to be displayed to devices scanning for ESP32 */
     const char *device_name;
+#if SIMPLE_BLE_LEGACY_ADV
     /** Raw advertisement data */
-    uint8_t *raw_adv_data_p;
-    uint8_t raw_adv_data_len;
+    esp_ble_adv_data_t *adv_data_p;
     /** Raw scan response data */
-    uint8_t *raw_scan_rsp_data_p;
-    uint8_t raw_scan_rsp_data_len;
+    esp_ble_adv_data_t *scan_rsp_data_p;
     /** Parameters to configure the nature of advertising */
     esp_ble_adv_params_t adv_params;
+#elif SIMPLE_BLE_EXT_ADV
+    /** Raw advertisement data for BLE 5.0+ extended advertising */
+    uint8_t *raw_adv_data_p;
+    uint32_t raw_adv_data_len;
+    /** Raw scan response data for BLE 5.0+ extended advertising */
+    uint8_t *raw_scan_rsp_data_p;
+    uint32_t raw_scan_rsp_data_len;
+#endif
     /** Descriptor table which consists of the configuration
      * required by services and characteristics */
     esp_gatts_attr_db_t *gatt_db;
@@ -57,8 +63,27 @@ typedef struct {
     simple_ble_cb_t *connect_fn;
     /** MTU set callback */
     simple_ble_cb_t *set_mtu_fn;
+    /** BLE bonding */
+    unsigned ble_bonding:1;
+    /** BLE Secure Connection flag */
+    unsigned ble_sm_sc:1;
+    /** BLE Address */
+    uint8_t *ble_addr;
+    /**  Flag to keep BLE on */
+    unsigned keep_ble_on:1;
+
 } simple_ble_cfg_t;
 
+
+/**
+ * @brief   Get the current BLE keep-on status
+ *
+ * This function returns the current value of the `keep_ble_on` flag
+ * from the global BLE configuration structure.
+ *
+ * @return uint8_t  Current status of the `keep_ble_on` flag
+ */
+uint8_t get_keep_ble_on(void);
 
 /** Initialize a simple ble connection
  *
@@ -110,4 +135,19 @@ esp_err_t simple_ble_stop(void);
  */
 const uint8_t *simple_ble_get_uuid128(uint16_t handle);
 
+/** Terminates connection
+ *
+ * This API is called to initiate disconnection
+ *
+ * @return ESP_OK on success, and appropriate error code for failure
+ */
+esp_err_t simple_ble_disconnect(void);
+
+/** Clear all characteristic value attributes in the GATT table
+ *
+ * Resets the stored value of every 128-bit-UUID characteristic (i.e. every
+ * response written via esp_ble_gatts_set_attr_value) to zero length so that
+ * a new connection cannot read the previous session's response data.
+ */
+void simple_ble_gatts_clear_char_values(void);
 #endif /* _SIMPLE_BLE_ */

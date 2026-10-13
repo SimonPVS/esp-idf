@@ -1,24 +1,14 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <string.h>
 
-#include "esp_netif_lwip_internal.h"
 
 #include "esp_netif.h"
 #include "esp_netif_private.h"
-#include "esp_netif_sta_list.h"
 
 #if CONFIG_ESP_NETIF_LOOPBACK
 
@@ -42,6 +32,11 @@ static bool s_netif_up = false;
  *
  *
  */
+
+#ifndef NETIF_MAX_HWADDR_LEN
+#define NETIF_MAX_HWADDR_LEN 6U
+#endif
+
 struct esp_netif_obj {
     // default interface addresses
     uint8_t mac[NETIF_MAX_HWADDR_LEN];
@@ -122,9 +117,9 @@ static esp_err_t esp_netif_init_configuration(esp_netif_t *esp_netif, const esp_
     // Configure general esp-netif properties
     memcpy(esp_netif->mac, cfg->base->mac, NETIF_MAX_HWADDR_LEN);
     if (cfg->base->ip_info == NULL) {
-        ip4_addr_set_zero(&esp_netif->ip_info->ip);
-        ip4_addr_set_zero(&esp_netif->ip_info->gw);
-        ip4_addr_set_zero(&esp_netif->ip_info->netmask);
+        esp_netif->ip_info->ip.addr = 0;
+        esp_netif->ip_info->gw.addr = 0;
+        esp_netif->ip_info->netmask.addr = 0;
     } else {
         memcpy(esp_netif->ip_info, cfg->base->ip_info, sizeof(esp_netif_ip_info_t));
     }
@@ -192,7 +187,7 @@ esp_netif_t *esp_netif_new(const esp_netif_config_t *esp_netif_config)
     }
     esp_netif->ip_info_old = ip_info;
 
-    esp_netif_add_to_list(esp_netif);
+    esp_netif_add_to_list_unsafe(esp_netif);
 
     // Configure the created object with provided configuration
     esp_err_t ret =  esp_netif_init_configuration(esp_netif, esp_netif_config);
@@ -208,7 +203,7 @@ esp_netif_t *esp_netif_new(const esp_netif_config_t *esp_netif_config)
 void esp_netif_destroy(esp_netif_t *esp_netif)
 {
     if (esp_netif) {
-        esp_netif_remove_from_list(esp_netif);
+        esp_netif_remove_from_list_unsafe(esp_netif);
         free(esp_netif->ip_info);
         free(esp_netif->ip_info_old);
         free(esp_netif->if_key);
@@ -275,13 +270,13 @@ void esp_netif_free_rx_buffer(void *h, void* buffer)
 
 esp_err_t esp_netif_transmit(esp_netif_t *esp_netif, void* data, size_t len)
 {
-    ESP_LOGV(TAG, "Transmitting data: ptr:%p, size:%d", data, len);
+    ESP_LOGV(TAG, "Transmitting data: ptr:%p, size:%lu", data, (long unsigned int) len);
     return (esp_netif->driver_transmit)(esp_netif->driver_handle, data, len);
 }
 
 esp_err_t esp_netif_receive(esp_netif_t *esp_netif, void *buffer, size_t len, void *eb)
 {
-    ESP_LOGV(TAG, "Received data: ptr:%p, size:%d", buffer, len);
+    ESP_LOGV(TAG, "Received data: ptr:%p, size:%lu", buffer, (long unsigned int) len);
     esp_netif_transmit(esp_netif, buffer, len);
     if (eb) {
         esp_netif_free_rx_buffer(esp_netif, eb);
@@ -350,7 +345,7 @@ bool esp_netif_is_netif_up(esp_netif_t *esp_netif)
 
 esp_err_t esp_netif_get_old_ip_info(esp_netif_t *esp_netif, esp_netif_ip_info_t *ip_info)
 {
-    ESP_LOGD(TAG, "%s esp_netif:%p", __func__, esp_netif);
+    ESP_LOGV(TAG, "%s esp_netif:%p", __func__, esp_netif);
 
     if (esp_netif == NULL || ip_info == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -361,7 +356,7 @@ esp_err_t esp_netif_get_old_ip_info(esp_netif_t *esp_netif, esp_netif_ip_info_t 
 
 esp_err_t esp_netif_get_ip_info(esp_netif_t *esp_netif, esp_netif_ip_info_t *ip_info)
 {
-    ESP_LOGD(TAG, "%s esp_netif:%p", __func__, esp_netif);
+    ESP_LOGV(TAG, "%s esp_netif:%p", __func__, esp_netif);
 
     if (esp_netif == NULL || ip_info == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -379,7 +374,7 @@ bool esp_netif_is_valid_static_ip(esp_netif_ip_info_t *ip_info)
 
 esp_err_t esp_netif_set_old_ip_info(esp_netif_t *esp_netif, const esp_netif_ip_info_t *ip_info)
 {
-    ESP_LOGD(TAG, "%s esp_netif:%p", __func__, esp_netif);
+    ESP_LOGV(TAG, "%s esp_netif:%p", __func__, esp_netif);
 
     if (esp_netif == NULL || ip_info == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -394,11 +389,6 @@ esp_err_t esp_netif_set_dns_info(esp_netif_t *esp_netif, esp_netif_dns_type_t ty
 }
 
 esp_err_t esp_netif_get_dns_info(esp_netif_t *esp_netif, esp_netif_dns_type_t type, esp_netif_dns_info_t *dns)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
-esp_err_t esp_netif_get_sta_list(const wifi_sta_list_t *wifi_sta_list, esp_netif_sta_list_t *netif_sta_list)
 {
     return ESP_ERR_NOT_SUPPORTED;
 }
@@ -455,4 +445,54 @@ int esp_netif_get_netif_impl_index(esp_netif_t *esp_netif)
     return 0;
 }
 
+esp_err_t esp_netif_join_ip6_multicast_group(esp_netif_t *esp_netif, const esp_ip6_addr_t *addr)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_netif_leave_ip6_multicast_group(esp_netif_t *esp_netif, const esp_ip6_addr_t *addr)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_netif_add_ip6_address(esp_netif_t *esp_netif, const esp_ip6_addr_t addr, bool preferred)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_netif_remove_ip6_address(esp_netif_t *esp_netif, const esp_ip6_addr_t *addr)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+int esp_netif_get_all_ip6(esp_netif_t *esp_netif, esp_ip6_addr_t if_ip6[])
+{
+    return 0;
+}
+
+esp_ip6_addr_type_t esp_netif_ip6_get_addr_type(const esp_ip6_addr_t* ip6_addr)
+{
+    return ESP_IP6_ADDR_IS_UNKNOWN;
+}
+
+esp_err_t esp_netif_tcpip_exec(esp_netif_callback_fn fn, void*ctx)
+{
+    return fn(ctx);
+}
+
+esp_netif_t *esp_netif_get_handle_from_ifkey(const char *if_key)
+{
+    return esp_netif_get_handle_from_ifkey_unsafe(if_key);
+}
+
+// MTU control is not supported in loopback build.
+esp_err_t esp_netif_set_mtu(esp_netif_t *esp_netif, uint16_t mtu)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t esp_netif_get_mtu(esp_netif_t *esp_netif, uint16_t *mtu)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
 #endif /* CONFIG_ESP_NETIF_LOOPBACK */

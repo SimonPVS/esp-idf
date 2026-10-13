@@ -36,6 +36,17 @@
 #include "osi/mutex.h"
 #include "osi/alarm.h"
 #if (defined RFCOMM_INCLUDED && RFCOMM_INCLUDED == TRUE)
+
+static tL2CAP_ERTM_INFO rfc_l2c_etm_opt =
+{
+    L2CAP_FCR_ERTM_MODE,
+    L2CAP_FCR_CHAN_OPT_ERTM|L2CAP_FCR_CHAN_OPT_BASIC,  /* Some devices do not support ERTM */
+    L2CAP_USER_RX_BUF_SIZE,
+    L2CAP_USER_TX_BUF_SIZE,
+    L2CAP_FCR_RX_BUF_SIZE,
+    L2CAP_FCR_TX_BUF_SIZE
+};
+
 /*
 ** Define Callback functions to be called by L2CAP
 */
@@ -97,6 +108,7 @@ void RFCOMM_ConnectInd (BD_ADDR bd_addr, UINT16 lcid, UINT16 psm, UINT8 id)
         if ((p_mcb->is_initiator) && (p_mcb->state == RFC_MX_STATE_WAIT_CONN_CNF)) {
             p_mcb->pending_lcid = lcid;
             p_mcb->pending_id   = id;
+            rfc_save_lcid_mcb(p_mcb, lcid);
 
             /* wait random timeout (2 - 12) to resolve collision */
             /* if peer gives up then local device rejects incoming connection and continues as initiator */
@@ -117,7 +129,8 @@ void RFCOMM_ConnectInd (BD_ADDR bd_addr, UINT16 lcid, UINT16 psm, UINT8 id)
     }
 
     if (p_mcb == NULL) {
-        L2CA_ConnectRsp (bd_addr, id, lcid, L2CAP_CONN_NO_RESOURCES, 0);
+        tL2CAP_ERTM_INFO *ertm_opt = rfc_cb.port.enable_l2cap_ertm ? &rfc_l2c_etm_opt : NULL;
+        L2CA_ErtmConnectRsp (bd_addr, id, lcid, L2CAP_CONN_NO_RESOURCES, 0, ertm_opt);
         return;
     }
     p_mcb->lcid     = lcid;
@@ -177,8 +190,9 @@ void RFCOMM_ConnectCnf (UINT16 lcid, UINT16 result)
         } else {
             RFCOMM_TRACE_DEBUG ("RFCOMM_ConnectCnf peer gave up pending LCID(0x%x)", p_mcb->pending_lcid);
 
+            tL2CAP_ERTM_INFO *ertm_opt = rfc_cb.port.enable_l2cap_ertm ? &rfc_l2c_etm_opt : NULL;
             /* Peer gave up his connection request, make sure cleaning up L2CAP channel */
-            L2CA_ConnectRsp (p_mcb->bd_addr, p_mcb->pending_id, p_mcb->pending_lcid, L2CAP_CONN_NO_RESOURCES, 0);
+            L2CA_ErtmConnectRsp (p_mcb->bd_addr, p_mcb->pending_id, p_mcb->pending_lcid, L2CAP_CONN_NO_RESOURCES, 0, ertm_opt);
 
             p_mcb->pending_lcid = 0;
         }
@@ -267,6 +281,12 @@ void RFCOMM_DisconnectInd (UINT16 lcid, BOOLEAN is_conf_needed)
 
     if (!p_mcb) {
         RFCOMM_TRACE_WARNING ("RFCOMM_DisconnectInd LCID:0x%x", lcid);
+        return;
+    }
+    if (p_mcb->pending_lcid == lcid) {
+        rfc_save_lcid_mcb(NULL, lcid);
+        p_mcb->pending_lcid = 0;
+        p_mcb->pending_id = 0;
         return;
     }
 
@@ -394,7 +414,7 @@ tRFC_MCB *rfc_find_lcid_mcb (UINT16 lcid)
         return (NULL);
     } else {
         if ((p_mcb = rfc_cb.rfc.p_rfc_lcid_mcb[lcid - L2CAP_BASE_APPL_CID]) != NULL) {
-            if (p_mcb->lcid != lcid) {
+            if (p_mcb->lcid != lcid && p_mcb->pending_lcid != lcid) {
                 RFCOMM_TRACE_WARNING ("rfc_find_lcid_mcb LCID reused LCID:0x%x current:0x%x", lcid, p_mcb->lcid);
                 return (NULL);
             }
@@ -408,7 +428,7 @@ tRFC_MCB *rfc_find_lcid_mcb (UINT16 lcid)
 **
 ** Function         rfc_save_lcid_mcb
 **
-** Description      This function returns MCB block supporting local cid
+** Description      This function saves MCB block supporting local cid
 **
 *******************************************************************************/
 void rfc_save_lcid_mcb (tRFC_MCB *p_mcb, UINT16 lcid)

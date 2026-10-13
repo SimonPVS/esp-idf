@@ -1,21 +1,8 @@
-// Copyright 2017 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-// This is a simple implementation of pthread condition variables. In essence,
-// the waiter creates its own semaphore to wait on and pushes it in the cond var
-// specific list. Upon notify and broadcast, all the waiters for the given cond
-// var are woken up.
+/*
+ * SPDX-FileCopyrightText: 2017-2022 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <errno.h>
 #include <pthread.h>
@@ -26,11 +13,12 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "freertos/list.h"
+#include "pthread_internal.h"
 
 #include <sys/queue.h>
 #include <sys/time.h>
+#include <sys/lock.h>
 
-#define LOG_LOCAL_LEVEL CONFIG_LOG_DEFAULT_LEVEL
 #include "esp_log.h"
 const static char *TAG = "esp_pthread";
 
@@ -44,10 +32,30 @@ typedef struct esp_pthread_cond {
     TAILQ_HEAD(, esp_pthread_cond_waiter) waiter_list;  ///< head of the list of semaphores
 } esp_pthread_cond_t;
 
-int pthread_cond_signal(pthread_cond_t *cv)
+static int s_check_and_init_if_static(pthread_cond_t *cv)
 {
+    int res = 0;
+
     if (cv == NULL || *cv == (pthread_cond_t) 0) {
         return EINVAL;
+    }
+
+    if (*cv == PTHREAD_COND_INITIALIZER) {
+        portENTER_CRITICAL(&pthread_lazy_init_lock);
+        if (*cv == PTHREAD_COND_INITIALIZER) {
+            res = pthread_cond_init(cv, NULL);
+        }
+        portEXIT_CRITICAL(&pthread_lazy_init_lock);
+    }
+
+    return res;
+}
+
+int pthread_cond_signal(pthread_cond_t *cv)
+{
+    int res = s_check_and_init_if_static(cv);
+    if (res) {
+        return res;
     }
 
     esp_pthread_cond_t *cond = (esp_pthread_cond_t *) *cv;
@@ -65,8 +73,9 @@ int pthread_cond_signal(pthread_cond_t *cv)
 
 int pthread_cond_broadcast(pthread_cond_t *cv)
 {
-    if (cv == NULL || *cv == (pthread_cond_t) 0) {
-        return EINVAL;
+    int res = s_check_and_init_if_static(cv);
+    if (res) {
+        return res;
     }
 
     esp_pthread_cond_t *cond = (esp_pthread_cond_t *) *cv;
@@ -91,8 +100,9 @@ int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut, const struc
     int ret;
     TickType_t timeout_ticks;
 
-    if (cv == NULL || *cv == (pthread_cond_t) 0) {
-        return EINVAL;
+    int res = s_check_and_init_if_static(cv);
+    if (res) {
+        return res;
     }
 
     esp_pthread_cond_t *cond = (esp_pthread_cond_t *) *cv;
@@ -106,7 +116,8 @@ int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut, const struc
         gettimeofday(&cur_time, NULL);
 
         abs_time.tv_sec = to->tv_sec;
-        abs_time.tv_usec = to->tv_nsec / 1000;
+        // Round up nanoseconds to the next microsecond
+        abs_time.tv_usec = (to->tv_nsec + 1000 - 1) / 1000;
 
         if (timercmp(&abs_time, &cur_time, <)) {
             /* As per the pthread spec, if the time has already
@@ -115,18 +126,35 @@ int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut, const struc
             timeout_msec = 0;
         } else {
             timersub(&abs_time, &cur_time, &diff_time);
-            timeout_msec = (diff_time.tv_sec * 1000) + (diff_time.tv_usec / 1000);
+            // Round up timeout microseconds to the next millisecond
+            timeout_msec = (diff_time.tv_sec * 1000) +
+                           ((diff_time.tv_usec + 1000 - 1) / 1000);
         }
 
         if (timeout_msec <= 0) {
             return ETIMEDOUT;
         }
 
-        timeout_ticks = timeout_msec / portTICK_PERIOD_MS;
+        // Round up milliseconds to the next tick
+        timeout_ticks = (timeout_msec + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS;
+
+        /* We have to add 1 more tick of delay
+
+           The reason for this is that vTaskDelay(1) will sleep until the start of the next tick,
+           which can be any amount of time up to one tick period. So if we don't add one more tick,
+           we're likely to timeout a small time (< 1 tick period) before the requested timeout.
+           If we add 1 tick then we will timeout a  small time (< 1 tick period) after the
+           requested timeout.
+         */
+        timeout_ticks += 1;
     }
 
     esp_pthread_cond_waiter_t w;
-    w.wait_sem = xSemaphoreCreateCounting(1, 0); /* First get will block */
+
+    // Around 80 bytes
+    StaticSemaphore_t sem_buffer;
+    // Create semaphore: first take will block
+    w.wait_sem = xSemaphoreCreateCountingStatic(1, 0, &sem_buffer);
 
     _lock_acquire_recursive(&cond->lock);
     TAILQ_INSERT_TAIL(&cond->waiter_list, &w, link);
@@ -148,10 +176,43 @@ int pthread_cond_timedwait(pthread_cond_t *cv, pthread_mutex_t *mut, const struc
     return ret;
 }
 
+// The following pthread_condattr_* function definitions are placed here to enable builds of code
+// that references these functions but does not actively use them.
+
 int pthread_condattr_init(pthread_condattr_t *attr)
 {
-    ESP_LOGV(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
     return ENOSYS;
+}
+
+int pthread_condattr_destroy(pthread_condattr_t *attr)
+{
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    return ENOSYS;
+}
+
+int pthread_condattr_getpshared(const pthread_condattr_t *restrict attr, int *restrict pshared)
+{
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    return ENOSYS;
+}
+
+int pthread_condattr_setpshared(pthread_condattr_t *attr, int pshared)
+{
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    return ENOSYS;
+}
+
+int pthread_condattr_getclock(const pthread_condattr_t *restrict attr, clockid_t *restrict clock_id)
+{
+    ESP_LOGW(TAG, "%s not yet implemented (%p)", __FUNCTION__, attr);
+    return ENOSYS;
+}
+
+int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock_id)
+{
+    ESP_LOGW(TAG, "%s: not yet supported!", __func__);
+    return 0; // moved here from newlib, where it was 0 instead of ENOSYS
 }
 
 int pthread_cond_init(pthread_cond_t *cv, const pthread_condattr_t *att)
@@ -181,8 +242,14 @@ int pthread_cond_destroy(pthread_cond_t *cv)
     if (cv == NULL || *cv == (pthread_cond_t) 0) {
         return EINVAL;
     }
+    if (*cv == PTHREAD_COND_INITIALIZER) {
+        return 0; // never initialized
+    }
 
     esp_pthread_cond_t *cond = (esp_pthread_cond_t *) *cv;
+    if (!cond) {
+        return EINVAL;
+    }
 
     _lock_acquire_recursive(&cond->lock);
     if (!TAILQ_EMPTY(&cond->waiter_list)) {

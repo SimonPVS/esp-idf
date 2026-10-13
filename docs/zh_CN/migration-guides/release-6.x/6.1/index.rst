@@ -1,0 +1,12 @@
+从 6.0 迁移到 6.1
+------------------
+
+:link_to_translation:`en:[English]`
+
+.. toctree::
+    :maxdepth: 1
+
+    :SOC_BT_SUPPORTED: bt_common
+    :SOC_BT_CLASSIC_SUPPORTED: bluetooth-classic
+    peripherals
+    tools

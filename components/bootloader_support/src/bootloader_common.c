@@ -1,61 +1,52 @@
-// Copyright 2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2018-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <stdbool.h>
 #include <assert.h>
 #include "string.h"
 #include "sdkconfig.h"
 #include "esp_err.h"
 #include "esp_log.h"
-#if CONFIG_IDF_TARGET_ESP32
-#include "esp32/rom/spi_flash.h"
-#elif CONFIG_IDF_TARGET_ESP32S2
-#include "esp32s2/rom/spi_flash.h"
-#elif CONFIG_IDF_TARGET_ESP32S3
-#include "esp32s3/rom/spi_flash.h"
-#endif
+#include "esp_rom_spiflash.h"
 #include "esp_rom_crc.h"
 #include "esp_rom_gpio.h"
 #include "esp_rom_sys.h"
 #include "esp_flash_partitions.h"
-#include "bootloader_flash_priv.h"
+#include "esp_image_format.h"
+#include "esp_private/bootloader_flash_internal.h"
 #include "bootloader_common.h"
 #include "bootloader_utility.h"
-#include "soc/gpio_periph.h"
+#include "bootloader_sha_flash.h"
+#include "soc/soc_caps.h"
 #include "soc/rtc.h"
 #include "soc/efuse_reg.h"
 #include "hal/gpio_ll.h"
-#include "esp_image_format.h"
-#include "bootloader_sha.h"
 #include "sys/param.h"
 
 #define ESP_PARTITION_HASH_LEN 32 /* SHA-256 digest length */
 
-static const char* TAG = "boot_comm";
+ESP_LOG_ATTR_TAG(TAG, "boot_comm");
 
 esp_comm_gpio_hold_t bootloader_common_check_long_hold_gpio(uint32_t num_pin, uint32_t delay_sec)
 {
+    return bootloader_common_check_long_hold_gpio_level(num_pin, delay_sec, false);
+}
+
+esp_comm_gpio_hold_t bootloader_common_check_long_hold_gpio_level(uint32_t num_pin, uint32_t delay_sec, bool level)
+{
     esp_rom_gpio_pad_select_gpio(num_pin);
-    if (GPIO_PIN_MUX_REG[num_pin]) {
-        PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[num_pin]);
+    if (((1ULL << num_pin) & SOC_GPIO_VALID_GPIO_MASK) != 0) {
+        gpio_ll_input_enable(&GPIO, num_pin);
     }
     esp_rom_gpio_pad_pullup_only(num_pin);
     uint32_t tm_start = esp_log_early_timestamp();
-    if (gpio_ll_get_level(&GPIO, num_pin) == 1) {
+    if (gpio_ll_get_level(&GPIO, num_pin) != level) {
         return GPIO_NOT_HOLD;
     }
     do {
-        if (gpio_ll_get_level(&GPIO, num_pin) != 0) {
+        if (gpio_ll_get_level(&GPIO, num_pin) != level) {
             return GPIO_SHORT_HOLD;
         }
     } while (delay_sec > ((esp_log_early_timestamp() - tm_start) / 1000L));
@@ -86,7 +77,7 @@ bool bootloader_common_label_search(const char *list, char *label)
 
         // [start_delim] + label + [end_delim] was not found.
         // Position is moving to next delimiter if it is not the end of list.
-        int pos_delim = strcspn(sub_list_start_like_label, ", ");
+        size_t pos_delim = strcspn(sub_list_start_like_label, ", ");
         if (pos_delim == strlen(sub_list_start_like_label)) {
             break;
         }
@@ -95,6 +86,7 @@ bool bootloader_common_label_search(const char *list, char *label)
     return false;
 }
 
+//This function erases while mmap is not unmapped yet. Can't be called in the app while XIP on PSRAM.
 bool bootloader_common_erase_part_type_data(const char *list_erase, bool ota_data_erase)
 {
     const esp_partition_info_t *partitions;
@@ -138,7 +130,7 @@ bool bootloader_common_erase_part_type_data(const char *list_erase, bool ota_dat
                     marker = "no";
                 }
 
-                ESP_LOGI(TAG, "%2d %-16s data  %08x %08x [%s]", i, partition->label,
+                ESP_LOGI(TAG, "%2d %-16s data  %08"PRIx32" %08"PRIx32" [%s]", i, partition->label,
                          partition->pos.offset, partition->pos.size, marker);
             }
         }
@@ -149,25 +141,30 @@ bool bootloader_common_erase_part_type_data(const char *list_erase, bool ota_dat
     return ret;
 }
 
-esp_err_t bootloader_common_get_sha256_of_partition (uint32_t address, uint32_t size, int type, uint8_t *out_sha_256)
+esp_err_t bootloader_common_get_sha256_of_partition(uint32_t address, uint32_t size, int type, uint8_t *out_sha_256)
 {
     if (out_sha_256 == NULL || size == 0) {
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (type == PART_TYPE_APP) {
+    if (type == PART_TYPE_APP || type == PART_TYPE_BOOTLOADER) {
         const esp_partition_pos_t partition_pos = {
             .offset = address,
             .size = size,
         };
         esp_image_metadata_t data;
-        // Function esp_image_verify() verifies and fills the structure data.
-        // here important to get: image_digest, image_len, hash_appended.
-        if (esp_image_verify(ESP_IMAGE_VERIFY_SILENT, &partition_pos, &data) != ESP_OK) {
+        esp_err_t err = esp_image_get_metadata(&partition_pos, &data);
+        if (err != ESP_OK) {
             return ESP_ERR_IMAGE_INVALID;
         }
         if (data.image.hash_appended) {
             memcpy(out_sha_256, data.image_digest, ESP_PARTITION_HASH_LEN);
+            uint8_t calc_sha256[ESP_PARTITION_HASH_LEN];
+            // The hash is verified before returning, if app content is invalid then the function returns ESP_ERR_IMAGE_INVALID.
+            esp_err_t error = bootloader_sha256_flash_contents(address, data.image_len - ESP_PARTITION_HASH_LEN, calc_sha256);
+            if (error || memcmp(data.image_digest, calc_sha256, ESP_PARTITION_HASH_LEN) != 0) {
+                return ESP_ERR_IMAGE_INVALID;
+            }
             return ESP_OK;
         }
         // If image doesn't have a appended hash then hash calculates for entire image.
@@ -192,8 +189,30 @@ void bootloader_common_vddsdio_configure(void)
 #endif // CONFIG_BOOTLOADER_VDDSDIO_BOOST
 }
 
-
-RESET_REASON bootloader_common_get_reset_reason(int cpu_no)
+// Lives here rather than in esp_image_format.c (esp_image_verify) because
+// esp_system calls it during early init and must be able to resolve it via
+// its existing bootloader_support dep, without dragging esp_image_verify
+// (and mbedTLS) into the build graph for every app.
+int esp_image_get_flash_size(esp_image_flash_size_t app_flash_size)
 {
-    return rtc_get_reset_reason(cpu_no);
+    switch (app_flash_size) {
+    case ESP_IMAGE_FLASH_SIZE_1MB:
+        return 1 * 1024 * 1024;
+    case ESP_IMAGE_FLASH_SIZE_2MB:
+        return 2 * 1024 * 1024;
+    case ESP_IMAGE_FLASH_SIZE_4MB:
+        return 4 * 1024 * 1024;
+    case ESP_IMAGE_FLASH_SIZE_8MB:
+        return 8 * 1024 * 1024;
+    case ESP_IMAGE_FLASH_SIZE_16MB:
+        return 16 * 1024 * 1024;
+    case ESP_IMAGE_FLASH_SIZE_32MB:
+        return 32 * 1024 * 1024;
+    case ESP_IMAGE_FLASH_SIZE_64MB:
+        return 64 * 1024 * 1024;
+    case ESP_IMAGE_FLASH_SIZE_128MB:
+        return 128 * 1024 * 1024;
+    default:
+        return 0;
+    }
 }

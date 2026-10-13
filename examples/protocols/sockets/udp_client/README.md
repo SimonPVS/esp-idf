@@ -1,3 +1,6 @@
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- |
+
 
 # UDP Client example
 
@@ -9,11 +12,11 @@ The application creates UDP socket and sends message to the predefined port and 
 
 In order to create UDP server that communicates with UDP Client example, choose one of the following options.
 
-There are many host-side tools which can be used to interact with the UDP/TCP server/client. 
-One command line tool is [netcat](http://netcat.sourceforge.net) which can send and receive many kinds of packets. 
+There are many host-side tools which can be used to interact with the UDP/TCP server/client.
+One command line tool is [netcat](http://netcat.sourceforge.net) which can send and receive many kinds of packets.
 Note: please replace `192.168.0.167 3333` with desired IPV4/IPV6 address (displayed in monitor console) and port number in the following commands.
 
-In addition to those tools, simple Python scripts can be found under sockets/scripts directory. Every script is designed to interact with one of the examples.
+Ref to the [upper level README](../README.md#host-tools) for more information.
 
 ### Send UDP packet via netcat
 ```
@@ -29,16 +32,6 @@ echo "Hello from PC" | nc -w1 -u 192.168.0.167 3333
 ```
 nc -u -l 192.168.0.167 3333
 ```
-
-### Python scripts
-Script example_test.py could be used as a counter part to the udp-client application, ip protocol name (IPv4 or IPv6) shall be stated as argument. Example:
-
-```
-python example_test.py IPv4
-```
-Note that this script is used in automated tests, as well, so the IDF test framework packages need to be imported;
-please add `$IDF_PATH/tools/ci/python_packages` to `PYTHONPATH`.
-
 
 ## Hardware Required
 
@@ -79,3 +72,40 @@ See the Getting Started Guide for full steps to configure and use ESP-IDF to bui
 ## Troubleshooting
 
 Start server first, to receive data sent from the client (application).
+
+## Running the example for Linux target
+
+This example could be executed on host system, using lwIP port for linux and FreeRTOS simulator on linux. The socket API used in this example directly calls lwIP implementation. Follow the steps below to configure, build and run the example on linux operating system.
+
+1. First configure the target (please note that using linux target is currently available only in `preview` stage)
+```
+idf.py --preview set-target linux
+```
+2. Configure the project
+```
+idf.py menuconfig
+```
+Choose connection capabilities in `Example Connection Configuration` menu:
+
+* By default, the `example_connect()` function returns as a no-op, expecting that the connection is already available. This option is preferred when we don't have to interact with outside networking layers and use only lwIP internal interface, such as loopback netif (`lo`).
+* If you want to connect lwIP network interface to the host system networking, set `EXAMPLE_CONNECT_LWIP_TAPIF`.
+    * Configure the interface address information (IP address, GW address and netmask).
+    * Create a host network interface named `tap0` of *TAP* type. You can use the `./make_tap_netif` script located in the `tapif_io` component directory.
+    * Optionally set input or output packet loss rate to simulate losing data of physical interfaces.
+    * Note about the host side networking:
+    * This example uses static IP address configured in `tapif_io` component configuration.
+    * Use the IP ranges that do not overlap with any other IP range of the host system.
+    * Make sure that the same IP range is configured in `tap0` interface created by tge `./make_tap_netif` script.
+    * You can leave the defaults in the script and `tapif_io` settings unless any other host network interface uses `192.168.5.x` range.
+    * Read more about host-side networking in the [`tapif_io` component documentation](../../../common_components/protocol_examples_tapif_io/README.md).
+
+3. Generate partition table for the application:
+```
+idf.by partition-table
+```
+
+4. Build and run the example the usual way (Note that the flash step is left out)
+```
+idf.by build
+idf.py monitor
+```

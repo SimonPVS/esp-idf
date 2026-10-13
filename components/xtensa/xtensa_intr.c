@@ -1,40 +1,53 @@
-/*******************************************************************************
-Copyright (c) 2006-2015 Cadence Design Systems Inc.
 
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
+/*
+ * Copyright (c) 2015-2019 Cadence Design Systems, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included
+ * in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+ * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+ * TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+ * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 
-The above copyright notice and this permission notice shall be included
-in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-******************************************************************************/
-
-/******************************************************************************
-  Xtensa-specific interrupt and exception functions for RTOS ports.
-  Also see xtensa_intr_asm.S.
-******************************************************************************/
+/*
+ * Xtensa-specific interrupt and exception functions for RTOS ports.
+ * Also see xtensa_intr_asm.S.
+ */
 
 #include <stdlib.h>
 
 #include <xtensa/config/core.h>
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/portable.h"
-#include "xtensa/xtensa_api.h"
+#include "esp_attr.h"
+#include "xtensa_api.h"
 #include "sdkconfig.h"
 #include "esp_rom_sys.h"
+
+/*
+ * When compiling for G0-only, we don't have FreeRTOS component.
+ * In fact, FreeRTOS component is only used for the core configuration, so
+ * the macro portNUM_PROCESSORS and the macro/function xPortGetCoreID need to
+ * be defined.
+ */
+#if __has_include("freertos/FreeRTOS.h")
+    #include "freertos/FreeRTOS.h"
+    #include "freertos/portable.h"
+#else
+    _Static_assert(portNUM_PROCESSORS == 1, "G0-only Xtensa builds can only be compiled in single-core mode");
+    #define xPortGetCoreID()    0
+#endif
 
 #if XCHAL_HAVE_EXCEPTIONS
 
@@ -98,9 +111,9 @@ extern xt_handler_table_entry _xt_interrupt_table[XCHAL_NUM_INTERRUPTS*portNUM_P
 /*
   Default handler for unhandled interrupts.
 */
-void xt_unhandled_interrupt(void * arg)
+void IRAM_ATTR xt_unhandled_interrupt(void * arg)
 {
-	esp_rom_printf("Unhandled interrupt %d on cpu %d!\n", (int)arg, xPortGetCoreID());
+    esp_rom_printf("Unhandled interrupt %d on cpu %d!\n", (int)arg, xPortGetCoreID());
 }
 
 //Returns true if handler for interrupt is not the default unhandled interrupt handler
@@ -143,7 +156,7 @@ xt_handler xt_set_interrupt_handler(int n, xt_handler f, void * arg)
     return ((old == &xt_unhandled_interrupt) ? 0 : old);
 }
 
-#if CONFIG_SYSVIEW_ENABLE
+#if CONFIG_ESP_TRACE_ENABLE
 void * xt_get_interrupt_handler_arg(int n)
 {
     xt_handler_table_entry * entry;
@@ -160,4 +173,3 @@ void * xt_get_interrupt_handler_arg(int n)
 #endif
 
 #endif /* XCHAL_HAVE_INTERRUPTS */
-

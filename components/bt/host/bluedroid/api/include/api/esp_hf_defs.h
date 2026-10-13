@@ -1,16 +1,8 @@
-// Copyright 2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef __ESP_HF_DEFS_H__
 #define __ESP_HF_DEFS_H__
@@ -21,37 +13,22 @@
 extern "C" {
 #endif
 
-#define ESP_BT_HF_NUMBER_LEN           (32)
-#define ESP_BT_HF_OPERATOR_NAME_LEN    (16)
+typedef uint16_t esp_hf_sync_conn_hdl_t;    /*!< HFP synchronous connection handle */
 
-#ifndef BTC_HSAG_SERVICE_NAME
-#define BTC_HSAG_SERVICE_NAME ("Headset Gateway")
-#endif
-
-#ifndef BTC_HFAG_SERVICE_NAME
-#define BTC_HFAG_SERVICE_NAME ("Handsfree Gateway")
-#endif
-
-#ifndef BTC_HF_SERVICES
-#define BTC_HF_SERVICES    (BTA_HSP_SERVICE_MASK | BTA_HFP_SERVICE_MASK )
-#endif
-
-#ifndef BTC_HF_SERVICE_NAMES
-#define BTC_HF_SERVICE_NAMES {BTC_HSAG_SERVICE_NAME , BTC_HFAG_SERVICE_NAME}
-#endif
-
-#ifndef BTC_HF_SECURITY
-#define BTC_HF_SECURITY    (BTA_SEC_AUTHENTICATE | BTA_SEC_ENCRYPT)
-#endif
-
-#define BTC_HF_CALL_END_TIMEOUT       6
-
-#define BTC_HF_INVALID_IDX       -1
+/// profile states
+typedef enum {
+    ESP_HF_INIT_SUCCESS = 0,                /*!< Indicate init successful */
+    ESP_HF_INIT_ALREADY,                    /*!< Indicate init repeated */
+    ESP_HF_INIT_FAIL,                       /*!< Indicate init fail */
+    ESP_HF_DEINIT_SUCCESS,                  /*!< Indicate deinit successful */
+    ESP_HF_DEINIT_ALREADY,                  /*!< Indicate deinit repeated */
+    ESP_HF_DEINIT_FAIL,                     /*!< Indicate deinit fail */
+} esp_hf_prof_state_t;
 
 /// in-band ring tone state
 typedef enum {
-    ESP_HF_IN_BAND_RINGTONE_NOT_PROVIDED = 0,
-    ESP_HF_IN_BAND_RINGTONE_PROVIDED,
+    ESP_HF_IN_BAND_RINGTONE_NOT_PROVIDED = 0,   /*!< Indicates that the in-band ringtone is not provided by the Hands-Free device */
+    ESP_HF_IN_BAND_RINGTONE_PROVIDED,           /*!< Indicates that the in-band ringtone is provided by the Hands-Free device */
 } esp_hf_in_band_ring_state_t;
 
 /// voice recognition state
@@ -70,32 +47,45 @@ typedef enum {
 typedef enum {
     ESP_HF_AUDIO_STATE_DISCONNECTED = 0,          /*!< audio connection released */
     ESP_HF_AUDIO_STATE_CONNECTING,                /*!< audio connection has been initiated */
-    ESP_HF_AUDIO_STATE_CONNECTED,                 /*!< audio connection is established */
+    ESP_HF_AUDIO_STATE_CONNECTED,                 /*!< CVSD audio connection is established */
     ESP_HF_AUDIO_STATE_CONNECTED_MSBC,            /*!< mSBC audio connection is established */
+    ESP_HF_AUDIO_STATE_CONNECTED_LC3,             /*!< LC3-SWB audio connection is established */
 } esp_hf_audio_state_t;
 
+/// Bluetooth HFP audio volume type
 typedef enum {
-    ESP_HF_VOLUME_TYPE_SPK = 0,
-    ESP_HF_VOLUME_TYPE_MIC
+    ESP_HF_VOLUME_TYPE_SPK = 0,                 /*!< speaker */
+    ESP_HF_VOLUME_TYPE_MIC                      /*!< microphone */
 } esp_hf_volume_type_t;
 
 /// +CIND network service availability status
 typedef enum
 {
-    ESP_HF_NETWORK_STATE_NOT_AVAILABLE = 0,
-    ESP_HF_NETWORK_STATE_AVAILABLE
+    ESP_HF_NETWORK_STATE_NOT_AVAILABLE = 0,         /*!< Indicates that the network service is not available */
+    ESP_HF_NETWORK_STATE_AVAILABLE                  /*!< Indicates that the network service is available */
 } esp_hf_network_state_t;
+
+/// +CIEV report type
+typedef enum {
+    ESP_HF_IND_TYPE_CALL = 1,       /*!< position of call indicator */
+    ESP_HF_IND_TYPE_CALLSETUP,      /*!< position of callsetup indicator */
+    ESP_HF_IND_TYPE_SERVICE,        /*!< position of service indicator */
+    ESP_HF_IND_TYPE_SIGNAL,         /*!< position of signal strength indicator, range: 0-5  */
+    ESP_HF_IND_TYPE_ROAM,           /*!< position of roaming indicator */
+    ESP_HF_IND_TYPE_BATTCHG,        /*!< position of battery charge indicator, range: 0-5 */
+    ESP_HF_IND_TYPE_CALLHELD        /*!< position of callheld indicator */
+} esp_hf_ciev_report_type_t;
 
 /** +CIEV Service type */
 typedef enum
 {
-    ESP_HF_SERVICE_TYPE_HOME = 0,
-    ESP_HF_SERVICE_TYPE_ROAMING
+    ESP_HF_SERVICE_TYPE_HOME = 0,       /*!< Indicates the service is in the home */
+    ESP_HF_SERVICE_TYPE_ROAMING         /*!< Indicates the service is in roaming */
 } esp_hf_service_type_t;
 
 /// +CIND call status indicator values
 typedef enum {
-    ESP_HF_CALL_STATUS_NO_CALLS = 0,                  /*!< no call in progress  */
+    ESP_HF_CALL_STATUS_NO_CALLS = 0,                  /*!< no call in progress */
     ESP_HF_CALL_STATUS_CALL_IN_PROGRESS = 1,          /*!< call is present(active or held) */
 } esp_hf_call_status_t;
 
@@ -145,21 +135,21 @@ typedef enum {
 
 /// +CLCC call mode
 typedef enum {
-    ESP_HF_CURRENT_CALL_MODE_VOICE = 0,
-    ESP_HF_CURRENT_CALL_MODE_DATA = 1,
-    ESP_HF_CURRENT_CALL_MODE_FAX = 2,
+    ESP_HF_CURRENT_CALL_MODE_VOICE = 0,             /*!< the current call is a voice call */
+    ESP_HF_CURRENT_CALL_MODE_DATA = 1,              /*!< the current call is a data call */
+    ESP_HF_CURRENT_CALL_MODE_FAX = 2,               /*!< the current call is a fax call */
 } esp_hf_current_call_mode_t;
 
 /// +CLCC address type
 typedef enum {
-    ESP_HF_CALL_ADDR_TYPE_UNKNOWN = 0x81,            /*!< unkown address type */
+    ESP_HF_CALL_ADDR_TYPE_UNKNOWN = 0x81,            /*!< unknown address type */
     ESP_HF_CALL_ADDR_TYPE_INTERNATIONAL = 0x91,      /*!< international address */
 } esp_hf_call_addr_type_t;
 
 /// +CNUM service type of the phone number
 typedef enum {
     ESP_HF_SUBSCRIBER_SERVICE_TYPE_UNKNOWN = 0,      /*!< unknown */
-    ESP_HF_SUBSCRIBER_SERVICE_TYPE_VOICE,            /*!< voice service */
+    ESP_HF_SUBSCRIBER_SERVICE_TYPE_VOICE = 4,        /*!< voice service */
     ESP_HF_SUBSCRIBER_SERVICE_TYPE_FAX,              /*!< fax service */
 } esp_hf_subscriber_service_type_t;
 
@@ -180,23 +170,42 @@ typedef enum {
 /* +NREC */
 typedef enum
 {
-    ESP_HF_NREC_STOP = 0,
-    ESP_HF_NREC_START
+    ESP_HF_NREC_STOP = 0,           /*!< Stop the NREC */
+    ESP_HF_NREC_START               /*!< Start the NREC */
 } esp_hf_nrec_t;
 
-///+CCWA resposne status
+///+CCWA response status
 typedef enum {
-    ESP_HF_CALL_WAITING_INACTIVE,
-    ESP_HF_CALL_WAITING_ACTIVE,
+    ESP_HF_CALL_WAITING_INACTIVE,       /*!< inactive call waiting */
+    ESP_HF_CALL_WAITING_ACTIVE,         /*!< active call waiting */
 } esp_hf_call_waiting_status_t;
 
-/* WBS codec setting */
+/* codec setting - values match HFP Codec ID in AT+BAC/+BCS (Appendix B) */
 typedef enum
 {
-   ESP_HF_WBS_NONE,
-   ESP_HF_WBS_NO,
-   ESP_HF_WBS_YES
-}esp_hf_wbs_config_t;
+   ESP_HF_CODEC_NONE = 0,   /*!< No codec negotiated */
+   ESP_HF_CODEC_CVSD = 1,   /*!< Narrowband Speech (CVSD) */
+   ESP_HF_CODEC_MSBC = 2,   /*!< Wideband Speech (mSBC) */
+   ESP_HF_CODEC_LC3  = 3    /*!< Super Wideband Speech (LC3-SWB) */
+} esp_hf_codec_mode_t;
+
+/*!< @deprecated Renamed to ESP_HF_CODEC_NONE */
+#define ESP_HF_WBS_NONE   (ESP_HF_CODEC_NONE)    /*!< No Wideband Speech (WBS) codec support */
+
+/*!< @deprecated Renamed to ESP_HF_CODEC_CVSD */
+#define ESP_HF_WBS_NO     (ESP_HF_CODEC_CVSD)    /*!< Wideband Speech (WBS) codec is not enabled */
+
+/*!< @deprecated Renamed to ESP_HF_CODEC_MSBC */
+#define ESP_HF_WBS_YES    (ESP_HF_CODEC_MSBC)    /*!< Wideband Speech (WBS) codec is enabled */
+
+/*!< @deprecated esp_hf_wbs_config_t is changed to esp_hf_codec_mode_t */
+typedef esp_hf_codec_mode_t esp_hf_wbs_config_t;
+
+
+/** @brief Codec capability bitmap for AT+BAC, matches BTA_AG_CODEC_* flags */
+#define ESP_HF_CODEC_CAP_CVSD   (1u << (ESP_HF_CODEC_CVSD - 1))   /*!< 0x01 */
+#define ESP_HF_CODEC_CAP_MSBC   (1u << (ESP_HF_CODEC_MSBC - 1))   /*!< 0x02 */
+#define ESP_HF_CODEC_CAP_LC3    (1u << (ESP_HF_CODEC_LC3 - 1))    /*!< 0x04 */
 
 /// Bluetooth HFP RFCOMM connection and service level connection status
 typedef enum {
@@ -210,11 +219,11 @@ typedef enum {
 /// AT+CHLD command values
 typedef enum {
     ESP_HF_CHLD_TYPE_REL = 0,               /*!< <0>, Terminate all held or set UDUB("busy") to a waiting call */
-    ESP_HF_CHLD_TYPE_REL_ACC,               /*!< <1>, Terminate all active calls and accepts a waiting/held call */
-    ESP_HF_CHLD_TYPE_HOLD_ACC,              /*!< <2>, Hold all active calls and accepts a waiting/held call */
+    ESP_HF_CHLD_TYPE_REL_ACC,               /*!< <1>, Terminate all active calls and accept a waiting/held call */
+    ESP_HF_CHLD_TYPE_HOLD_ACC,              /*!< <2>, Hold all active calls and accept a waiting/held call */
     ESP_HF_CHLD_TYPE_MERGE,                 /*!< <3>, Add all held calls to a conference */
-    ESP_HF_CHLD_TYPE_MERGE_DETACH,          /*!< <4>, connect the two calls and disconnects the subscriber from both calls */
-    ESP_HF_CHLD_TYPE_REL_X,                 /*!< <1x>, releases specified calls only */
+    ESP_HF_CHLD_TYPE_MERGE_DETACH,          /*!< <4>, connect the two calls and disconnect the subscriber from both calls */
+    ESP_HF_CHLD_TYPE_REL_X,                 /*!< <1x>, release specified calls only */
     ESP_HF_CHLD_TYPE_PRIV_X,                /*!< <2x>, request private consultation mode with specified call */
 } esp_hf_chld_type_t;
 
@@ -232,8 +241,8 @@ typedef enum {
 
 /* AT response code - OK/Error */
 typedef enum {
-    ESP_HF_AT_RESPONSE_ERROR = 0,
-    ESP_HF_AT_RESPONSE_OK
+    ESP_HF_AT_RESPONSE_ERROR = 0,       /*!< error in the AT command response */
+    ESP_HF_AT_RESPONSE_OK               /*!< successful AT command response */
 } esp_hf_at_response_t;
 
 /// Extended Audio Gateway Error Result Code Response
@@ -251,10 +260,10 @@ typedef enum {
     ESP_HF_CME_INCORRECT_PASSWORD = 16,           /*!< incorrect password */
     ESP_HF_CME_SIM_PIN2_REQUIRED = 17,            /*!< SIM PIN2 required */
     ESP_HF_CME_SIM_PUK2_REQUIRED = 18,            /*!< SIM PUK2 required */
-    ESP_HF_CME_MEMEORY_FULL = 20,                 /*!< memory full */
+    ESP_HF_CME_MEMORY_FULL = 20,                  /*!< memory full */
     ESP_HF_CME_INVALID_INDEX = 21,                /*!< invalid index */
-    ESP_HF_CME_MEMEORY_FAILURE = 23,              /*!< memory failure */
-    ESP_HF_CME_TEXT_STRING_TOO_LONG = 24,         /*!< test string too long */
+    ESP_HF_CME_MEMORY_FAILURE = 23,              /*!< memory failure */
+    ESP_HF_CME_TEXT_STRING_TOO_LONG = 24,         /*!< text string too long */
     ESP_HF_CME_INVALID_CHARACTERS_IN_TEXT_STRING = 25,  /*!< invalid characters in text string */
     ESP_HF_CME_DIAL_STRING_TOO_LONG = 26,         /*!< dial string too long*/
     ESP_HF_CME_INVALID_CHARACTERS_IN_DIAL_STRING = 27,  /*!< invalid characters in dial string */
@@ -263,83 +272,35 @@ typedef enum {
     ESP_HF_CME_NETWORK_NOT_ALLOWED = 32,          /*!< network not allowed --emergency calls only */
 } esp_hf_cme_err_t;
 
-/** Callback for connection state change.
- *  state will have one of the values from BtHfConnectionState
- */
-typedef void (* esp_hf_connection_state_callback)(esp_hf_connection_state_t state, esp_bd_addr_t *bd_addr);
+/* Since HFP uses a fixed set of mSBC codec parameters, define it here */
+#define ESP_HF_MSBC_CHANNEL_MODE                "Mono"              /*!< mSBC channel mode */
+#define ESP_HF_MSBC_SAMPLING_RATE               "16 kHz"            /*!< mSBC sampling rate */
+#define ESP_HF_MSBC_ALLOCATION_METHOD           "Loudness"          /*!< mSBC allocation method */
+#define ESP_HF_MSBC_SUBBANDS                    8                   /*!< mSBC subbands */
+#define ESP_HF_MSBC_BLOCK_LENGTH                15                  /*!< mSBC block length */
+#define ESP_HF_MSBC_BITPOOL                     26                  /*!< mSBC bitpool */
+/* frame size after mSBC encoded */
+#define ESP_HF_MSBC_ENCODED_FRAME_SIZE          57                  /*!< mSBC frame size */
+#define ESP_HF_MSBC_SAMPLING_RATE_HZ            16000               /*!< mSBC PCM sampling rate */
+#define ESP_HF_MSBC_H2_HEADER_LEN               2                   /*!< H2 sync header length */
+#define ESP_HF_MSBC_ENCODED_FRAME_SIZE_WITH_H2  (ESP_HF_MSBC_ENCODED_FRAME_SIZE + ESP_HF_MSBC_H2_HEADER_LEN)
 
-/** Callback for audio connection state change.
- *  state will have one of the values from BtHfAudioState
- */
-typedef void (* esp_hf_audio_state_callback)(esp_hf_audio_state_t state, esp_bd_addr_t *bd_addr);
+/* Since HFP uses a fixed set of LC3-SWB codec parameters (HFP 1.9 Table 6.15) */
+#define ESP_HF_LC3_SAMPLING_RATE_HZ             32000               /*!< LC3-SWB PCM sampling rate */
+#define ESP_HF_LC3_FRAME_DURATION_US            7500                /*!< LC3-SWB frame duration */
+#define ESP_HF_LC3_ENCODED_FRAME_SIZE           58                  /*!< LC3 payload size (excl. H2 header) */
+#define ESP_HF_LC3_H2_HEADER_LEN                2                   /*!< H2 sync header length */
+#define ESP_HF_LC3_ENCODED_FRAME_SIZE_WITH_H2   (ESP_HF_LC3_ENCODED_FRAME_SIZE + ESP_HF_LC3_H2_HEADER_LEN)
+#define ESP_HF_LC3_BITRATE_BPS                  61867               /*!< Resulting bit rate (excl. H2 header) */
 
-/** Callback for VR connection state change.
- *  state will have one of the values from BtHfVRState
+/**
+ * @brief HFP audio buffer
  */
-typedef void (* esp_hf_vr_cmd_callback)(esp_hf_vr_state_t state, esp_bd_addr_t *bd_addr);
-
-/** Callback for answer incoming call (ATA)
- */
-typedef void (* esp_hf_answer_call_cmd_callback)(esp_bd_addr_t *bd_addr);
-
-/** Callback for disconnect call (AT+CHUP)
- */
-typedef void (* esp_hf_hangup_call_cmd_callback)(esp_bd_addr_t *bd_addr);
-
-/** Callback for disconnect call (AT+CHUP)
- *  type will denote Speaker/Mic gain (BtHfVolumeControl).
- */
-typedef void (* esp_hf_volume_cmd_callback)(esp_hf_volume_control_target_t type, int volume, esp_bd_addr_t *bd_addr);
-
-/** Callback for dialing an outgoing call
- *  If number is NULL, redial
- */
-typedef void (* esp_hf_dial_call_cmd_callback)(char *number, esp_bd_addr_t *bd_addr);
-
-/** Callback for sending DTMF tones
- *  tone contains the dtmf character to be sent
- */
-typedef void (* esp_hf_dtmf_cmd_callback)(char tone, esp_bd_addr_t *bd_addr);
-
-/** Callback for enabling/disabling noise reduction/echo cancellation
- *  value will be 1 to enable, 0 to disable
- */
-typedef void (* esp_hf_nrec_cmd_callback)(esp_hf_nrec_t nrec, esp_bd_addr_t *bd_addr);
-
-/** Callback for AT+BCS and event from BAC
- *  WBS enable, WBS disable
- */
-typedef void (* esp_hf_wbs_callback)(esp_hf_wbs_config_t wbs, esp_bd_addr_t *bd_addr);
-
-/** Callback for call hold handling (AT+CHLD)
- *  value will contain the call hold command (0, 1, 2, 3)
- */
-typedef void (* esp_hf_chld_cmd_callback)(esp_hf_chld_type_t chld, esp_bd_addr_t *bd_addr);
-
-/** Callback for CNUM (subscriber number)
- */
-typedef void (* esp_hf_cnum_cmd_callback)(esp_bd_addr_t *bd_addr);
-
-/** Callback for indicators (CIND)
- */
-typedef void (* esp_hf_cind_cmd_callback)(esp_bd_addr_t *bd_addr);
-
-/** Callback for operator selection (COPS)
- */
-typedef void (* esp_hf_cops_cmd_callback)(esp_bd_addr_t *bd_addr);
-
-/** Callback for call list (AT+CLCC)
- */
-typedef void (* esp_hf_clcc_cmd_callback) (esp_bd_addr_t *bd_addr);
-
-/** Callback for unknown AT command recd from AG
- *  at_string will contain the unparsed AT string
- */
-typedef void (* esp_hf_unknown_at_cmd_callback)(char *at_string, esp_bd_addr_t *bd_addr);
-
-/** Callback for keypressed (HSP) event.
- */
-typedef void (* esp_hf_key_pressed_cmd_callback)(esp_bd_addr_t *bd_addr);
+typedef struct {
+    uint16_t    buff_size;                  /*!< buffer size */
+    uint16_t    data_len;                   /*!< audio data length, data length should not greater than buffer size */
+    uint8_t    *data;                       /*!< pointer to audio data start */
+} esp_hf_audio_buff_t;                      /*!< struct to store audio data */
 
 #ifdef __cplusplus
 }

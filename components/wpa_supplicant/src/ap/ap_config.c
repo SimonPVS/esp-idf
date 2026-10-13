@@ -12,12 +12,13 @@
 #include "crypto/sha1.h"
 #include "common/ieee802_11_defs.h"
 #include "common/eapol_common.h"
+#include "common/sae.h"
 #include "ap/wpa_auth.h"
 #include "ap/ap_config.h"
 #include "utils/wpa_debug.h"
 #include "ap/hostapd.h"
 #include "ap/wpa_auth_i.h"
-#include "esp_supplicant/esp_wifi_driver.h"
+#include "esp_wifi_driver.h"
 #include "esp_wifi_types.h"
 
 void hostapd_config_defaults_bss(struct hostapd_bss_config *bss)
@@ -144,9 +145,42 @@ static int hostapd_derive_psk(struct hostapd_ssid *ssid)
 }
 
 
+int hostapd_setup_sae_pt(struct hostapd_bss_config *conf)
+{
+#ifdef CONFIG_SAE_H2E
+    struct hostapd_ssid *ssid = &conf->ssid;
+    if (conf->sae_pwe == SAE_PWE_HUNT_AND_PECK ||
+        !wpa_key_mgmt_sae(conf->wpa_key_mgmt
+#ifdef CONFIG_WPA3_COMPAT
+         | conf->rsn_override_key_mgmt
+#endif
+        ))
+        return 0; /* PT not needed */
+
+    sae_deinit_pt(ssid->pt);
+    ssid->pt = NULL;
+    if (ssid->wpa_passphrase) {
+        ssid->pt = sae_derive_pt(conf->sae_groups, ssid->ssid,
+                     ssid->ssid_len,
+                     (const u8 *) ssid->wpa_passphrase,
+                     os_strlen(ssid->wpa_passphrase),
+                     NULL);
+        if (!ssid->pt)
+            return -1;
+    }
+
+#endif /* CONFIG_SAE_H2E */
+
+    return 0;
+}
+
+
 int hostapd_setup_wpa_psk(struct hostapd_bss_config *conf)
 {
     struct hostapd_ssid *ssid = &conf->ssid;
+
+    if (hostapd_setup_sae_pt(conf) < 0)
+        return -1;
 
     if (ssid->wpa_passphrase != NULL) {
         if (ssid->wpa_psk != NULL) {
@@ -246,3 +280,23 @@ const u8 * hostapd_get_psk(const struct hostapd_bss_config *conf,
     return NULL;
 }
 
+void hostapd_config_clear_wpa_psk(struct hostapd_wpa_psk **l)
+{
+    struct hostapd_wpa_psk *psk, *tmp;
+
+    for (psk = *l; psk;) {
+        tmp = psk;
+        psk = psk->next;
+        bin_clear_free(tmp, sizeof(*tmp));
+    }
+    *l = NULL;
+}
+
+void hostapd_config_free_bss(struct hostapd_bss_config *conf)
+{
+    hostapd_config_clear_wpa_psk(&conf->ssid.wpa_psk);
+#ifdef CONFIG_SAE
+    sae_deinit_pt(conf->ssid.pt);
+#endif /* CONFIG_SAE */
+    os_free(conf);
+}

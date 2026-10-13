@@ -92,20 +92,21 @@ typedef struct {
     fixed_queue_t  *cmd_q;          /* Queue for command messages on this mux */
     UINT8     port_inx[RFCOMM_MAX_DLCI + 1];  /* Array for quick access to  */
     /* tPORT based on dlci        */
-    BD_ADDR   bd_addr;        /* BD ADDR of the peer if initiator */
-    UINT16    lcid;           /* Local cid used for this channel */
-    UINT16    peer_l2cap_mtu; /* Max frame that can be sent to peer L2CAP */
-    UINT8     state;          /* Current multiplexer channel state */
-    UINT8     is_initiator;   /* TRUE if this side sends SABME (dlci=0) */
+    BD_ADDR   bd_addr;           /* BD ADDR of the peer if initiator */
+    UINT16    lcid;              /* Local cid used for this channel */
+    UINT16    peer_l2cap_mtu;    /* Max frame that can be sent to peer L2CAP */
+    UINT8     state;             /* Current multiplexer channel state */
+    UINT8     is_initiator;      /* TRUE if this side sends SABME (dlci=0) */
     BOOLEAN   local_cfg_sent;
     BOOLEAN   peer_cfg_rcvd;
-    BOOLEAN   restart_required; /* TRUE if has to restart channel after disc */
-    BOOLEAN   peer_ready;      /* True if other side can accept frames */
-    UINT8     flow;            /* flow control mechanism for this mux */
-    BOOLEAN   l2cap_congested; /* TRUE if L2CAP is congested */
+    BOOLEAN   restart_required;  /* TRUE if has to restart channel after disc */
+    BOOLEAN   peer_ready;        /* True if other side can accept frames */
+    UINT8     flow;              /* flow control mechanism for this mux */
+    BOOLEAN   l2cap_congested;   /* TRUE if L2CAP is congested */
     BOOLEAN   is_disc_initiator; /* TRUE if initiated disc of port */
-    UINT16    pending_lcid;    /* store LCID for incoming connection while connecting */
-    UINT8     pending_id;      /* store l2cap ID for incoming connection while connecting */
+    UINT16    pending_lcid;      /* store LCID for incoming connection while connecting */
+    UINT8     pending_id;        /* store l2cap ID for incoming connection while connecting */
+    BOOLEAN   peer_rx_disabled;  /* If TRUE peer sent FCOFF */
 } tRFC_MCB;
 
 
@@ -188,7 +189,7 @@ struct t_port_info {
 
     UINT32      ev_mask;                    /* Event mask for the callback */
     tPORT_CALLBACK      *p_callback;        /* Pointer to users callback function */
-    tPORT_CALLBACK      *p_mgmt_callback;   /* Callback function to receive connection up/down */
+    tPORT_MGMT_CALLBACK *p_mgmt_callback;   /* Callback function to receive connection up/down */
     tPORT_DATA_CALLBACK *p_data_callback;   /* Callback function to receive data indications */
     tPORT_DATA_CO_CALLBACK *p_data_co_callback;   /* Callback function with callouts and flowctrl */
     UINT16      credit_tx;                  /* Flow control credits for tx path */
@@ -209,6 +210,7 @@ typedef struct t_port_info tPORT;
 typedef struct {
     tPORT        port[MAX_RFC_PORTS];            /* Port info pool */
     tRFC_MCB     rfc_mcb[MAX_BD_CONNECTIONS];    /* RFCOMM bd_connections pool */
+    BOOLEAN      enable_l2cap_ertm;              /* enable/disable l2cap ertm */
 } tPORT_CB;
 
 #ifdef __cplusplus

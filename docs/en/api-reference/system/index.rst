@@ -1,36 +1,47 @@
 System API
 **********
 
+:link_to_translation:`zh_CN:[中文]`
+
 .. toctree::
     :maxdepth: 1
 
-    App image format <app_image_format>
-    Application Level Tracing <app_trace>
-    :esp32s2: Async Memory Copy <async_memcpy>
-    Console Component <console>
-    eFuse Manager <efuse>
-    Error Codes and Helper Functions <esp_err>
-    ESP HTTPS OTA <esp_https_ota>
-    ESP pthread <esp_pthread>
-    Event Loop Library <esp_event>
-    FreeRTOS <freertos>
-    FreeRTOS Additions <freertos_additions>
-    Heap Memory Allocation <mem_alloc>
-    Heap Memory Debugging <heap_debug>
-    High Resolution Timer <esp_timer>
-    :esp32: Himem (large external SPI RAM) API <himem>
-    :esp32: Inter-Processor Call <ipc>
-    Call function with external stack <esp_function_with_shared_stack>
-    Interrupt Allocation <intr_alloc>
-    Logging <log>
-    Miscellaneous System APIs <system>
-    Over The Air Updates (OTA) <ota>
-    Performance Monitor <perfmon>
-    Power Management <power_management>
-    Sleep Modes <sleep_modes>
-    Watchdogs <wdts>
-    System Time <system_time>
-    Internal and Unstable API <internal-unstable>
+    app_image_format
+    bootloader_image_format
+    app_trace
+    esp_trace
+    esp_function_with_shared_stack
+    :SOC_CACHE_CNT_SUPPORTED: cache_cnt
+    chip_revision
+    console
+    efuse
+    esp_err
+    esp_https_ota
+    esp_event
+    freertos
+    freertos_idf
+    freertos_additions
+    mem_alloc
+    mm
+    :SOC_PSRAM_DMA_CAPABLE or SOC_CACHE_INTERNAL_MEM_VIA_L1CACHE: mm_sync
+    heap_debug
+    esp_timer
+    internal-unstable
+    :SOC_HP_CPU_HAS_MULTIPLE_CORES: ipc
+    intr_alloc
+    log
+    misc_system_api
+    ota
+    :CONFIG_IDF_TARGET_ARCH_XTENSA: perfmon
+    power_management
+    pthread
+    random
+    sleep_modes
+    soc_caps
+    system_time
+    :esp32: himem
+    ulp
+    wdts
 
 
 Code examples for this API section are provided in the :example:`system` directory of ESP-IDF examples.

@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "common/bt_target.h"
 #include <string.h>
@@ -49,7 +41,7 @@ esp_err_t esp_avrc_ct_init(void)
     msg.act = BTC_AVRC_CT_API_INIT_EVT;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL);
+    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -66,7 +58,7 @@ esp_err_t esp_avrc_ct_deinit(void)
     msg.act = BTC_AVRC_CT_API_DEINIT_EVT;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL);
+    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -93,7 +85,7 @@ esp_err_t esp_avrc_ct_send_set_player_value_cmd(uint8_t tl, uint8_t attr_id, uin
     arg.ps_cmd.value_id = value_id;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL);
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -118,7 +110,7 @@ esp_err_t esp_avrc_ct_send_get_rn_capabilities_cmd(uint8_t tl)
     arg.get_caps_cmd.tl = tl;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL);
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -149,7 +141,7 @@ esp_err_t esp_avrc_ct_send_register_notification_cmd(uint8_t tl, uint8_t event_i
     arg.rn_cmd.event_parameter = event_parameter;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL);
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -183,7 +175,7 @@ esp_err_t esp_avrc_ct_send_set_absolute_volume_cmd(uint8_t tl, uint8_t volume)
     arg.set_abs_vol_cmd.volume = volume;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL);
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -209,7 +201,7 @@ esp_err_t esp_avrc_ct_send_metadata_cmd(uint8_t tl, uint8_t attr_mask)
     arg.md_cmd.attr_mask = attr_mask;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL);
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -236,9 +228,177 @@ esp_err_t esp_avrc_ct_send_passthrough_cmd(uint8_t tl, uint8_t key_code, uint8_t
     arg.pt_cmd.key_state = key_state;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL);
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
+
+esp_err_t esp_avrc_ct_send_get_play_status_cmd(uint8_t tl)
+{
+    if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (tl > ESP_AVRC_TRANS_LABEL_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    btc_msg_t msg;
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_AVRC_CT;
+    msg.act = BTC_AVRC_STATUS_API_SND_GET_PLAY_STATUS_EVT;
+
+    btc_avrc_args_t arg;
+    memset(&arg, 0, sizeof(btc_avrc_args_t));
+
+    arg.get_play_status_cmd.tl = tl;
+
+    /* Switch to BTC context */
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
+    return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
+}
+
+#if BTC_AV_CA_INCLUDED
+
+esp_err_t esp_avrc_ct_cover_art_connect(uint16_t mtu)
+{
+    if ((esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) ||
+        (!btc_avrc_ct_connected_p())) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!btc_avrc_ct_check_cover_art_support()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (mtu > ESP_AVRC_CA_MTU_MAX || mtu < ESP_AVRC_CA_MTU_MIN) {
+        mtu = ESP_AVRC_CA_MTU_MAX;
+    }
+
+    btc_msg_t msg;
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_AVRC_CT;
+    msg.act = BTC_AVRC_CT_API_COVER_ART_CONNECT_EVT;
+
+    btc_avrc_args_t arg;
+    memset(&arg, 0, sizeof(btc_avrc_args_t));
+    arg.ca_conn.mtu = mtu;
+
+    /* Switch to BTC context */
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
+    return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t esp_avrc_ct_cover_art_disconnect(void)
+{
+    if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!btc_avrc_ct_check_cover_art_support()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    btc_msg_t msg;
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_AVRC_CT;
+    msg.act = BTC_AVRC_CT_API_COVER_ART_DISCONNECT_EVT;
+
+    /* Switch to BTC context */
+    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL, NULL);
+    return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t esp_avrc_ct_cover_art_get_image_properties(uint8_t *image_handle)
+{
+    if ((esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) ||
+        (!btc_avrc_ct_connected_p())) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!btc_avrc_ct_check_cover_art_support()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (image_handle == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    btc_msg_t msg;
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_AVRC_CT;
+    msg.act = BTC_AVRC_CT_API_COVER_ART_GET_IMAGE_PROPERTIES_EVT;
+
+    btc_avrc_args_t arg;
+    memset(&arg, 0, sizeof(btc_avrc_args_t));
+    memcpy(arg.ca_get_img_prop.image_handle, image_handle, ESP_AVRC_CA_IMAGE_HANDLE_LEN);
+
+    /* Switch to BTC context */
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
+    return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t esp_avrc_ct_cover_art_get_image(uint8_t *image_handle, uint8_t *image_descriptor, uint16_t image_descriptor_len)
+{
+    if ((esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) ||
+        (!btc_avrc_ct_connected_p())) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!btc_avrc_ct_check_cover_art_support()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (image_handle == NULL || image_descriptor == NULL || image_descriptor_len == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    btc_msg_t msg;
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_AVRC_CT;
+    msg.act = BTC_AVRC_CT_API_COVER_ART_GET_IMAGE_EVT;
+
+    btc_avrc_args_t arg;
+    memset(&arg, 0, sizeof(btc_avrc_args_t));
+
+    memcpy(arg.ca_get_img.image_handle, image_handle, ESP_AVRC_CA_IMAGE_HANDLE_LEN);
+    arg.ca_get_img.image_descriptor_len = image_descriptor_len;
+    arg.ca_get_img.image_descriptor = image_descriptor;
+
+    /* Switch to BTC context */
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), btc_avrc_arg_deep_copy, btc_avrc_arg_deep_free);
+    return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
+}
+
+esp_err_t esp_avrc_ct_cover_art_get_linked_thumbnail(uint8_t *image_handle)
+{
+    if ((esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) ||
+        (!btc_avrc_ct_connected_p())) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (!btc_avrc_ct_check_cover_art_support()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+
+    if (image_handle == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    btc_msg_t msg;
+    msg.sig = BTC_SIG_API_CALL;
+    msg.pid = BTC_PID_AVRC_CT;
+    msg.act = BTC_AVRC_CT_API_COVER_ART_GET_LINKED_THUMBNAIL_EVT;
+
+    btc_avrc_args_t arg;
+    memset(&arg, 0, sizeof(btc_avrc_args_t));
+    memcpy(arg.ca_get_lk_thn.image_handle, image_handle, ESP_AVRC_CA_IMAGE_HANDLE_LEN);
+
+    /* Switch to BTC context */
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_args_t), NULL, NULL);
+    return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
+}
+
+#endif /* #if BTC_AV_CA_INCLUDED */
 
 /*********************************************************************************************/
 /**                  following is the API of AVRCP target role                              **/
@@ -271,7 +431,7 @@ esp_err_t esp_avrc_tg_init(void)
     msg.act = BTC_AVRC_TG_API_INIT_EVT;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL);
+    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -288,7 +448,7 @@ esp_err_t esp_avrc_tg_deinit(void)
     msg.act = BTC_AVRC_TG_API_DEINIT_EVT;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL);
+    bt_status_t stat = btc_transfer_context(&msg, NULL, 0, NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -369,7 +529,7 @@ esp_err_t esp_avrc_tg_set_psth_cmd_filter(esp_avrc_psth_filter_t filter, const e
 
         /* Switch to BTC context */
         bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_tg_args_t),
-                                                btc_avrc_tg_arg_deep_copy);
+                                                btc_avrc_tg_arg_deep_copy, btc_avrc_tg_arg_deep_free);
         return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
     } else {
         return ESP_FAIL;
@@ -422,7 +582,7 @@ esp_err_t esp_avrc_tg_set_rn_evt_cap(const esp_avrc_rn_evt_cap_mask_t *evt_set)
     arg.set_rn_evt = evt_set->bits;
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_tg_args_t), NULL);
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_tg_args_t), NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 }
 
@@ -464,6 +624,10 @@ esp_err_t esp_avrc_tg_send_rn_rsp(esp_avrc_rn_event_ids_t event_id, esp_avrc_rn_
         return ESP_ERR_NOT_SUPPORTED;
     }
 
+    if (param == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     btc_msg_t msg;
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_AVRC_TG;
@@ -477,9 +641,24 @@ esp_err_t esp_avrc_tg_send_rn_rsp(esp_avrc_rn_event_ids_t event_id, esp_avrc_rn_
     memcpy(&arg.rn_rsp.param, param, sizeof(esp_avrc_rn_param_t));
 
     /* Switch to BTC context */
-    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_tg_args_t), NULL);
+    bt_status_t stat = btc_transfer_context(&msg, &arg, sizeof(btc_avrc_tg_args_t), NULL, NULL);
     return (stat == BT_STATUS_SUCCESS) ? ESP_OK : ESP_FAIL;
 
+}
+
+esp_err_t esp_avrc_get_profile_status(esp_avrc_profile_status_t *profile_status)
+{
+    if (esp_bluedroid_get_status() != ESP_BLUEDROID_STATUS_ENABLED) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (profile_status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    memset(profile_status, 0, sizeof(esp_avrc_profile_status_t));
+    btc_avrc_get_profile_status(profile_status);
+
+    return ESP_OK;
 }
 
 #endif /* #if BTC_AV_INCLUDED */

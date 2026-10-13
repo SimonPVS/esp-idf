@@ -26,7 +26,7 @@
     Open On-Chip Debugger  v0.10.0-esp32-20200420 (2020-04-20-16:15)
     Licensed under GNU GPL v2
     For bug reports, read
-            http://openocd.org/doc/doxygen/bugs.html
+            https://openocd.org/doc/doxygen/bugs.html
     none separate
     adapter speed: 20000 kHz
     force hard breakpoints
@@ -92,7 +92,7 @@
       - ESP32-S2 target configuration file. Can be used together with one of the ``interface/`` configuration files.
     * - ``interface/ftdi/esp32s2_kaluga_v1.cfg``
       - JTAG adapter configuration file for ESP32-S2-Kaluga-1 board.
-    * - ``interface/ftdi/esp32_devkitj_v1.cfg``
+    * - ``interface/ftdi/esp_ftdi.cfg``
       - JTAG adapter configuration file for ESP-Prog boards.
 
 ---
@@ -148,13 +148,13 @@
 
 .. devkit-defs
 
-.. |devkit-name| replace:: ESP-S2-Kaluga-1
-.. |devkit-name-with-link| replace:: :doc:`ESP-S2-Kaluga-1 <../../hw-reference/modules-and-boards>`
+.. |devkit-name| replace:: ESP32-S2-Kaluga-1
+.. |devkit-name-with-link| replace:: :doc:`ESP32-S2-Kaluga-1 <../../hw-reference/index>`
 
 ---
 
 .. devkit-hw-config
 
-* Out of the box, ESP32-S2-Kaluga-1 doesn't need any additional hardware configuration for JTAG debugging. However if you are experiencing issues, check that switches 2-5 of the "JTAG" DIP switch block are in "ON" position.
+* Out of the box, ESP32-S2-Kaluga-1 doesn't need any additional hardware configuration for JTAG debugging. However if you are experiencing issues, check that the "JTAG" DIP switches (SW5 in the schematic) labelled TCK, TDO, TDI, TMS are in "ON" position.
 
 ---

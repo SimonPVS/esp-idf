@@ -1,3 +1,6 @@
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 | ESP32-S31 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- | --------- |
+
 # OTA Tool Example
 
 This example demonstrates common operations the OTA tool [otatool.py](../../../../components/app_update/otatool.py) allows the user to perform:
@@ -11,7 +14,7 @@ programmatic invocation of the tool's functions via the Python API and command-l
 that on Windows, the shell script example requires a POSIX-compatible environment via MSYS2/Git Bash/WSL etc.
 
 The built application in this example outputs the currently running partition, whose output is used to verify if the tool switched OTA
-partitions succesfully. The built application binary is written to all OTA partitions at the start of the example to be able to determine the running
+partitions successfully. The built application binary is written to all OTA partitions at the start of the example to be able to determine the running
 partition for all switches performed.
 
 ## How to use example
@@ -20,12 +23,6 @@ partition for all switches performed.
 
 Before running either of the example scripts, it is necessary to build and flash the firmware using the usual means:
 
-Make:
-```bash
-make build flash
-```
-
-CMake:
 ```bash
 idf.py build flash
 ```

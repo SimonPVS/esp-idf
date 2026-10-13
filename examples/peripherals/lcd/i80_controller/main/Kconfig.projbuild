@@ -1,0 +1,71 @@
+menu "Example Configuration"
+
+    config EXAMPLE_LCD_I80_COLOR_IN_PSRAM
+        bool "Allocate color data from PSRAM"
+        depends on SOC_PSRAM_DMA_CAPABLE
+        default n
+        help
+            Enable this option if you want to allocate the LVGL draw buffer from PSRAM.
+
+    config EXAMPLE_LCD_PIXEL_CLOCK_HZ
+        int "Pixel clock frequency (Hz)"
+        default 2000000 if EXAMPLE_LCD_I80_COLOR_IN_PSRAM && IDF_TARGET_ESP32S3
+        default 10000000
+        help
+            Set the pixel clock frequency in Hz.
+
+    menu "LCD GPIO Configuration"
+        config EXAMPLE_PIN_NUM_PCLK
+            int "PCLK Pin"
+            default 5
+
+        config EXAMPLE_PIN_NUM_CS
+            int "CS Pin"
+            default 3
+
+        config EXAMPLE_PIN_NUM_DC
+            int "DC Pin"
+            default 4
+
+        config EXAMPLE_PIN_NUM_RST
+            int "RST Pin"
+            default 2
+
+        config EXAMPLE_PIN_NUM_BK_LIGHT
+            int "Backlight Pin"
+            default 1
+
+        config EXAMPLE_PIN_NUM_DATA0
+            int "Data Pin 0"
+            default 6
+
+        config EXAMPLE_PIN_NUM_DATA1
+            int "Data Pin 1"
+            default 7
+
+        config EXAMPLE_PIN_NUM_DATA2
+            int "Data Pin 2"
+            default 8
+
+        config EXAMPLE_PIN_NUM_DATA3
+            int "Data Pin 3"
+            default 9
+
+        config EXAMPLE_PIN_NUM_DATA4
+            int "Data Pin 4"
+            default 10
+
+        config EXAMPLE_PIN_NUM_DATA5
+            int "Data Pin 5"
+            default 11
+
+        config EXAMPLE_PIN_NUM_DATA6
+            int "Data Pin 6"
+            default 12
+
+        config EXAMPLE_PIN_NUM_DATA7
+            int "Data Pin 7"
+            default 13
+    endmenu
+
+endmenu

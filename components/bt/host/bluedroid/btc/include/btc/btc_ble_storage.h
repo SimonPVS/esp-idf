@@ -16,6 +16,7 @@
 #include "stack/bt_types.h"
 #include "common/bt_target.h"
 #include "esp_gap_ble_api.h"
+#include "bta/bta_api.h"
 
 #if (SMP_INCLUDED == TRUE)
 #define BTC_LE_LOCAL_KEY_IR       (1<<0)
@@ -33,6 +34,13 @@
 #define BTC_BLE_STORAGE_LE_KEY_LID_STR              "LE_KEY_LID"
 #define BTC_BLE_STORAGE_LE_KEY_LCSRK_STR            "LE_KEY_LCSRK"
 #define BTC_BLE_STORAGE_LE_AUTH_MODE_STR            "AuthMode"
+/* Marks a bond whose section is keyed by a Host pseudo address (dual local
+ * identity feature). Such sections legitimately share the peer Identity with
+ * another (local,peer) bond and must be exempt from identity-based de-dup. */
+#define BTC_BLE_STORAGE_PSEUDO_BOND_STR             "PseudoBond"
+/* Marks a bond that must not be auto-evicted when the bond list is full.
+ * Explicit removal via esp_ble_remove_bond_device() is still allowed. */
+#define BTC_BLE_STORAGE_EXCEPT_STR                  "ExceptBond"
 
 #define BTC_BLE_STORAGE_LOCAL_ADAPTER_STR           "Adapter"
 #define BTC_BLE_STORAGE_LE_LOCAL_KEY_IR_STR         "LE_LOCAL_KEY_IR"
@@ -61,6 +69,8 @@ bt_status_t btc_storage_remove_ble_bonding_keys(bt_bdaddr_t *remote_bd_addr);
 
 bool btc_storage_compare_address_key_value(bt_bdaddr_t *remote_bd_addr, uint8_t key_type, void *key_value, int key_length);
 
+bt_status_t _btc_storage_in_fetch_bonded_ble_device(const char *remote_bd_addr, int add);
+
 bt_status_t btc_storage_add_ble_local_key(char *key, uint8_t key_type, uint8_t key_length);
 
 bt_status_t btc_storage_remove_ble_local_keys(void);
@@ -83,11 +93,42 @@ bt_status_t btc_storage_set_ble_dev_type(bt_bdaddr_t *bd_addr, bool flush);
 
 bt_status_t btc_storage_remove_ble_dev_type(bt_bdaddr_t *remote_bd_addr, bool flush);
 
-bt_status_t btc_storage_load_bonded_ble_devices(void);
-
 bt_status_t btc_storage_get_bonded_ble_devices_list(esp_ble_bond_dev_t *bond_dev, int dev_num);
 
 int btc_storage_get_num_ble_bond_devices(void);
 
+void btc_storage_delete_duplicate_ble_devices(void);
+
+void btc_storage_remove_unused_sections(uint8_t *cur_addr, tBTM_LE_PID_KEYS *del_pid_key);
+
+/* Caller must hold btc_config_lock(). Evict bonds until bdaddr section count
+ * is <= max_keep. Excepted bonds are never evicted. Disconnected bonds are
+ * preferred over connected ones; NVS list order (oldest last) is the age key. */
+void btc_storage_evict_overflow_bonded_devices(uint16_t max_keep);
+
+#if (BLE_INCLUDED == TRUE)
+/* Caller must hold btc_config_lock(). Check except count against bond limit. */
+void btc_storage_check_excepted_bond_limit(void);
+#endif /* BLE_INCLUDED == TRUE */
+
+bt_status_t btc_storage_set_bond_except(bt_bdaddr_t *remote_bd_addr, bool except);
+
+bt_status_t btc_storage_get_bond_except(bt_bdaddr_t *remote_bd_addr, bool *except);
+
 #endif  ///SMP_INCLUDED == TRUE
+
+#define BTC_BLE_STORAGE_GATT_CL_SUPP_FEAT_STR       "GATT_CL_SUPP_FEAT"
+#define BTC_BLE_STORAGE_GATT_DB_HASH_STR            "GATT_DB_HASH"
+
+bt_status_t btc_storage_get_gatt_cl_supp_feat(bt_bdaddr_t *remote_bd_addr, uint8_t *value, int len);
+
+bt_status_t btc_storage_set_gatt_cl_supp_feat(bt_bdaddr_t *remote_bd_addr, uint8_t *value, int len);
+
+bt_status_t btc_storage_remove_gatt_cl_supp_feat(bt_bdaddr_t *remote_bd_addr);
+
+bt_status_t btc_storage_get_gatt_db_hash(bt_bdaddr_t *remote_bd_addr, uint8_t *value, int len);
+
+bt_status_t btc_storage_set_gatt_db_hash(bt_bdaddr_t *remote_bd_addr, uint8_t *value, int len);
+
+bt_status_t btc_storage_remove_gatt_db_hash(bt_bdaddr_t *remote_bd_addr);
 #endif  ///__BTC_BLE_STORAGE_H__

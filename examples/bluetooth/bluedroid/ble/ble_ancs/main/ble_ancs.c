@@ -1,25 +1,18 @@
-// Copyright 2017-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "ble_ancs.h"
 
 #define BLE_ANCS_TAG  "BLE_ANCS"
 
-/* 
+/*
 | EventID(1 Byte) | EventFlags(1 Byte) | CategoryID(1 Byte) | CategoryCount(1 Byte) | NotificationUID(4 Bytes) |
 
 A GATT notification delivered through the Notification Source characteristic contains the following information:
@@ -28,7 +21,7 @@ A GATT notification delivered through the Notification Source characteristic con
 * EventFlags: A bitmask whose set bits inform an NC of specificities with the iOS notification. For example, if an iOS notification is considered “important”,
               the NC may want to display a more aggressive user interface (UI) to make sure the user is properly alerted. The enumerated bits for this field
               are defined in EventFlags.
-* CategoryID: A numerical value providing a category in which the iOS notification can be classified. The NP will make a best effort to provide an accurate category 
+* CategoryID: A numerical value providing a category in which the iOS notification can be classified. The NP will make a best effort to provide an accurate category
               for each iOS notification. The enumerated values for this field are defined in CategoryID Values.
 * CategoryCount: The current number of active iOS notifications in the given category. For example, if two unread emails are sitting in a user’s email inbox, and a new
                  email is pushed to the user’s iOS device, the value of CategoryCount is 3.
@@ -36,9 +29,9 @@ A GATT notification delivered through the Notification Source characteristic con
                    Control Point characteristic to interact with the iOS notification.
 */
 
-char *EventID_to_String(uint8_t EventID)
+const char *EventID_to_String(uint8_t EventID)
 {
-    char *str = NULL;
+    const char *str = NULL;
     switch (EventID)
     {
         case EventIDNotificationAdded:
@@ -57,9 +50,9 @@ char *EventID_to_String(uint8_t EventID)
     return str;
 }
 
-char *CategoryID_to_String(uint8_t CategoryID)
+const char *CategoryID_to_String(uint8_t CategoryID)
 {
-    char *Cidstr = NULL;
+    const char *Cidstr = NULL;
     switch(CategoryID) {
         case CategoryIDOther:
             Cidstr = "Other";
@@ -104,29 +97,31 @@ char *CategoryID_to_String(uint8_t CategoryID)
     return Cidstr;
 }
 
-/* 
+/*
 | EventID(1 Byte) | EventFlags(1 Byte) | CategoryID(1 Byte) | CategoryCount(1 Byte) | NotificationUID(4 Bytes) |
 */
 
 void esp_receive_apple_notification_source(uint8_t *message, uint16_t message_len)
 {
-    if (!message || message_len < 5) {
+    if (!message || message_len < 8) {
         return;
     }
 
     uint8_t EventID    = message[0];
-    char    *EventIDS  = EventID_to_String(EventID);
+    const char *EventIDS  = EventID_to_String(EventID);
     uint8_t EventFlags = message[1];
     uint8_t CategoryID = message[2];
-    char    *Cidstr    = CategoryID_to_String(CategoryID);
+    const char *Cidstr    = CategoryID_to_String(CategoryID);
     uint8_t CategoryCount = message[3];
-    uint32_t NotificationUID = (message[4]) | (message[5]<< 8) | (message[6]<< 16) | (message[7] << 24);
-    ESP_LOGI(BLE_ANCS_TAG, "EventID:%s EventFlags:0x%x CategoryID:%s CategoryCount:%d NotificationUID:%d", EventIDS, EventFlags, Cidstr, CategoryCount, NotificationUID);
+    uint32_t NotificationUID = (uint32_t)message[4]
+        | ((uint32_t)message[5] << 8)
+        | ((uint32_t)message[6] << 16)
+        | ((uint32_t)message[7] << 24);
+    ESP_LOGI(BLE_ANCS_TAG, "EventID:%s EventFlags:0x%x CategoryID:%s CategoryCount:%d NotificationUID:%" PRIu32, EventIDS, EventFlags, Cidstr, CategoryCount, NotificationUID);
 }
 
-void esp_receive_apple_data_source(uint8_t *message, uint16_t message_len) 
+void esp_receive_apple_data_source(uint8_t *message, uint16_t message_len)
 {
-    //esp_log_buffer_hex("data source", message, message_len);
     if (!message || message_len == 0) {
         return;
     }
@@ -134,46 +129,59 @@ void esp_receive_apple_data_source(uint8_t *message, uint16_t message_len)
     switch (Command_id)
     {
         case CommandIDGetNotificationAttributes: {
-            uint32_t NotificationUID = (message[1]) | (message[2]<< 8) | (message[3]<< 16) | (message[4] << 24);
+            // Security fix: Check minimum message length before accessing message[1..4]
+            if (message_len < 5) {
+                ESP_LOGE(BLE_ANCS_TAG, "Message too short for NotificationAttributes");
+                break;
+            }
+            uint32_t NotificationUID = (uint32_t)message[1]
+                | ((uint32_t)message[2] << 8)
+                | ((uint32_t)message[3] << 16)
+                | ((uint32_t)message[4] << 24);
             uint32_t remian_attr_len = message_len - 5;
             uint8_t *attrs = &message[5];
-            ESP_LOGI(BLE_ANCS_TAG, "recevice Notification Attributes response Command_id %d NotificationUID %d", Command_id, NotificationUID);
+            ESP_LOGI(BLE_ANCS_TAG, "recevice Notification Attributes response Command_id %d NotificationUID %" PRIu32, Command_id, NotificationUID);
             while(remian_attr_len > 0) {
+                // Security fix: Need at least 3 bytes for AttributeID(1) + len(2)
+                if (remian_attr_len < 3) {
+                    ESP_LOGE(BLE_ANCS_TAG, "Incomplete attribute header");
+                    break;
+                }
                 uint8_t AttributeID = attrs[0];
-                uint16_t len = attrs[1] | (attrs[2] << 8);
-                if(len > (remian_attr_len -3)) {
+                uint16_t len = (uint16_t)attrs[1] | ((uint16_t)attrs[2] << 8);
+                if(len > (remian_attr_len - 3)) {
                     ESP_LOGE(BLE_ANCS_TAG, "data error");
                     break;
                 }
                 switch (AttributeID)
                 {
                     case NotificationAttributeIDAppIdentifier:
-                        esp_log_buffer_char("Identifier", &attrs[3], len);
+                        ESP_LOG_BUFFER_CHAR("Identifier", &attrs[3], len);
                         break;
                     case NotificationAttributeIDTitle:
-                        esp_log_buffer_char("Title", &attrs[3], len);
+                        ESP_LOG_BUFFER_CHAR("Title", &attrs[3], len);
                         break;
                     case NotificationAttributeIDSubtitle:
-                        esp_log_buffer_char("Subtitle", &attrs[3], len);
+                        ESP_LOG_BUFFER_CHAR("Subtitle", &attrs[3], len);
                         break;
                     case NotificationAttributeIDMessage:
-                        esp_log_buffer_char("Message", &attrs[3], len);
+                        ESP_LOG_BUFFER_CHAR("Message", &attrs[3], len);
                         break;
                     case NotificationAttributeIDMessageSize:
-                        esp_log_buffer_char("MessageSize", &attrs[3], len);
+                        ESP_LOG_BUFFER_CHAR("MessageSize", &attrs[3], len);
                         break;
                     case NotificationAttributeIDDate:
                         //yyyyMMdd'T'HHmmSS
-                        esp_log_buffer_char("Date", &attrs[3], len);
+                        ESP_LOG_BUFFER_CHAR("Date", &attrs[3], len);
                         break;
                     case NotificationAttributeIDPositiveActionLabel:
-                        esp_log_buffer_hex("PActionLabel", &attrs[3], len);
+                        ESP_LOG_BUFFER_HEX("PActionLabel", &attrs[3], len);
                         break;
                     case NotificationAttributeIDNegativeActionLabel:
-                        esp_log_buffer_hex("NActionLabel", &attrs[3], len);
+                        ESP_LOG_BUFFER_HEX("NActionLabel", &attrs[3], len);
                         break;
                     default:
-                        esp_log_buffer_hex("unknownAttributeID", &attrs[3], len);
+                        ESP_LOG_BUFFER_HEX("unknownAttributeID", &attrs[3], len);
                         break;
                 }
 
@@ -195,9 +203,9 @@ void esp_receive_apple_data_source(uint8_t *message, uint16_t message_len)
     }
 }
 
-char *Errcode_to_String(uint16_t status) 
+const char *Errcode_to_String(uint16_t status)
 {
-    char *Errstr = NULL;
+    const char *Errstr = NULL;
     switch (status) {
         case Unknown_command:
             Errstr = "Unknown_command";
@@ -211,6 +219,9 @@ char *Errcode_to_String(uint16_t status)
         case Action_failed:
             Errstr = "Action_failed";
             break;
+        case Internal_error:
+            Errstr = "Internal_error";
+            break;
         default:
             Errstr = "unknown_failed";
             break;
@@ -218,11 +229,3 @@ char *Errcode_to_String(uint16_t status)
     return Errstr;
 
 }
-
-
-
-
-
-
-
-

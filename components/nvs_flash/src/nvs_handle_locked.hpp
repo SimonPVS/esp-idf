@@ -1,18 +1,9 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-#ifndef NVS_HANDLE_LOCKED_HPP_
-#define NVS_HANDLE_LOCKED_HPP_
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
 
 #include "nvs_handle_simple.hpp"
 
@@ -30,6 +21,11 @@ namespace nvs {
  */
 class NVSHandleLocked : public NVSHandle {
 public:
+    /**
+     * @param handle The NVSHandleSimple instance which this class "decorates" (see Decorator design pattern).
+     *
+     * @note Lock::init() MUST be called BEFORE an instance of this class is used.
+     */
     NVSHandleLocked(NVSHandleSimple *handle);
 
     virtual ~NVSHandleLocked();
@@ -44,9 +40,13 @@ public:
 
     esp_err_t get_item_size(ItemType datatype, const char *key, size_t &size) override;
 
+    esp_err_t find_key(const char* key, nvs_type_t &nvstype) override;
+
     esp_err_t erase_item(const char* key) override;
 
     esp_err_t erase_all() override;
+
+    esp_err_t purge_all() override;
 
     esp_err_t commit() override;
 
@@ -62,6 +62,3 @@ private:
 };
 
 } // namespace nvs
-
-#endif // NVS_HANDLE_LOCKED_HPP_
-

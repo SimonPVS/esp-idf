@@ -30,6 +30,8 @@
 #ifndef XTENSA_SPECREG_H
 #define XTENSA_SPECREG_H
 
+#warning "xtensa/specreg.h is deprecated, please use xtensa/xt_specreg.h instead"
+
 /*  Special registers:  */
 #define LBEG		0
 #define LEND		1
@@ -141,4 +143,3 @@
 #endif
 
 #endif /* XTENSA_SPECREG_H */
-

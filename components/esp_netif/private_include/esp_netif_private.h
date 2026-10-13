@@ -1,16 +1,8 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2023 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_NETIF_PRIVATE_H_
 #define _ESP_NETIF_PRIVATE_H_
@@ -90,7 +82,9 @@ esp_err_t esp_netif_down(esp_netif_t *esp_netif);
 bool esp_netif_is_valid_static_ip(esp_netif_ip_info_t *ip_info);
 
 /**
- * @brief Adds created interface to the list of netifs
+ * @brief Adds created interface to the list of netifs.
+ * This function doesn't lock the list, so you need to call esp_netif_list_lock/unlock
+ * manually before and after the call.
  *
  * @param[in]  esp_netif Handle to esp-netif instance
  *
@@ -98,10 +92,12 @@ bool esp_netif_is_valid_static_ip(esp_netif_ip_info_t *ip_info);
  *         - ESP_OK -- Success
  *         - ESP_ERR_NO_MEM -- Cannot be added due to memory allocation failure
  */
-esp_err_t esp_netif_add_to_list(esp_netif_t* netif);
+esp_err_t esp_netif_add_to_list_unsafe(esp_netif_t* netif);
 
 /**
  * @brief Removes interface to be destroyed from the list of netifs
+ * This function doesn't lock the list, so you need to call esp_netif_list_lock/unlock
+ * manually before and after the call.
  *
  * @param[in]  esp_netif Handle to esp-netif instance
  *
@@ -109,32 +105,7 @@ esp_err_t esp_netif_add_to_list(esp_netif_t* netif);
  *         - ESP_OK -- Success
  *         - ESP_ERR_NOT_FOUND -- This netif was not found in the netif list
  */
-esp_err_t esp_netif_remove_from_list(esp_netif_t* netif);
-
-/**
- * @brief Iterates over list of interfaces without list locking. Returns first netif if NULL given as parameter
- *
- * Used for bulk search loops to avoid locking and unlocking every iteration. esp_netif_list_lock and esp_netif_list_unlock
- * must be used to guard the search loop
- *
- * @param[in]  esp_netif Handle to esp-netif instance
- *
- * @return First netif from the list if supplied parameter is NULL, next one otherwise
- */
-esp_netif_t* esp_netif_next_unsafe(esp_netif_t* netif);
-
-/**
- * @brief Locking network interface list. Use only in connection with esp_netif_next_unsafe
- *
- * @return ESP_OK on success, specific mutex error if failed to lock
- */
-esp_err_t esp_netif_list_lock(void);
-
-/**
- * @brief Unlocking network interface list. Use only in connection with esp_netif_next_unsafe
- *
- */
-void esp_netif_list_unlock(void);
+esp_err_t esp_netif_remove_from_list_unsafe(esp_netif_t* netif);
 
 /**
  * @brief Iterates over list of registered interfaces to check if supplied netif is listed
@@ -144,5 +115,14 @@ void esp_netif_list_unlock(void);
  * @return true if supplied interface is listed
  */
 bool esp_netif_is_netif_listed(esp_netif_t *esp_netif);
+
+/**
+ * @brief Get esp_netif handle based on the if_key
+ * This doesn't lock the list nor TCPIP context
+ *
+ * @param if_key
+ * @return esp_netif handle if found, NULL otherwise
+ */
+esp_netif_t *esp_netif_get_handle_from_ifkey_unsafe(const char *if_key);
 
 #endif //_ESP_NETIF_PRIVATE_H_

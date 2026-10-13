@@ -1,16 +1,8 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 /** @file
  *  @brief Bluetooth Mesh Light Client Model APIs.
@@ -142,7 +134,7 @@ typedef struct {
 typedef struct {
     bool     op_en;            /*!< Indicate if optional parameters are included */
     uint16_t ctl_lightness;    /*!< Target value of light ctl lightness state */
-    uint16_t ctl_temperatrue;  /*!< Target value of light ctl temperature state */
+    uint16_t ctl_temperature;  /*!< Target value of light ctl temperature state */
     int16_t  ctl_delta_uv;     /*!< Target value of light ctl delta UV state */
     uint8_t  tid;              /*!< Transaction ID */
     uint8_t  trans_time;       /*!< Time to complete state transition (optional) */
@@ -152,7 +144,7 @@ typedef struct {
 /** Parameters of Light CTL Temperature Set */
 typedef struct {
     bool     op_en;            /*!< Indicate if optional parameters are included */
-    uint16_t ctl_temperatrue;  /*!< Target value of light ctl temperature state */
+    uint16_t ctl_temperature;  /*!< Target value of light ctl temperature state */
     int16_t  ctl_delta_uv;     /*!< Target value of light ctl delta UV state */
     uint8_t  tid;              /*!< Transaction ID */
     uint8_t  trans_time;       /*!< Time to complete state transition (optional) */
@@ -559,7 +551,8 @@ esp_err_t esp_ble_mesh_register_light_client_callback(esp_ble_mesh_light_client_
  *
  * @param[in]   params:    Pointer to BLE Mesh common client parameters.
  * @param[in]   get_state: Pointer of light get message value.
- *                         Shall not be set to NULL.
+ *                         Shall not be set to NULL when the opcode requires
+ *                         parameters (e.g., ESP_BLE_MESH_MODEL_OP_LIGHT_LC_PROPERTY_GET).
  *
  * @return      ESP_OK on success or error code otherwise.
  *
@@ -1680,4 +1673,3 @@ esp_err_t esp_ble_mesh_register_lighting_server_callback(esp_ble_mesh_lighting_s
 #endif
 
 #endif /* _ESP_BLE_MESH_LIGHTING_MODEL_API_H_ */
-

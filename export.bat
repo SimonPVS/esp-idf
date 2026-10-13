@@ -1,70 +1,67 @@
 @echo off
 if defined MSYSTEM (
-    echo This .bat file is for Windows CMD.EXE shell only. When using MSYS, run:
-    echo   . ./export.sh.
+    echo This .bat file is for Windows CMD.EXE shell only.
     goto :eof
 )
+
+set SCRIPT_EXIT_CODE=0
+
+:: Missing requirements check
+set MISSING_REQUIREMENTS=
+python.exe --version >NUL 2>NUL
+if %errorlevel% neq 0 (
+    set SCRIPT_EXIT_CODE=%errorlevel%
+    set "MISSING_REQUIREMENTS=  python &echo\"
+)
+git.exe --version >NUL 2>NUL
+if %errorlevel% neq 0 (
+    set SCRIPT_EXIT_CODE=%errorlevel%
+    set "MISSING_REQUIREMENTS=%MISSING_REQUIREMENTS%  git"
+)
+
+if not "%MISSING_REQUIREMENTS%" == "" goto :__error_missing_requirements
 
 :: Infer IDF_PATH from script location
 set IDF_PATH=%~dp0
 set IDF_PATH=%IDF_PATH:~0,-1%
 
-set IDF_TOOLS_PY_PATH=%IDF_PATH%\tools\idf_tools.py
-set IDF_TOOLS_JSON_PATH=%IDF_PATH%\tools\tools.json
-set IDF_TOOLS_EXPORT_CMD=%IDF_PATH%\export.bat
-set IDF_TOOLS_INSTALL_CMD=%IDF_PATH%\install.bat
-echo Setting IDF_PATH: %IDF_PATH%
-echo.
-
-set "OLD_PATH=%PATH%"
-echo Adding ESP-IDF tools to PATH...
-:: Export tool paths and environment variables.
-:: It is possible to do this without a temporary file (running idf_tools.py from for /r command),
-:: but that way it is impossible to get the exit code of idf_tools.py.
-set "IDF_TOOLS_EXPORTS_FILE=%TEMP%\idf_export_vars.tmp"
-python.exe %IDF_PATH%\tools\idf_tools.py export --format key-value >"%IDF_TOOLS_EXPORTS_FILE%"
-if %errorlevel% neq 0 goto :end
-
-for /f "usebackq tokens=1,2 eol=# delims==" %%a in ("%IDF_TOOLS_EXPORTS_FILE%") do (
-      call set "%%a=%%b"
-    )
-
-:: This removes OLD_PATH substring from PATH, leaving only the paths which have been added,
-:: and prints semicolon-delimited components of the path on separate lines
-call set PATH_ADDITIONS=%%PATH:%OLD_PATH%=%%
-if "%PATH_ADDITIONS%"=="" call :print_nothing_added
-if not "%PATH_ADDITIONS%"=="" echo     %PATH_ADDITIONS:;=&echo.    %
-
-echo Checking if Python packages are up to date...
-python.exe %IDF_PATH%\tools\check_python_dependencies.py
-if %errorlevel% neq 0 goto :end
-
-echo.
-echo Done! You can now compile ESP-IDF projects.
-echo Go to the project directory and run:
-echo.
-echo   idf.py build
-echo.
-
-goto :end
-
-:print_nothing_added
-    echo No directories added to PATH:
-    echo.
-    echo %PATH%
-    echo.
-    goto :eof
-
-:end
-
-:: Clean up
-if not "%IDF_TOOLS_EXPORTS_FILE%"=="" (
-    del "%IDF_TOOLS_EXPORTS_FILE%" 1>nul 2>nul
+if not exist "%IDF_PATH%\tools\idf.py" (
+    set SCRIPT_EXIT_CODE=1
+    goto :__missing_file
 )
-set IDF_TOOLS_EXPORTS_FILE=
-set IDF_TOOLS_EXPORT_CMD=
-set IDF_TOOLS_INSTALL_CMD=
-set IDF_TOOLS_PY_PATH=
-set IDF_TOOLS_JSON_PATH=
-set OLD_PATH=
-set PATH_ADDITIONS=
+if not exist "%IDF_PATH%\tools\idf_tools.py" (
+    set SCRIPT_EXIT_CODE=1
+    goto :__missing_file
+)
+if not exist "%IDF_PATH%\tools\activate.py" (
+    set SCRIPT_EXIT_CODE=1
+    goto :__missing_file
+)
+
+
+for /f "delims=" %%i in ('python "%IDF_PATH%\tools\activate.py" --export') do set activate=%%i
+%activate%
+
+goto :__end
+
+:__error_missing_requirements
+    echo.
+    echo Error^: The following tools are not installed in your environment.
+    echo.
+    echo %MISSING_REQUIREMENTS%
+    echo.
+    echo Please use the Windows Tool installer for setting up your environment.
+    echo Download link: https://dl.espressif.com/dl/esp-idf/
+    echo For more details please visit our website: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/windows-setup.html
+    goto :__end
+
+:__missing_file
+    echo Could not detect IDF_PATH. Please navigate to your ESP-IDF directory and run:
+    echo export.bat
+    goto :__end
+
+:__end
+:: Clean up
+set MISSING_REQUIREMENTS=
+set activate=
+exit /b %SCRIPT_EXIT_CODE%

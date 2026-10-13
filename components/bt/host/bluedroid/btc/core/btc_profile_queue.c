@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include "common/bt_target.h"
 #include <string.h>
@@ -70,6 +62,9 @@ static void queue_int_advance(void)
 void btc_profile_queue_handler(btc_msg_t *msg)
 {
     btc_prf_que_args_t *arg = (btc_prf_que_args_t *)(msg->arg);
+
+    BTC_TRACE_DEBUG("%s act %d", __func__, msg->act);
+
     switch (msg->act) {
     case BTC_PRF_QUE_CONNECT:
         queue_int_add(&(arg->connect_node));
@@ -109,7 +104,7 @@ bt_status_t btc_queue_connect(uint16_t uuid, const bt_bdaddr_t *bda, btc_connect
     arg.connect_node.uuid = uuid;
     arg.connect_node.connect_cb = connect_cb;
 
-    return btc_transfer_context(&msg, &arg, sizeof(btc_prf_que_args_t), NULL);
+    return btc_transfer_context(&msg, &arg, sizeof(btc_prf_que_args_t), NULL, NULL);
 }
 /*******************************************************************************
 **
@@ -129,7 +124,7 @@ void btc_queue_advance(void)
     msg.pid = BTC_PID_PRF_QUE;
     msg.act = BTC_PRF_QUE_ADVANCE;
 
-    btc_transfer_context(&msg, NULL, 0, NULL);
+    btc_transfer_context(&msg, NULL, 0, NULL, NULL);
 }
 
 // This function dispatches the next pending connect request. It is called from
@@ -149,7 +144,11 @@ bt_status_t btc_queue_connect_next(void)
     }
 
     p_head->busy = true;
-    return p_head->connect_cb(&p_head->bda, p_head->uuid);
+    bt_status_t status = p_head->connect_cb(&p_head->bda, p_head->uuid);
+    if (status != BT_STATUS_SUCCESS) {
+        btc_queue_advance();
+    }
+    return status;
 }
 
 

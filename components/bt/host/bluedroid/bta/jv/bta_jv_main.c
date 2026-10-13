@@ -62,12 +62,16 @@ const tBTA_JV_ACTION bta_jv_action[] = {
     bta_jv_l2cap_read,              /* BTA_JV_API_L2CAP_READ_EVT */
     bta_jv_l2cap_write,             /* BTA_JV_API_L2CAP_WRITE_EVT */
 #endif /* BTA_JV_L2CAP_INCLUDED */
+#if BTA_JV_RFCOMM_INCLUDED
+    bta_jv_rfcomm_config,           /* BTA_JV_API_RFCOMM_CONFIG_EVT */
     bta_jv_rfcomm_connect,          /* BTA_JV_API_RFCOMM_CONNECT_EVT */
     bta_jv_rfcomm_close,            /* BTA_JV_API_RFCOMM_CLOSE_EVT */
     bta_jv_rfcomm_start_server,     /* BTA_JV_API_RFCOMM_START_SERVER_EVT */
     bta_jv_rfcomm_stop_server,      /* BTA_JV_API_RFCOMM_STOP_SERVER_EVT */
     bta_jv_rfcomm_read,             /* BTA_JV_API_RFCOMM_READ_EVT */
     bta_jv_rfcomm_write,            /* BTA_JV_API_RFCOMM_WRITE_EVT */
+    bta_jv_rfcomm_flow_control,     /* BTA_JV_API_RFCOMM_FLOW_CONTROL_EVT */
+#endif /* BTA_JV_RFCOMM_INCLUDED */
     bta_jv_set_pm_profile,          /* BTA_JV_API_SET_PM_PROFILE_EVT */
     bta_jv_change_pm_state,         /* BTA_JV_API_PM_STATE_CHANGE_EVT */
 #if BTA_JV_L2CAP_INCLUDED
@@ -86,21 +90,24 @@ const tBTA_JV_ACTION bta_jv_action[] = {
 ** Description      State machine event handling function for JV
 **
 **
-** Returns          void
+** Returns          TRUE if the caller needs to free the buffer
+                    FALSE otherwise
 **
 *******************************************************************************/
 BOOLEAN bta_jv_sm_execute(BT_HDR *p_msg)
 {
-    BOOLEAN ret = FALSE;
+    if (!p_msg) {
+        return FALSE;
+    }
+
     UINT16 action = (p_msg->event & 0x00ff);
     /* execute action functions */
 
     if (action < BTA_JV_NUM_ACTIONS) {
         (*bta_jv_action[action])((tBTA_JV_MSG *)p_msg);
-        ret = TRUE;
     }
 
-    return (ret);
+    return TRUE;
 }
 
 #endif  ///defined BTA_JV_INCLUDED && BTA_JV_INCLUDED == TRUE

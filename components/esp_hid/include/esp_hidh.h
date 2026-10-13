@@ -1,16 +1,8 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2023 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
@@ -42,6 +34,9 @@ typedef enum {
     ESP_HIDH_INPUT_EVENT,                           /*!< Received HID device INPUT report */
     ESP_HIDH_FEATURE_EVENT,                         /*!< Received HID device FEATURE report */
     ESP_HIDH_CLOSE_EVENT,                           /*!< HID device closed */
+    ESP_HIDH_START_EVENT,                           /*!< HID host stack started, used only for Classic Bluetooth */
+    ESP_HIDH_STOP_EVENT,                            /*!< HID host stack stopped, used only for Classic Bluetooth */
+    ESP_HIDH_CONN_REQUEST_EVENT,                    /*!< HID device requested connection, used only for USB */
     ESP_HIDH_MAX_EVENT,                             /*!< HID events end marker */
 } esp_hidh_event_t;
 
@@ -50,10 +45,27 @@ typedef enum {
  */
 typedef union {
     /**
+     * @brief ESP_HIDH_START_EVENT
+     * @note Used only for Classic Bluetooth.
+     */
+    struct {
+        esp_err_t status;                           /*!< HID host operation status */
+    } start;                                         /*!< HID callback param of ESP_HIDH_START_EVENT */
+
+    /**
+     * @brief ESP_HIDH_STOP_EVENT
+     * @note Used only for Classic Bluetooth.
+     */
+    struct {
+        esp_err_t status;                           /*!< HID host operation status */
+    } stop;                                        /*!< HID callback param of ESP_HIDH_STOP_EVENT */
+
+    /**
      * @brief ESP_HIDH_OPEN_EVENT
      */
     struct {
         esp_hidh_dev_t *dev;                        /*!< HID Remote bluetooth device */
+        esp_err_t status;                           /*!< HID host operation status, used only for Classic Bluetooth */
     } open;                                         /*!< HID callback param of ESP_HIDH_OPEN_EVENT */
 
     /**
@@ -62,6 +74,7 @@ typedef union {
     struct {
         esp_hidh_dev_t *dev;                        /*!< HID Remote bluetooth device. */
         int reason;                                 /*!< Reason why the connection was closed. BLE Only */
+        esp_err_t status;                           /*!< HID host operation status, used only for Classic Bluetooth */
     } close;                                        /*!< HID callback param of ESP_HIDH_CLOSE_EVENT */
 
     /**
@@ -70,6 +83,7 @@ typedef union {
     struct {
         esp_hidh_dev_t *dev;                        /*!< HID Remote bluetooth device */
         uint8_t level;                              /*!< Battery Level (0-100%) */
+        esp_err_t status;                           /*!< HID host operation status */
     } battery;                                      /*!< HID callback param of ESP_HIDH_BATTERY_EVENT */
 
     /**
@@ -80,7 +94,7 @@ typedef union {
         esp_hid_usage_t usage;                      /*!< HID report usage */
         uint16_t report_id;                         /*!< HID report index */
         uint16_t length;                            /*!< HID data length */
-        uint8_t  *data;                             /*!< The pointer to the HID data */
+        uint8_t *data;                              /*!< The pointer to the HID data */
         uint8_t map_index;                          /*!< HID report map index */
     } input;                                        /*!< HID callback param of ESP_HIDH_INPUT_EVENT */
 
@@ -92,14 +106,27 @@ typedef union {
         esp_hid_usage_t usage;                      /*!< HID report usage */
         uint16_t report_id;                         /*!< HID report index */
         uint16_t length;                            /*!< HID data length */
-        uint8_t  *data;                             /*!< The pointer to the HID data */
+        uint8_t *data;                              /*!< The pointer to the HID data */
         uint8_t map_index;                          /*!< HID report map index */
+        esp_err_t status;                           /*!< HID host operation status, used only for Classic Bluetooth */
+        esp_hid_trans_type_t trans_type;            /*!< HID host feature transaction type, used only for Classic Bluetooth */
     } feature;                                      /*!< HID callback param of ESP_HIDH_FEATURE_EVENT */
+
+    /**
+     * @brief ESP_HIDH_CONN_REQUEST_EVENT
+     */
+    struct {
+        esp_hid_transport_t trans_type;        /*!< Transport type, currently only USB */
+        esp_hid_address_t address;             /*!< Address of the device */
+        const void *dev_info;                  /*!< Information about the device that requests connection. usb_intf_desc_t* for USB */
+    } conn_request;
 
 } esp_hidh_event_data_t;
 
 typedef struct {
     esp_event_handler_t callback;
+    uint16_t event_stack_size;
+    void *callback_arg;
 } esp_hidh_config_t;
 
 /**
@@ -134,6 +161,14 @@ esp_err_t esp_hidh_dev_close(esp_hidh_dev_t *dev);
  * @return: ESP_OK on success
  */
 esp_err_t esp_hidh_dev_free(esp_hidh_dev_t *dev);
+
+/**
+ * @brief Check if the device still exists.
+ * @param dev : pointer to the device
+ *
+ * @return: true if exists
+ */
+bool esp_hidh_dev_exists(esp_hidh_dev_t *dev);
 
 /**
  * @brief Send an OUTPUT report to the device
@@ -171,6 +206,79 @@ esp_err_t esp_hidh_dev_feature_set(esp_hidh_dev_t *dev, size_t map_index, size_t
  * @return: ESP_OK on success
  */
 esp_err_t esp_hidh_dev_feature_get(esp_hidh_dev_t *dev, size_t map_index, size_t report_id, size_t max_len, uint8_t *data, size_t *length);
+
+/**
+ * @brief Set_Report command.
+ * @note For now, this function used only for Classic Bluetooth.
+ *
+ * @param dev           : pointer to the device
+ * @param map_index     : index of the device report map
+ * @param report_id     : id of the HID FEATURE report
+ * @param report_type   : report type, defines in `esp_hid_common.h`
+ * @param data          : pointer to the data to send
+ * @param length        : length of the data to send
+ *
+ * @return: ESP_OK on success
+ */
+esp_err_t esp_hidh_dev_set_report(esp_hidh_dev_t *dev, size_t map_index, size_t report_id, int report_type,
+                                  uint8_t *data, size_t length);
+
+/**
+ * @brief Get_Report command.
+ * @note For now, this function used only for Classic Bluetooth.
+ *
+ * @param dev           : pointer to the device
+ * @param map_index     : index of the device report map
+ * @param report_id     : id of the HID FEATURE report
+ * @param report_type   : report type, defines in `esp_hid_common.h`
+ * @param max_len       : size of the buffer that will hold the data
+ *
+ * @return: ESP_OK on success
+ */
+esp_err_t esp_hidh_dev_get_report(esp_hidh_dev_t *dev, size_t map_index, size_t report_id, int report_type,
+                                  size_t max_len);
+
+/**
+ * @brief Get_Idle Command.
+ * @note For now, this function used only for Classic Bluetooth.
+ *
+ * @param dev               : pointer to the device
+ *
+ * @return: ESP_OK on success
+ */
+esp_err_t esp_hidh_dev_get_idle(esp_hidh_dev_t *dev);
+
+/**
+ * @brief Set_Idle Command.
+ * @note For now, this function used only for Classic Bluetooth.
+ *
+ * @param dev           : pointer to the device
+ * @param idle_time     : idle_time
+ *
+ * @return: ESP_OK on success
+ */
+esp_err_t esp_hidh_dev_set_idle(esp_hidh_dev_t *dev, uint8_t idle_time);
+
+/**
+ * @brief Get_Protocol Command.
+ * @note For now, this function used only for Classic Bluetooth.
+ *
+ * @param dev               : pointer to the device
+ *
+ * @return: ESP_OK on success
+ */
+esp_err_t esp_hidh_dev_get_protocol(esp_hidh_dev_t *dev);
+
+/**
+ * @brief Set_Protocol Command.
+ * @note For now, this function used only for Classic Bluetooth.
+ *
+ * @param dev           : pointer to the device
+ * @param protocol_mode : protocol_mode
+ *
+ * @return: ESP_OK on success
+ */
+esp_err_t esp_hidh_dev_set_protocol(esp_hidh_dev_t *dev, uint8_t protocol_mode);
 
 /**
  * @brief Dump the properties of HID Device to UART

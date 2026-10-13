@@ -1,76 +1,74 @@
-***********************************************
-Standard Setup of Toolchain for Windows
-***********************************************
+************************************************
+Installation of ESP-IDF and Tools on Windows
+************************************************
 
 :link_to_translation:`zh_CN:[中文]`
 
-.. only:: esp32
+This section describes how to install ESP-IDF and its required tools on Windows using the Espressif Installation Manager (EIM).
 
-    .. note::
-        Currently only 64-bit versions of Windows are supported. 32-bit Windows can use the :doc:`Legacy GNU Make Build System<../get-started-legacy/windows-setup>`.
+.. note::
 
-Introduction
-============
+    This document describes the default and recommended way to install ESP-IDF v6.0 and newer versions. ESP-IDF also supports the :doc:`legacy method for updating ESP-IDF tools on Windows <windows-setup-update-legacy>`.
 
-ESP-IDF requires some prerequisite tools to be installed so you can build firmware for supported chips. The prerequisite tools include Python, Git, cross-compilers, CMake and Ninja build tools.
 
-For this Getting Started we're going to use the Command Prompt, but after ESP-IDF is installed you can use :doc:`Eclipse <eclipse-setup>` or another graphical IDE with CMake support instead.
+Step 1: Install the Prerequisites (Optional)
+============================================
 
-.. only:: esp32
+During ESP-IDF installation, the EIM automatically checks for required prerequisites and prompts you to install any missing prerequisites.
 
-    .. note::
-        Previous versions of ESP-IDF used the :doc:`Legacy GNU Make Build System<../get-started-legacy/windows-setup>` and MSYS2_ Unix compatibility environment. This is no longer required, ESP-IDF can be used from the Windows Command Prompt.
+If automatic installation fails, you can install these prerequisites manually:
 
-.. _get-started-windows-tools-installer:
+- `Git <https://git-scm.com/install/windows>`_
+- `Python <https://www.python.org/downloads/windows/>`_
 
-ESP-IDF Tools Installer
+  .. note::
+
+    Python 3.11 is the minimum supported version for ESP-IDF.
+
+    For the Python version required by the EIM, please refer to the `EIM documentation <https://docs.espressif.com/projects/idf-im-ui/en/latest/prerequisites.html#python-version>`_.
+
+
+Step 2: Install the EIM
 =======================
 
-The easiest way to install ESP-IDF's prerequisites is to download the ESP-IDF Tools installer from this URL:
+You can install the EIM using one of the following methods:
 
-https://dl.espressif.com/dl/esp-idf-tools-setup-2.3.exe
+- Download the EIM
 
-The installer includes the cross-compilers, OpenOCD, cmake_ and Ninja_ build tool. The installer can also download and run installers for Python_ 3.7 and `Git For Windows`_ if they are not already installed on the computer.
+  .. figure:: ../../_static/get-started-eim-download.drawio.png
+     :alt: EIM Download Page
+     :align: left
+     :width: 35%
+     :target: https://dl.espressif.com/dl/eim/
 
-The installer also offers to download one of the ESP-IDF release versions. Please choose a directory for downloading ESP-IDF. The recommended directory is ``%userprofile%\esp`` where ``%userprofile%`` is your home directory. If you do not have it yet, please run the following command to create a new one:
+  You can choose either an online or offline installer, available in Graphical User Interface (GUI) or Command Line Interface (CLI) versions.
 
-.. code-block:: batch
+- Install the EIM with Package Manager `WinGet <https://learn.microsoft.com/en-us/windows/package-manager/winget/>`__
 
-    mkdir %userprofile%\esp
+  - Install the Graphical User Interface (GUI) or Command Line Interface (CLI):
+
+    - GUI:
+
+      .. code-block:: bash
+
+          winget install Espressif.EIM
+    - CLI:
+
+      .. code-block:: bash
+
+          winget install Espressif.EIM-CLI
+
+  - This method makes it easy to keep EIM up to date with a single command.
 
 
-Using the Command Prompt
-========================
+Step 3: Install ESP-IDF Using EIM
+=================================
 
-For the remaining Getting Started steps, we're going to use the Windows Command Prompt.
-
-ESP-IDF Tools Installer creates a shortcut in the Start menu to launch the ESP-IDF Command Prompt. This shortcut launches the Command Prompt (cmd.exe) and runs ``export.bat`` script to set up the environment variables (``PATH``, ``IDF_PATH`` and others). Inside this command prompt, all the installed tools are available.
-
-Note that this shortcut is specific to the ESP-IDF directory selected in the ESP-IDF Tools Installer. If you have multiple ESP-IDF directories on the computer (for example, to work with different versions of ESP-IDF), you have two options to use them:
-
-1. Create a copy of the shortcut created by the ESP-IDF Tools Installer, and change the working directory of the new shortcut to the ESP-IDF directory you wish to use.
-
-2. Alternatively, run ``cmd.exe``, then change to the ESP-IDF directory you wish to use, and run ``export.bat``. Note that unlike the previous option, this way requires Python and Git to be present in ``PATH``. If you get errors related to Python or Git not being found, use the first option.
-
-Next Steps
-==========
-
-If the ESP-IDF Tools Installer has finished successfully, then the development environment setup is complete. Proceed directly to :ref:`get-started-start-project`.
-
-Related Documents
-=================
-
-For advanced users who want to customize the install process:
+.. include:: eim-install-idf.rst
 
 .. toctree::
+    :hidden:
     :maxdepth: 1
+    :caption: Legacy Installation
 
-    windows-setup-update
-
-
-.. _MSYS2: https://www.msys2.org/
-.. _cmake: https://cmake.org/download/
-.. _ninja: https://ninja-build.org/
-.. _Python: https://www.python.org/downloads/windows/
-.. _Git for Windows: https://gitforwindows.org/
-.. _Github Desktop: https://desktop.github.com/
+    windows-setup-update-legacy

@@ -63,6 +63,9 @@ void avdt_process_timeout(TIMER_LIST_ENT *p_tle)
     UINT8   err_code = AVDT_ERR_TIMEOUT;
 
     switch (p_tle->event) {
+    case BTU_TTYPE_AVDT_SCB_DELAY_RPT:
+        event = AVDT_SCB_DELAY_RPT_RSP_TOUT_EVT;
+        break;
     case BTU_TTYPE_AVDT_CCB_RET:
         event = AVDT_CCB_RET_TOUT_EVT + AVDT_CCB_MKR;
         break;
@@ -107,6 +110,9 @@ void avdt_process_timeout(TIMER_LIST_ENT *p_tle)
 *******************************************************************************/
 void AVDT_Register(tAVDT_REG *p_reg, tAVDT_CTRL_CBACK *p_cback)
 {
+    if (p_reg == NULL || p_cback == NULL) {
+        return;
+    }
     /* register PSM with L2CAP */
     L2CA_Register(AVDT_PSM, (tL2CAP_APPL_INFO *) &avdt_l2c_appl);
 
@@ -248,6 +254,9 @@ UINT16 AVDT_CreateStream(UINT8 *p_handle, tAVDT_CS *p_cs)
     UINT16      result = AVDT_SUCCESS;
     tAVDT_SCB   *p_scb;
 
+    if (p_handle == NULL) {
+        return AVDT_BAD_PARAMS;
+    }
     /* Verify parameters; if invalid, return failure */
     if (((p_cs->cfg.psc_mask & (~AVDT_PSC)) != 0) || (p_cs->p_ctrl_cback == NULL)) {
         result = AVDT_BAD_PARAMS;
@@ -257,6 +266,37 @@ UINT16 AVDT_CreateStream(UINT8 *p_handle, tAVDT_CS *p_cs)
         result = AVDT_NO_RESOURCES;
     } else {
         *p_handle = avdt_scb_to_hdl(p_scb);
+    }
+    return result;
+}
+
+/*******************************************************************************
+**
+** Function         AVDT_UpdateCodecInfo
+**
+** Description      Update codec capability for a stream endpoint.
+**
+**
+** Returns          AVDT_SUCCESS if successful, otherwise error.
+**
+*******************************************************************************/
+UINT16 AVDT_UpdateCodecInfo(UINT8 handle, UINT8 num_codec, UINT8 *codec_info, UINT16 codec_info_len)
+{
+    UINT16      result = AVDT_SUCCESS;
+    tAVDT_SCB   *p_scb;
+
+    /* look up scb */
+    if ((p_scb = avdt_scb_by_hdl(handle)) == NULL) {
+        result = AVDT_BAD_HANDLE;
+    }
+    else if (num_codec != 1 || codec_info == NULL || codec_info_len != AVDT_CODEC_SIZE) {
+        /* currently, only allow one codec info */
+        result = AVDT_BAD_PARAMS;
+    }
+    else {
+        /* update codec info */
+        p_scb->cs.cfg.num_codec = num_codec;
+        memcpy(p_scb->cs.cfg.codec_info, codec_info, codec_info_len);
     }
     return result;
 }
@@ -474,6 +514,9 @@ UINT16 AVDT_DelayReport(UINT8 handle, UINT8 seid, UINT16 delay)
     tAVDT_SCB       *p_scb;
     UINT16          result = AVDT_SUCCESS;
     tAVDT_SCB_EVT   evt;
+    UNUSED(seid);
+
+    AVDT_TRACE_DEBUG("%s: delay value: 0x%04x\n", __func__, delay);
 
     /* map handle to scb */
     if ((p_scb = avdt_scb_by_hdl(handle)) == NULL) {
@@ -481,9 +524,14 @@ UINT16 AVDT_DelayReport(UINT8 handle, UINT8 seid, UINT16 delay)
     } else
         /* send event to scb */
     {
-        evt.apidelay.hdr.seid   = seid;
-        evt.apidelay.delay      = delay;
-        avdt_scb_event(p_scb, AVDT_SCB_API_DELAY_RPT_REQ_EVT, &evt);
+        if ((p_scb->cs.tsep == AVDT_TSEP_SNK) && (p_scb->curr_cfg.psc_mask & AVDT_PSC_DELAY_RPT)) {
+            evt.apidelay.hdr.seid   = p_scb->peer_seid;
+            evt.apidelay.delay      = delay;
+            avdt_scb_event(p_scb, AVDT_SCB_API_DELAY_RPT_REQ_EVT, &evt);
+        } else {
+            AVDT_TRACE_WARNING("%s: peer device does not supported\n", __func__);
+            result = AVDT_BAD_PARAMS;
+        }
     }
 
     return result;
@@ -728,6 +776,10 @@ UINT16 AVDT_ReconfigReq(UINT8 handle, tAVDT_CFG *p_cfg)
     UINT16          result = AVDT_SUCCESS;
     tAVDT_SCB_EVT   evt;
 
+    if (p_cfg == NULL) {
+        return AVDT_BAD_PARAMS;
+    }
+
     /* map handle to scb */
     if ((p_scb = avdt_scb_by_hdl(handle)) == NULL) {
         result = AVDT_BAD_HANDLE;
@@ -887,8 +939,12 @@ UINT16 AVDT_WriteReqOpt(UINT8 handle, BT_HDR *p_pkt, UINT32 time_stamp, UINT8 m_
     tAVDT_SCB_EVT   evt;
     UINT16          result = AVDT_SUCCESS;
 
+    if (p_pkt == NULL) {
+        return AVDT_BAD_PARAMS;
+    }
     /* map handle to scb */
     if ((p_scb = avdt_scb_by_hdl(handle)) == NULL) {
+        osi_free(p_pkt);
         result = AVDT_BAD_HANDLE;
     } else {
         evt.apiwrite.p_buf = p_pkt;
@@ -1146,7 +1202,7 @@ UINT16 AVDT_SendReport(UINT8 handle, AVDT_REPORT_TYPE type,
 
         /* build SR - assume fit in one packet */
         p_tbl = avdt_ad_tc_tbl_by_type(AVDT_CHAN_REPORT, p_scb->p_ccb, p_scb);
-        if ((p_tbl->state == AVDT_AD_ST_OPEN) &&
+        if ((p_tbl != NULL) && (p_tbl->state == AVDT_AD_ST_OPEN) &&
                 (p_pkt = (BT_HDR *)osi_malloc(p_tbl->peer_mtu)) != NULL) {
             p_pkt->offset = L2CAP_MIN_OFFSET;
             p = (UINT8 *)(p_pkt + 1) + p_pkt->offset;
@@ -1179,9 +1235,12 @@ UINT16 AVDT_SendReport(UINT8 handle, AVDT_REPORT_TYPE type,
             case AVDT_RTCP_PT_RR:   /* Receiver Report */
                 *p++ = p_data->rr.frag_lost;
                 AVDT_TRACE_API("packet_lost: %d\n", p_data->rr.packet_lost);
-                p_data->rr.packet_lost &= 0xFFFFFF;
-                AVDT_TRACE_API("packet_lost: %d\n", p_data->rr.packet_lost);
-                UINT24_TO_BE_STREAM(p, p_data->rr.packet_lost);
+                /* Use local 24-bit value so caller's p_data->rr.packet_lost is not mutated */
+                {
+                    UINT32 packet_lost_24 = p_data->rr.packet_lost & 0xFFFFFF;
+                    AVDT_TRACE_API("packet_lost_24: %d\n", packet_lost_24);
+                    UINT24_TO_BE_STREAM(p, packet_lost_24);
+                }
                 UINT32_TO_BE_STREAM(p, p_data->rr.seq_num_rcvd);
                 UINT32_TO_BE_STREAM(p, p_data->rr.jitter);
                 UINT32_TO_BE_STREAM(p, p_data->rr.lsr);
@@ -1195,7 +1254,7 @@ UINT16 AVDT_SendReport(UINT8 handle, AVDT_REPORT_TYPE type,
                     len = AVDT_MAX_CNAME_SIZE;
                 }
                 *p++ = (UINT8)len;
-                BCM_STRNCPY_S((char *)p, (char *)p_data->cname, AVDT_MAX_CNAME_SIZE + 1);
+                memcpy(p, p_data->cname, len);
                 p += len;
                 break;
             }
@@ -1259,6 +1318,34 @@ UINT8 AVDT_SetTraceLevel (UINT8 new_level)
     }
 
     return (avdt_cb.trace_level);
+}
+
+/*******************************************************************************
+**
+** Function         AVDT_SetDelayValue
+**
+** Description      Set delay reporting value.
+**
+** Returns          void
+**
+*******************************************************************************/
+void AVDT_SetDelayValue(UINT16 delay_value)
+{
+    avdt_cb.delay_value = delay_value;
+}
+
+/*******************************************************************************
+**
+** Function         AVDT_GetDelayValue
+**
+** Description      Get delay reporting value.
+**
+** Returns          delay value
+**
+*******************************************************************************/
+UINT16 AVDT_GetDelayValue(void)
+{
+    return avdt_cb.delay_value;
 }
 
 #endif /*  #if (defined(AVDT_INCLUDED) && AVDT_INCLUDED == TRUE) */

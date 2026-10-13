@@ -63,6 +63,34 @@ struct hostapd_frame_info {
 	int ssi_signal; /* dBm */
 };
 
+struct hostapd_sae_commit_queue {
+	struct dl_list list;
+	size_t len;
+	u8 bssid[ETH_ALEN];
+	u32 auth_transaction;
+	u16 status;
+	u8 msg[];
+};
+
+#ifdef CONFIG_WPS
+enum hapd_wps_status {
+	WPS_SUCCESS_STATUS = 1,
+	WPS_FAILURE_STATUS
+};
+
+enum pbc_status {
+	WPS_PBC_STATUS_DISABLE,
+	WPS_PBC_STATUS_ACTIVE,
+	WPS_PBC_STATUS_TIMEOUT,
+	WPS_PBC_STATUS_OVERLAP
+};
+
+struct wps_stat {
+	enum hapd_wps_status status;
+	enum pbc_status pbc_status;
+	u8 peer_addr[ETH_ALEN];
+};
+#endif
 
 /**
  * struct hostapd_data - hostapd per-BSS data structure
@@ -73,9 +101,17 @@ struct hostapd_data {
 	int interface_added; /* virtual interface added for this BSS */
 
 	u8 own_addr[ETH_ALEN];
-
+	struct sta_info *sta_list; /* STA info list head */
+#define STA_HASH_SIZE 16
+#define STA_HASH(sta) (sta[5] & 0xf)
+	struct sta_info *sta_hash[STA_HASH_SIZE];
 	int num_sta; /* number of entries in sta_list */
 
+#ifdef ESP_SUPPLICANT
+	void *sta_list_lock;
+#endif /* ESP_SUPPLICANT */
+
+	struct eapol_authenticator *eapol_auth;
 	struct wpa_authenticator *wpa_auth;
 
 #ifdef CONFIG_FULL_DYNAMIC_VLAN
@@ -83,10 +119,15 @@ struct hostapd_data {
 #endif /* CONFIG_FULL_DYNAMIC_VLAN */
 
 #ifdef CONFIG_WPS
+	struct wps_context *wps;
 	unsigned int ap_pin_failures;
 	unsigned int ap_pin_failures_consecutive;
 	struct upnp_wps_device_sm *wps_upnp;
 	unsigned int ap_pin_lockout_time;
+
+	struct wps_stat wps_stats;
+	void (*wps_event_cb)(void *ctx, enum wps_event event,
+			     union wps_event_data *data);
 #endif /* CONFIG_WPS */
 
 #ifdef CONFIG_P2P
@@ -103,6 +144,19 @@ struct hostapd_data {
 	int noa_start;
 	int noa_duration;
 #endif /* CONFIG_P2P */
+#ifdef CONFIG_SAE
+
+#define COMEBACK_KEY_SIZE 8
+
+	/** Key used for generating SAE anti-clogging tokens */
+	u8 comeback_key[COMEBACK_KEY_SIZE];
+	struct os_reltime last_comeback_key_update;
+	u16 comeback_idx;
+	u16 comeback_pending_idx[COMEBACK_PENDING_IDX_SIZE];
+	int dot11RSNASAERetransPeriod;
+	struct dl_list sae_commit_queue; /* struct hostapd_sae_commit_queue */
+#endif /* CONFIG_SAE */
+
 #ifdef CONFIG_INTERWORKING
 	size_t gas_frag_limit;
 #endif /* CONFIG_INTERWORKING */
@@ -111,5 +165,28 @@ struct hostapd_data {
 	struct hostapd_eap_user tmp_eap_user;
 #endif /* CONFIG_SQLITE */
 };
+
+struct hostapd_data *hostapd_get_hapd_data(void);
+
+const struct hostapd_eap_user *
+hostapd_get_eap_user(struct hostapd_data *hapd, const u8 *identity,
+		     size_t identity_len, int phase2);
+
+#ifdef ESP_SUPPLICANT
+#define HOSTAPD_STA_LIST_LOCK(hapd) \
+    do { \
+        if ((hapd) && (hapd)->sta_list_lock) \
+            os_mutex_lock((hapd)->sta_list_lock); \
+    } while (0)
+
+#define HOSTAPD_STA_LIST_UNLOCK(hapd) \
+    do { \
+        if ((hapd) && (hapd)->sta_list_lock) \
+            os_mutex_unlock((hapd)->sta_list_lock); \
+    } while (0)
+#else
+#define HOSTAPD_STA_LIST_LOCK(hapd) do { } while (0)
+#define HOSTAPD_STA_LIST_UNLOCK(hapd) do { } while (0)
+#endif /* ESP_SUPPLICANT */
 
 #endif /* HOSTAPD_H */

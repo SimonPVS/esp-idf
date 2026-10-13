@@ -1,25 +1,14 @@
-/**
+/*
  * SMTP email client
  *
  * Adapted from the `ssl_mail_client` example in mbedtls.
  *
- * Original Copyright (C) 2006-2016, ARM Limited, All Rights Reserved, Apache 2.0 License.
- * Additions Copyright (C) Copyright 2015-2020 Espressif Systems (Shanghai) PTE LTD, Apache 2.0 License.
+ * SPDX-FileCopyrightText: The Mbed TLS Contributors
  *
+ * SPDX-License-Identifier: Apache-2.0
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * SPDX-FileContributor: 2015-2025 Espressif Systems (Shanghai) CO LTD
  */
-
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
@@ -34,10 +23,7 @@
 #include "mbedtls/net_sockets.h"
 #include "mbedtls/esp_debug.h"
 #include "mbedtls/ssl.h"
-#include "mbedtls/entropy.h"
-#include "mbedtls/ctr_drbg.h"
 #include "mbedtls/error.h"
-#include "mbedtls/certs.h"
 #include <mbedtls/base64.h>
 #include <sys/param.h>
 
@@ -100,6 +86,7 @@ static int write_and_get_response(mbedtls_net_context *sock_fd, unsigned char *b
 
     do {
         len = DATA_SIZE - 1;
+        memset(data, 0, DATA_SIZE);
         ret = mbedtls_net_recv(sock_fd, data, len);
 
         if (ret <= 0) {
@@ -153,6 +140,7 @@ static int write_ssl_and_get_response(mbedtls_ssl_context *ssl, unsigned char *b
 
     do {
         len = DATA_SIZE - 1;
+        memset(data, 0, DATA_SIZE);
         ret = mbedtls_ssl_read(ssl, data, len);
 
         if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -256,8 +244,6 @@ static void smtp_client_task(void *pvParameters)
     int ret, len;
     size_t base64_len;
 
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context ctr_drbg;
     mbedtls_ssl_context ssl;
     mbedtls_x509_crt cacert;
     mbedtls_ssl_config conf;
@@ -265,17 +251,9 @@ static void smtp_client_task(void *pvParameters)
 
     mbedtls_ssl_init(&ssl);
     mbedtls_x509_crt_init(&cacert);
-    mbedtls_ctr_drbg_init(&ctr_drbg);
     ESP_LOGI(TAG, "Seeding the random number generator");
 
     mbedtls_ssl_config_init(&conf);
-
-    mbedtls_entropy_init(&entropy);
-    if ((ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
-                                     NULL, 0)) != 0) {
-        ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned -0x%x", -ret);
-        goto exit;
-    }
 
     ESP_LOGI(TAG, "Loading the CA root certificate...");
 
@@ -307,7 +285,6 @@ static void smtp_client_task(void *pvParameters)
 
     mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
     mbedtls_ssl_conf_ca_chain(&conf, &cacert, NULL);
-    mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &ctr_drbg);
 #ifdef CONFIG_MBEDTLS_DEBUG
     mbedtls_esp_enable_debug_log(&conf, 4);
 #endif
@@ -449,9 +426,9 @@ static void smtp_client_task(void *pvParameters)
 
     /* Attachment */
     len = snprintf((char *) buf, BUF_SIZE,
-                   "Content-Type: image/image/png;name=esp_logo.png\n"
+                   "Content-Type: image/png;name=esp_logo.png\n"
                    "Content-Transfer-Encoding: base64\n"
-                   "Content-Disposition:attachment;filename=\"esp_logo.png\"\n");
+                   "Content-Disposition:attachment;filename=\"esp_logo.png\"\r\n\n");
     ret = write_ssl_data(&ssl, (unsigned char *) buf, len);
 
     /* Image contents... */
@@ -482,8 +459,10 @@ static void smtp_client_task(void *pvParameters)
     ret = 0; /* No errors */
 
 exit:
-    mbedtls_ssl_session_reset(&ssl);
     mbedtls_net_free(&server_fd);
+    mbedtls_x509_crt_free(&cacert);
+    mbedtls_ssl_free(&ssl);
+    mbedtls_ssl_config_free(&conf);
 
     if (ret != 0) {
         mbedtls_strerror(ret, buf, 100);

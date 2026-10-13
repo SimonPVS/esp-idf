@@ -67,14 +67,17 @@ tBTA_STATUS BTA_AgEnable(tBTA_AG_PARSE_MODE parse_mode, tBTA_AG_CBACK *p_cback)
             return BTA_FAILURE;
         }
     }
-    /* register with BTA system manager */
-    bta_sys_register(BTA_ID_AG, &bta_ag_reg);
 
     if ((p_buf = (tBTA_AG_API_ENABLE *) osi_malloc(sizeof(tBTA_AG_API_ENABLE))) != NULL) {
+        /* register with BTA system manager */
+        bta_sys_register(BTA_ID_AG, &bta_ag_reg);
+
         p_buf->hdr.event = BTA_AG_API_ENABLE_EVT;
         p_buf->parse_mode = parse_mode;
         p_buf->p_cback = p_cback;
         bta_sys_sendmsg(p_buf);
+    } else {
+        return BTA_NO_RESOURCES;
     }
     return BTA_SUCCESS;
 }
@@ -121,11 +124,10 @@ void BTA_AgRegister(tBTA_SERVICE_MASK services, tBTA_SEC sec_mask,tBTA_AG_FEAT f
         p_buf->services = services;
         p_buf->app_id = app_id;
         for (i = 0; i < BTA_AG_NUM_IDX; i++) {
-            if(p_service_names[i]) {
-                BCM_STRNCPY_S(p_buf->p_name[i], p_service_names[i], BTA_SERVICE_NAME_LEN);
-                p_buf->p_name[i][BTA_SERVICE_NAME_LEN] = 0;
+            if (p_service_names != NULL && p_service_names[i]) {
+                BCM_STRLCPY_S(p_buf->p_name[i], p_service_names[i], BTA_SERVICE_NAME_LEN + 1);
             } else {
-                p_buf->p_name[i][0] = 0;
+                p_buf->p_name[i][0] = '\0';
             }
         }
         bta_sys_sendmsg(p_buf);
@@ -245,7 +247,6 @@ void BTA_AgAudioClose(UINT16 handle)
     }
 }
 
-
 /*******************************************************************************
 **
 ** Function         BTA_AgResult
@@ -297,24 +298,116 @@ void BTA_AgSetCodec(UINT16 handle, tBTA_AG_PEER_CODEC codec)
     }
 }
 
-#if (BTM_SCO_HCI_INCLUDED == TRUE )
+#if (BTM_SCO_HCI_INCLUDED == TRUE)
+/*******************************************************************************
+**
+** Function         BTA_AgPktStatsNumsGet
+**
+** Description      Specify the sync_conn_handle to be used for the packet numbers
+**                  received or send.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_AgPktStatsNumsGet(UINT16 handle, UINT16 sync_conn_handle)
+{
+    tBTA_AG_PKT_STAT_GET  *p_buf;
+
+    if ((p_buf = (tBTA_AG_PKT_STAT_GET *) osi_malloc(sizeof(tBTA_AG_PKT_STAT_GET))) != NULL) {
+        p_buf->hdr.event = BTA_AG_PKT_STAT_NUMS_GET_EVT;
+        p_buf->hdr.layer_specific = handle;
+        p_buf->sync_conn_handle = sync_conn_handle;
+        bta_sys_sendmsg(p_buf);
+    }
+}
+
 /************************************************************************************************
  * Function        BTA_AgCiData
- * 
+ *
  * Description      Trigger the lower-layer to fetch and send audio data. This function is only
  *                  only used in the case that Voice Over HCI is enabled. Precondition is that
  *                  the HFP audio connection is connected. After this function is called, lower
  *                  layer will invoke esp_hf_client_outgoing_data_cb_t to fetch data
  *
  ***********************************************************************************************/
-void BTA_AgCiData(void)
+void BTA_AgCiData(UINT16 handle)
 {
     BT_HDR *p_buf;
-    if ((p_buf = (BT_HDR *) osi_malloc(sizeof(BT_HDR))) != NULL) {
+    tBTA_AG_SCB *p_scb;
+    if ((p_scb = bta_ag_scb_by_idx(handle)) != NULL && (p_buf = (BT_HDR *)osi_malloc(sizeof(BT_HDR))) != NULL) {
         p_buf->event = BTA_AG_CI_SCO_DATA_EVT;
+        p_buf->layer_specific = handle;
         bta_sys_sendmsg(p_buf);
     }
 }
-#endif /* #if (BTM_SCO_HCI_INCLUDED == TRUE ) */
+
+/*******************************************************************************
+**
+** Function         BTA_AgAudioBuffAlloc
+**
+** Description      Allocate an audio buffer with specific size, reserve enough
+**                  space and offset for lower layer to send the buffer directly.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_AgAudioBuffAlloc(UINT16 size, UINT8 **pp_buff, UINT8 **pp_data)
+{
+    /* reserve trailing space for H2 header and optional eSCO padding (mSBC: 57+2+1=60, LC3: 58+2=60) */
+    BT_HDR *p_buf= (BT_HDR *)osi_calloc(sizeof(BT_HDR) + BTA_AG_BUFF_OFFSET_MIN + BTA_AG_H2_HEADER_LEN + size + 1);
+    if (p_buf != NULL) {
+        /* mSBC offset is large than CVSD, so this is also work in CVSD air mode */
+        p_buf->offset = BTA_AG_BUFF_OFFSET_MIN + BTA_AG_H2_HEADER_LEN;
+        *pp_buff = (UINT8 *)p_buf;
+        *pp_data = (UINT8 *)(p_buf + 1) + p_buf->offset;
+    }
+}
+
+/*******************************************************************************
+**
+** Function         BTA_AgAudioBuffFree
+**
+** Description      Free an audio buffer.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_AgAudioBuffFree(UINT8 *p_buf)
+{
+    osi_free(p_buf);
+}
+
+/*******************************************************************************
+**
+** Function         BTA_AgAudioDataSend
+**
+** Description      Send audio data to lower level, whether success or not, buffer
+**                  is consumed.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_AgAudioDataSend(UINT16 handle, UINT8 *p_buff_start, UINT8 *p_data, UINT16 data_len)
+{
+    BT_HDR *p_buf = (BT_HDR *)p_buff_start;
+    tBTA_AG_SCB *p_scb;
+    assert(p_data - (UINT8 *)(p_buf + 1) >= 0);
+    if ((p_scb = bta_ag_scb_by_idx(handle)) != NULL) {
+        p_buf->event = BTA_AG_API_SCO_DATA_SEND_EVT;
+        p_buf->layer_specific = handle;
+        p_buf->offset = p_data - (UINT8 *)(p_buf + 1);
+        p_buf->len = data_len;
+        bta_sys_sendmsg(p_buf);
+    }
+    else {
+        osi_free(p_buf);
+    }
+}
+
+#endif /* #if (BTM_SCO_HCI_INCLUDED == TRUE) */
 
 #endif /* #if (BTA_AG_INCLUDED == TRUE)*/

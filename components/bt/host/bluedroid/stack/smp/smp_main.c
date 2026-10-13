@@ -388,7 +388,7 @@ static const UINT8 smp_master_wait_dhk_check_table[][SMP_SM_NUM_COLS] = {
 
 static const UINT8 smp_master_dhk_check_table[][SMP_SM_NUM_COLS] = {
     /*                          Event                  Action                 Next State */
-    /* locally calculated peer dhkey check is ready -> compare it withs DHKey Check actually received from peer */
+    /* locally calculated peer dhkey check is ready -> compare it with DHKey Check actually received from peer */
     /* SC_KEY_READY         */{SMP_MATCH_DHKEY_CHECKS, SMP_SM_NO_ACTION, SMP_STATE_DHK_CHECK},
     /* locally calculated peer dhkey check is ready -> calculate STK, go to sending */
     /* HCI LE Start Encryption command */
@@ -580,7 +580,7 @@ static const UINT8 smp_slave_wait_dhk_check_table[][SMP_SM_NUM_COLS] = {
 static const UINT8 smp_slave_dhk_check_table[][SMP_SM_NUM_COLS] = {
     /*                          Event                  Action                 Next State */
 
-    /* locally calculated peer dhkey check is ready -> compare it withs DHKey Check */
+    /* locally calculated peer dhkey check is ready -> compare it with DHKey Check */
     /* actually received from peer */
     /* SC_KEY_READY         */{SMP_MATCH_DHKEY_CHECKS, SMP_SM_NO_ACTION, SMP_STATE_DHK_CHECK},
 
@@ -730,6 +730,11 @@ void smp_sm_event(tSMP_CB *p_cb, tSMP_EVENT event, void *p_data)
     UINT8           curr_state = p_cb->state;
     tSMP_SM_TBL     state_table;
     UINT8           action, entry, i;
+
+    if (p_cb->role > 1) {
+        SMP_TRACE_ERROR( "Invalid role\n") ;
+        return;
+    }
     tSMP_ENTRY_TBL  entry_table =  smp_entry_table[p_cb->role];
 
     SMP_TRACE_EVENT("main smp_sm_event\n");
@@ -746,12 +751,12 @@ void smp_sm_event(tSMP_CB *p_cb, tSMP_EVENT event, void *p_data)
     /* lookup entry /w event & curr_state */
     /* If entry is ignore, return.
      * Otherwise, get state table (according to curr_state or all_state) */
-    if ((event <= SMP_MAX_EVT) && ( (entry = entry_table[event - 1][curr_state]) != SMP_SM_IGNORE )) {
+    if ((event >= 1 && event <= SMP_MAX_EVT) && ( (entry = entry_table[event - 1][curr_state]) != SMP_SM_IGNORE )) {
         if (entry & SMP_ALL_TBL_MASK) {
             entry &= ~SMP_ALL_TBL_MASK;
             state_table = smp_all_table;
         } else {
-            state_table = smp_state_table[curr_state][p_cb->role];
+            state_table = smp_state_table[curr_state][p_cb->role ? 1 : 0];
         }
     } else {
         SMP_TRACE_DEBUG( "Ignore event [%s (%d)] in state [%s (%d)]\n",
@@ -771,6 +776,8 @@ void smp_sm_event(tSMP_CB *p_cb, tSMP_EVENT event, void *p_data)
     /* execute action functions */
     for (i = 0; i < SMP_NUM_ACTIONS; i++) {
         if ((action = state_table[entry - 1][i]) != SMP_SM_NO_ACTION && smp_sm_action[action] != NULL) {
+            SMP_TRACE_DEBUG("smp action %d for state %s, event %s",
+                            action, smp_get_state_name(curr_state), smp_get_event_name(event));
             (*smp_sm_action[action])(p_cb, (tSMP_INT_DATA *)p_data);
         } else {
             break;
@@ -801,11 +808,10 @@ const char *smp_get_event_name(tSMP_EVENT event)
 {
     const char *p_str = smp_event_name[SMP_MAX_EVT];
 
-    if (event <= SMP_MAX_EVT) {
+    if (event >= 1 && event <= SMP_MAX_EVT) {
         p_str = smp_event_name[event - 1];
     }
     return p_str;
 }
 
 #endif
-

@@ -44,9 +44,9 @@ static const uint8_t bta_hf_client_cb_data_size[] = {
     sizeof(tBTA_HF_CLIENT_OPEN),        // #define BTA_HF_CLIENT_OPEN_EVT              2
     0,                                  // #define BTA_HF_CLIENT_CLOSE_EVT             3
     sizeof(tBTA_HF_CLIENT_CONN),        // #define BTA_HF_CLIENT_CONN_EVT              4
-    sizeof(tBTA_HF_CLIENT_HDR),         // #define BTA_HF_CLIENT_AUDIO_OPEN_EVT        5
-    sizeof(tBTA_HF_CLIENT_HDR),         //#define BTA_HF_CLIENT_AUDIO_MSBC_OPEN_EVT   6 
-    sizeof(tBTA_HF_CLIENT_HDR),         // #define BTA_HF_CLIENT_AUDIO_CLOSE_EVT       7
+    sizeof(tBTA_HF_CLIENT_AUDIO_STAT),  // #define BTA_HF_CLIENT_AUDIO_OPEN_EVT        5
+    sizeof(tBTA_HF_CLIENT_AUDIO_STAT),  // #define BTA_HF_CLIENT_AUDIO_MSBC_OPEN_EVT   6
+    sizeof(tBTA_HF_CLIENT_AUDIO_STAT),  // #define BTA_HF_CLIENT_AUDIO_CLOSE_EVT       7
     sizeof(tBTA_HF_CLIENT_VAL),         // #define BTA_HF_CLIENT_SPK_EVT               8
     sizeof(tBTA_HF_CLIENT_VAL),         // #define BTA_HF_CLIENT_MIC_EVT               9
     sizeof(tBTA_HF_CLIENT_IND),         //#define BTA_HF_CLIENT_IND_EVT               10
@@ -61,7 +61,9 @@ static const uint8_t bta_hf_client_cb_data_size[] = {
     sizeof(tBTA_HF_CLIENT_VAL),         // #define BTA_HF_CLIENT_BSIR_EVT              19
     sizeof(tBTA_HF_CLIENT_NUMBER),      // #define BTA_HF_CLIENT_BINP_EVT              20
     sizeof(tBTA_HF_CLIENT_VAL),         // #define BTA_HF_CLIENT_RING_INDICATION       21
-    0,                                  // #define BTA_HF_CLIENT_DISABLE_EVT           30
+    0,                                  // #define BTA_HF_CLIENT_DISABLE_EVT           22
+    sizeof(tBTA_SCO_PKT_STAT_NUMS),     // #define BTA_HF_CLIENT_PKT_STAT_NUMS_GET_EVT      23
+    sizeof(tBTA_HF_CLIENT_AUDIO_STAT),  // #define BTA_HF_CLIENT_AUDIO_LC3_OPEN_EVT           24
 };
 /*****************************************************************************
 **  External Function Declarations
@@ -89,13 +91,16 @@ tBTA_STATUS BTA_HfClientEnable(tBTA_HF_CLIENT_CBACK *p_cback)
         return BTA_FAILURE;
     }
 
-    /* register with BTA system manager */
-    bta_sys_register(BTA_ID_HS, &bta_hf_client_reg);
-
     if ((p_buf = (tBTA_HF_CLIENT_API_ENABLE *) osi_malloc(sizeof(tBTA_HF_CLIENT_API_ENABLE))) != NULL) {
+        /* register with BTA system manager */
+        bta_sys_register(BTA_ID_HS, &bta_hf_client_reg);
+
         p_buf->hdr.event = BTA_HF_CLIENT_API_ENABLE_EVT;
         p_buf->p_cback = p_cback;
         bta_sys_sendmsg(p_buf);
+    } else {
+        APPL_TRACE_ERROR("BTA_HfClientEnable ENOMEM");
+        return BTA_NO_RESOURCES;
     }
 
     return BTA_SUCCESS;
@@ -141,8 +146,7 @@ void BTA_HfClientRegister(tBTA_SEC sec_mask, tBTA_HF_CLIENT_FEAT features,
         p_buf->features = features;
         p_buf->sec_mask = sec_mask;
         if (p_service_name) {
-            BCM_STRNCPY_S(p_buf->name, p_service_name, BTA_SERVICE_NAME_LEN);
-            p_buf->name[BTA_SERVICE_NAME_LEN] = 0;
+            BCM_STRLCPY_S(p_buf->name, p_service_name, BTA_SERVICE_NAME_LEN + 1);
         } else {
             p_buf->name[0] = '\0';
         }
@@ -284,8 +288,13 @@ void BTA_HfClientSendAT(UINT16 handle, tBTA_HF_CLIENT_AT_CMD_TYPE at, UINT32 val
         p_buf->uint32_val2 = val2;
 
         if (str) {
-            strlcpy(p_buf->str, str, BTA_HF_CLIENT_NUMBER_LEN + 1);
-            p_buf->str[BTA_HF_CLIENT_NUMBER_LEN] = '\0';
+            UINT32 str_len = strlen(str);
+            if (str_len > BTA_HF_CLIENT_MAX_LEN) {
+                APPL_TRACE_WARNING("%s, str length(%d) is more than %d, truncate it.", __FUNCTION__, str_len, BTA_HF_CLIENT_MAX_LEN);
+                str_len = BTA_HF_CLIENT_MAX_LEN;
+            }
+
+            BCM_STRLCPY_S(p_buf->str, str, str_len + 1);
         } else {
             p_buf->str[0] = '\0';
         }
@@ -294,7 +303,38 @@ void BTA_HfClientSendAT(UINT16 handle, tBTA_HF_CLIENT_AT_CMD_TYPE at, UINT32 val
         bta_sys_sendmsg(p_buf);
     }
 }
-#if (BTM_SCO_HCI_INCLUDED == TRUE )
+
+#if (BTM_SCO_HCI_INCLUDED == TRUE)
+/*******************************************************************************
+**
+** Function         BTA_HfClientPktStatsNumsGet
+**
+** Description      Get the packet ststus numbers received and send for a specific (e)SCO connection handle.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_HfClientPktStatsNumsGet(UINT16 sync_conn_handle)
+{
+    tBTA_HF_CLIENT_PKT_STAT_GET *p_buf;
+    if ((p_buf = (tBTA_HF_CLIENT_PKT_STAT_GET *) osi_malloc(sizeof(tBTA_HF_CLIENT_PKT_STAT_GET))) != NULL) {
+        p_buf->hdr.event = BTA_HF_CLIENT_PKT_NUMS_GET_EVT;
+        p_buf->sync_conn_handle = sync_conn_handle;
+        bta_sys_sendmsg(p_buf);
+    }
+}
+
+/*******************************************************************************
+**
+** Function         BTA_HfClientCiData
+**
+** Description      Send SCO outgoing data ready event
+**
+**
+** Returns          void
+**
+*******************************************************************************/
 void BTA_HfClientCiData(void)
 {
     BT_HDR *p_buf;
@@ -303,8 +343,91 @@ void BTA_HfClientCiData(void)
         bta_sys_sendmsg(p_buf);
     }
 }
+
+/*******************************************************************************
+**
+** Function         BTA_HfClientAudioBuffAlloc
+**
+** Description      Allocate an audio buffer with specific size, reserve enough
+**                  space and offset for lower layer to send the buffer directly.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_HfClientAudioBuffAlloc(UINT16 size, UINT8 **pp_buff, UINT8 **pp_data)
+{
+    BT_HDR *p_buf;
+
+    if (pp_buff != NULL) {
+        *pp_buff = NULL;
+    }
+    if (pp_data != NULL) {
+        *pp_data = NULL;
+    }
+    if (pp_buff == NULL || pp_data == NULL) {
+        return;
+    }
+
+    /* reserve trailing space for H2 header and optional eSCO padding (mSBC: 57+2+1=60, LC3: 58+2=60) */
+    p_buf = (BT_HDR *)osi_calloc(sizeof(BT_HDR) + BTA_HF_CLIENT_BUFF_OFFSET_MIN + BTA_HF_CLIENT_H2_HEADER_LEN + size + 1);
+    if (p_buf != NULL) {
+        /* mSBC offset is large than CVSD, so this is work in CVSD air mode */
+        p_buf->offset = BTA_HF_CLIENT_BUFF_OFFSET_MIN + BTA_HF_CLIENT_H2_HEADER_LEN;
+        *pp_buff = (UINT8 *)p_buf;
+        *pp_data = (UINT8 *)(p_buf + 1) + p_buf->offset;
+    }
+}
+
+/*******************************************************************************
+**
+** Function         BTA_HfClientAudioBuffFree
+**
+** Description      Free an audio buffer.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_HfClientAudioBuffFree(UINT8 *p_buf)
+{
+    osi_free(p_buf);
+}
+
+/*******************************************************************************
+**
+** Function         BTA_HfClientAudioDataSend
+**
+** Description      Send audio data to lower layer, whether success or not, buffer
+**                  is consumed.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_HfClientAudioDataSend(UINT16 sync_conn_hdl, UINT8 *p_buff_start, UINT8 *p_data, UINT16 data_len)
+{
+    /* currently, sync_conn_hdl is not used */
+    BT_HDR *p_buf = (BT_HDR *)p_buff_start;
+    assert(p_data - (UINT8 *)(p_buf + 1) >= 0);
+    p_buf->event = BTA_HF_CLIENT_SCO_DATA_SEND_EVT;
+    p_buf->offset = p_data - (UINT8 *)(p_buf + 1);
+    p_buf->len = data_len;
+    bta_sys_sendmsg(p_buf);
+}
+
 #endif /* #if (BTM_SCO_HCI_INCLUDED == TRUE ) */
 
+/*******************************************************************************
+**
+** Function         BTA_HfClientGetCbDataSize
+**
+** Description      Get callback data size of specific event
+**
+**
+** Returns          void
+**
+*******************************************************************************/
 int BTA_HfClientGetCbDataSize(tBTA_HF_CLIENT_EVT event)
 {
     return bta_hf_client_cb_data_size[event];

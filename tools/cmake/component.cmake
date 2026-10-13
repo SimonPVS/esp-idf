@@ -1,3 +1,5 @@
+include(${CMAKE_CURRENT_LIST_DIR}/llvm_optimizations.cmake)
+
 #
 # Internal function for retrieving component properties from a component target.
 #
@@ -44,7 +46,7 @@ function(__component_get_target var name_or_alias)
 
     idf_build_get_property(component_targets __COMPONENT_TARGETS)
 
-    # Assume first that the paramters is an alias.
+    # Assume first that the parameters is an alias.
     string(REPLACE "::" "_" name_or_alias "${name_or_alias}")
     set(component_target ___${name_or_alias})
 
@@ -88,6 +90,8 @@ macro(__component_set_properties)
     __component_set_property(${component_target} EMBED_FILES "${__EMBED_FILES}")
     __component_set_property(${component_target} EMBED_TXTFILES "${__EMBED_TXTFILES}")
     __component_set_property(${component_target} REQUIRED_IDF_TARGETS "${__REQUIRED_IDF_TARGETS}")
+
+    __component_set_property(${component_target} WHOLE_ARCHIVE ${__WHOLE_ARCHIVE})
 endmacro()
 
 #
@@ -95,18 +99,13 @@ endmacro()
 #
 function(__component_dir_quick_check var component_dir)
     set(res 1)
-    get_filename_component(abs_dir ${component_dir} ABSOLUTE)
+    get_filename_component(abs_dir "${component_dir}" ABSOLUTE)
 
-    # Check this is really a directory and that a CMakeLists.txt file for this component exists
-    # - warn and skip anything which isn't valid looking (probably cruft)
-    if(NOT IS_DIRECTORY "${abs_dir}")
-        message(STATUS "Unexpected file in components directory: ${abs_dir}")
-        set(res 0)
-    endif()
-
-    get_filename_component(base_dir ${abs_dir} NAME)
+    get_filename_component(base_dir "${abs_dir}" NAME)
     string(SUBSTRING "${base_dir}" 0 1 first_char)
 
+    # Check the component directory contains a CMakeLists.txt file
+    # - warn and skip anything which isn't valid looking (probably cruft)
     if(NOT first_char STREQUAL ".")
         if(NOT EXISTS "${abs_dir}/CMakeLists.txt")
             message(STATUS "Component directory ${abs_dir} does not contain a CMakeLists.txt file. "
@@ -125,23 +124,24 @@ endfunction()
 # keeps a list of all its properties.
 #
 function(__component_write_properties output_file)
+    set(component_properties_text "")
     idf_build_get_property(component_targets __COMPONENT_TARGETS)
     foreach(component_target ${component_targets})
         __component_get_property(component_properties ${component_target} __COMPONENT_PROPERTIES)
         foreach(property ${component_properties})
             __component_get_property(val ${component_target} ${property})
             set(component_properties_text
-                "${component_properties_text}\nset(__component_${component_target}_${property} ${val})")
+                "${component_properties_text}\nset(__component_${component_target}_${property} \"${val}\")")
         endforeach()
-        file(WRITE ${output_file} "${component_properties_text}")
     endforeach()
+    file(WRITE ${output_file} "${component_properties_text}")
 endfunction()
 
 #
 # Add a component to process in the build. The components are keeped tracked of in property
 # __COMPONENT_TARGETS in component target form.
 #
-function(__component_add component_dir prefix)
+function(__component_add component_dir prefix component_source)
     # For each component, two entities are created: a component target and a component library. The
     # component library is created during component registration (the actual static/interface library).
     # On the other hand, component targets are created early in the build
@@ -151,8 +151,8 @@ function(__component_add component_dir prefix)
     # so later in the build, these component targets actually contain the properties meant for the
     # corresponding component library.
     idf_build_get_property(component_targets __COMPONENT_TARGETS)
-    get_filename_component(abs_dir ${component_dir} ABSOLUTE)
-    get_filename_component(base_dir ${abs_dir} NAME)
+    get_filename_component(abs_dir "${component_dir}" ABSOLUTE)
+    get_filename_component(base_dir "${abs_dir}" NAME)
 
     if(NOT EXISTS "${abs_dir}/CMakeLists.txt")
         message(FATAL_ERROR "Directory '${component_dir}' does not contain a component.")
@@ -169,6 +169,8 @@ function(__component_add component_dir prefix)
     if(NOT component_target IN_LIST component_targets)
         if(NOT TARGET ${component_target})
             add_library(${component_target} STATIC IMPORTED)
+            # Set the IMPORTED_LOCATION property to avoid errors on IDE codemodel queries with CMake >=4.2
+            set_property(TARGET ${component_target} PROPERTY IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/dummy.a")
         endif()
         idf_build_set_property(__COMPONENT_TARGETS ${component_target} APPEND)
     else()
@@ -189,18 +191,25 @@ function(__component_add component_dir prefix)
     __component_set_property(${component_target} COMPONENT_NAME ${component_name})
     __component_set_property(${component_target} COMPONENT_DIR ${component_dir})
     __component_set_property(${component_target} COMPONENT_ALIAS ${component_alias})
+    if(component_source)
+        __component_set_property(${component_target} COMPONENT_SOURCE ${component_source})
+    endif()
 
     __component_set_property(${component_target} __PREFIX ${prefix})
 
     # Set Kconfig related properties on the component
     __kconfig_component_init(${component_target})
+
+    # these two properties are used to keep track of the components known to the build system
+    idf_build_set_property(BUILD_COMPONENT_DIRS ${component_dir} APPEND)
+    idf_build_set_property(BUILD_COMPONENT_TARGETS ${component_target} APPEND)
 endfunction()
 
 #
 # Given a component directory, get the requirements by expanding it early. The expansion is performed
 # using a separate CMake script (the expansion is performed in a separate instance of CMake in scripting mode).
 #
-function(__component_get_requirements)
+function(__component_get_requirements use_sdk_json)
     idf_build_get_property(idf_path IDF_PATH)
 
     idf_build_get_property(build_dir BUILD_DIR)
@@ -225,14 +234,20 @@ function(__component_get_requirements)
     endif()
 
     idf_build_get_property(idf_component_manager IDF_COMPONENT_MANAGER)
-    if(idf_component_manager AND idf_component_manager EQUAL "1")
-        # Call for component manager once again to inject dependencies
-        idf_build_get_property(python PYTHON)
-        execute_process(COMMAND ${python}
-            "-m"
-            "idf_component_manager.prepare_components"
+    if(idf_component_manager EQUAL 1)
+        __component_manager_get_command(component_manager_cmd)
+        idf_build_get_property(component_manager_interface_version __COMPONENT_MANAGER_INTERFACE_VERSION)
+
+        # Call for the component manager once again to inject dependencies
+        # It modifies the requirements file generated by component_get_requirements.cmake script by adding dependencies
+        # defined in component manager manifests to REQUIRES and PRIV_REQUIRES fields.
+        # These requirements are also set as MANAGED_REQUIRES and MANAGED_PRIV_REQUIRES component properties.
+        execute_process(COMMAND ${component_manager_cmd}
             "--project_dir=${project_dir}"
-            "inject_requrements"
+            "--lock_path=${DEPENDENCIES_LOCK}"
+            "--interface_version=${component_manager_interface_version}"
+            "--use_sdk_json=${use_sdk_json}"
+            "inject_requirements"
             "--idf_path=${idf_path}"
             "--build_dir=${build_dir}"
             "--component_requires_file=${component_requires_file}"
@@ -262,23 +277,24 @@ macro(__component_add_sources sources)
             message(WARNING "SRCS and SRC_DIRS are both specified; ignoring SRC_DIRS.")
         endif()
         foreach(src ${__SRCS})
-            get_filename_component(src "${src}" ABSOLUTE BASE_DIR ${COMPONENT_DIR})
-            list(APPEND sources ${src})
+            get_filename_component(src "${src}" ABSOLUTE BASE_DIR "${COMPONENT_DIR}")
+            list(APPEND sources "${src}")
         endforeach()
     else()
         if(__SRC_DIRS)
             foreach(dir ${__SRC_DIRS})
-                get_filename_component(abs_dir ${dir} ABSOLUTE BASE_DIR ${COMPONENT_DIR})
+                get_filename_component(abs_dir "${dir}" ABSOLUTE BASE_DIR "${COMPONENT_DIR}")
 
-                if(NOT IS_DIRECTORY ${abs_dir})
+                if(NOT IS_DIRECTORY "${abs_dir}")
                     message(FATAL_ERROR "SRC_DIRS entry '${dir}' does not exist.")
                 endif()
 
                 file(GLOB dir_sources "${abs_dir}/*.c" "${abs_dir}/*.cpp" "${abs_dir}/*.S")
+                list(SORT dir_sources)
 
                 if(dir_sources)
                     foreach(src ${dir_sources})
-                        get_filename_component(src "${src}" ABSOLUTE BASE_DIR ${COMPONENT_DIR})
+                        get_filename_component(src "${src}" ABSOLUTE BASE_DIR "${COMPONENT_DIR}")
                         list(APPEND sources "${src}")
                     endforeach()
                 else()
@@ -300,11 +316,11 @@ endmacro()
 
 macro(__component_add_include_dirs lib dirs type)
     foreach(dir ${dirs})
-        get_filename_component(_dir ${dir} ABSOLUTE BASE_DIR ${CMAKE_CURRENT_LIST_DIR})
-        if(NOT IS_DIRECTORY ${_dir})
+        get_filename_component(_dir "${dir}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+        if(NOT IS_DIRECTORY "${_dir}")
             message(FATAL_ERROR "Include directory '${_dir}' is not a directory.")
         endif()
-        target_include_directories(${lib} ${type} ${_dir})
+        target_include_directories(${lib} ${type} "${_dir}")
     endforeach()
 endmacro()
 
@@ -367,10 +383,14 @@ endmacro()
 function(idf_component_get_property var component property)
     cmake_parse_arguments(_ "GENERATOR_EXPRESSION" "" "" ${ARGN})
     __component_get_target(component_target ${component})
-    if(__GENERATOR_EXPRESSION)
-        set(val "$<TARGET_PROPERTY:${component_target},${property}>")
+    if("${component_target}" STREQUAL "")
+        message(FATAL_ERROR "Failed to resolve component '${component}'")
     else()
-        __component_get_property(val ${component_target} ${property})
+        if(__GENERATOR_EXPRESSION)
+            set(val "$<TARGET_PROPERTY:${component_target},${property}>")
+        else()
+            __component_get_property(val ${component_target} ${property})
+        endif()
     endif()
     set(${var} "${val}" PARENT_SCOPE)
 endfunction()
@@ -389,6 +409,9 @@ endfunction()
 function(idf_component_set_property component property val)
     cmake_parse_arguments(_ "APPEND" "" "" ${ARGN})
     __component_get_target(component_target ${component})
+    if(NOT component_target)
+        message(FATAL_ERROR "Failed to resolve component '${component}'")
+    endif()
 
     if(__APPEND)
         __component_set_property(${component_target} ${property} "${val}" APPEND)
@@ -418,8 +441,10 @@ endfunction()
 # @param[in, optional] EMBED_TXTFILES (multivalue) list of text files to embed with the component
 # @param[in, optional] KCONFIG (single value) override the default Kconfig
 # @param[in, optional] KCONFIG_PROJBUILD (single value) override the default Kconfig
+# @param[in, optional] WHOLE_ARCHIVE (option) link the component as --whole-archive
+# @param[in, optional] ENABLE_LLVM_OPT (option) enable the LLVM optimizations selected in menuconfig
 function(idf_component_register)
-    set(options)
+    set(options WHOLE_ARCHIVE ENABLE_LLVM_OPT)
     set(single_value KCONFIG KCONFIG_PROJBUILD)
     set(multi_value SRCS SRC_DIRS EXCLUDE_SRCS
                     INCLUDE_DIRS PRIV_INCLUDE_DIRS LDFRAGMENTS REQUIRES
@@ -433,9 +458,8 @@ function(idf_component_register)
     __component_check_target()
     __component_add_sources(sources)
 
-    # Add component manifest and lock files to list of dependencies
+    # Add component manifest to the list of dependencies
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${COMPONENT_DIR}/idf_component.yml")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${COMPONENT_DIR}/dependencies.lock")
 
     # Create the final target for the component. This target is the target that is
     # visible outside the build system.
@@ -446,37 +470,41 @@ function(idf_component_register)
     # idf_build_process
     idf_build_get_property(include_directories INCLUDE_DIRECTORIES GENERATOR_EXPRESSION)
     idf_build_get_property(compile_options COMPILE_OPTIONS GENERATOR_EXPRESSION)
+    idf_build_get_property(compile_definitions COMPILE_DEFINITIONS GENERATOR_EXPRESSION)
     idf_build_get_property(c_compile_options C_COMPILE_OPTIONS GENERATOR_EXPRESSION)
     idf_build_get_property(cxx_compile_options CXX_COMPILE_OPTIONS GENERATOR_EXPRESSION)
+    idf_build_get_property(asm_compile_options ASM_COMPILE_OPTIONS GENERATOR_EXPRESSION)
     idf_build_get_property(common_reqs ___COMPONENT_REQUIRES_COMMON)
 
     include_directories("${include_directories}")
     add_compile_options("${compile_options}")
+    add_compile_definitions("${compile_definitions}")
     add_c_compile_options("${c_compile_options}")
     add_cxx_compile_options("${cxx_compile_options}")
+    add_asm_compile_options("${asm_compile_options}")
 
-    # Unfortunately add_definitions() does not support generator expressions. A new command
-    # add_compile_definition() does but is only available on CMake 3.12 or newer. This uses
-    # add_compile_options(), which can add any option as the workaround.
-    #
-    # TODO: Use add_compile_definitions() once minimum supported version is 3.12 or newer.
-    idf_build_get_property(compile_definitions COMPILE_DEFINITIONS GENERATOR_EXPRESSION)
-    add_compile_options("${compile_definitions}")
-
-    list(REMOVE_ITEM common_reqs ${component_lib})
+    if(common_reqs) # check whether common_reqs exists, this may be the case in minimalistic host unit test builds
+        list(REMOVE_ITEM common_reqs ${component_lib})
+    endif()
     link_libraries(${common_reqs})
 
     idf_build_get_property(config_dir CONFIG_DIR)
 
+    # Publish IDF_LLVM_OPT_* even when this component does not opt in, so the
+    # application can apply them to a third-party target with standard CMake.
+    __idf_llvm_opt_publish_flags()
+
     # The contents of 'sources' is from the __component_add_sources call
     if(sources OR __EMBED_FILES OR __EMBED_TXTFILES)
         add_library(${component_lib} STATIC ${sources})
+        if(__ENABLE_LLVM_OPT)
+            __idf_apply_llvm_opt_to_target(${component_lib})
+        endif()
         __component_set_property(${component_target} COMPONENT_TYPE LIBRARY)
         __component_add_include_dirs(${component_lib} "${__INCLUDE_DIRS}" PUBLIC)
         __component_add_include_dirs(${component_lib} "${__PRIV_INCLUDE_DIRS}" PRIVATE)
         __component_add_include_dirs(${component_lib} "${config_dir}" PUBLIC)
-        set_target_properties(${component_lib} PROPERTIES OUTPUT_NAME ${COMPONENT_NAME})
-        __ldgen_add_component(${component_lib})
+        set_target_properties(${component_lib} PROPERTIES OUTPUT_NAME ${COMPONENT_NAME} LINKER_LANGUAGE C)
     else()
         add_library(${component_lib} INTERFACE)
         __component_set_property(${component_target} COMPONENT_TYPE CONFIG_ONLY)
@@ -514,6 +542,122 @@ function(idf_component_register)
 
     __component_set_properties()
 endfunction()
+
+# idf_component_mock
+#
+# @brief Create mock component with CMock and register it to IDF build system.
+#
+# @param[in, optional] INCLUDE_DIRS (multivalue) list include directories which belong to the header files
+#                           provided in MOCK_HEADER_FILES. If any other include directories are necessary, they need
+#                           to be passed here, too.
+# @param[in, optional] MOCK_HEADER_FILES (multivalue) list of header files from which the mocks shall be generated.
+# @param[in, optional] REQUIRES (multivalue) any other components required by the mock component.
+# @param[in, optional] MOCK_SUBDIR (singlevalue) tells cmake where are the CMock generated c files.
+#
+function(idf_component_mock)
+    set(options)
+    set(single_value MOCK_SUBDIR)
+    set(multi_value MOCK_HEADER_FILES INCLUDE_DIRS REQUIRES)
+    cmake_parse_arguments(_ "${options}" "${single_value}" "${multi_value}" ${ARGN})
+
+    list(APPEND __REQUIRES "cmock")
+
+    set(MOCK_GENERATED_HEADERS "")
+    set(MOCK_GENERATED_SRCS "")
+    set(MOCK_FILES "")
+    set(IDF_PATH $ENV{IDF_PATH})
+    set(CMOCK_DIR "${IDF_PATH}/components/cmock/CMock")
+    set(MOCK_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+    list(APPEND __INCLUDE_DIRS "${MOCK_GEN_DIR}/mocks")
+
+    foreach(header_file ${__MOCK_HEADER_FILES})
+        get_filename_component(file_without_dir ${header_file} NAME_WE)
+        if("${__MOCK_SUBDIR}" STREQUAL "")
+            list(APPEND MOCK_GENERATED_HEADERS "${MOCK_GEN_DIR}/mocks/Mock${file_without_dir}.h")
+            list(APPEND MOCK_GENERATED_SRCS "${MOCK_GEN_DIR}/mocks/Mock${file_without_dir}.c")
+        else()
+            list(APPEND MOCK_GENERATED_HEADERS "${MOCK_GEN_DIR}/mocks/${__MOCK_SUBDIR}/Mock${file_without_dir}.h")
+            list(APPEND MOCK_GENERATED_SRCS "${MOCK_GEN_DIR}/mocks/${__MOCK_SUBDIR}/Mock${file_without_dir}.c")
+        endif()
+    endforeach()
+
+    file(MAKE_DIRECTORY "${MOCK_GEN_DIR}/mocks")
+
+    idf_component_register(SRCS "${MOCK_GENERATED_SRCS}"
+                        INCLUDE_DIRS ${__INCLUDE_DIRS}
+                        REQUIRES ${__REQUIRES})
+
+
+    set(COMPONENT_LIB ${COMPONENT_LIB} PARENT_SCOPE)
+    add_custom_command(
+        OUTPUT ruby_found SYMBOLIC
+        COMMAND "ruby" "-v"
+        COMMENT "Try to find ruby. If this fails, you need to install ruby"
+    )
+
+    # This command builds the mocks.
+    # First, environment variable UNITY_DIR is set. This is necessary to prevent unity from looking in its own submodule
+    # which doesn't work in our CI yet...
+    # The rest is a straight forward call to cmock.rb, consult cmock's documentation for more information.
+    add_custom_command(
+        OUTPUT ${MOCK_GENERATED_SRCS} ${MOCK_GENERATED_HEADERS}
+        DEPENDS ruby_found
+        COMMAND ${CMAKE_COMMAND} -E env "UNITY_DIR=${IDF_PATH}/components/unity/unity"
+            ruby
+            ${CMOCK_DIR}/lib/cmock.rb
+            -o${CMAKE_CURRENT_SOURCE_DIR}/mock/mock_config.yaml
+            ${__MOCK_HEADER_FILES}
+      )
+endfunction()
+
+# idf_component_optional_requires
+#
+# @brief Add a dependency on a given component only if it is included in the build.
+#
+# Calling idf_component_optional_requires(PRIVATE dependency_name) has the similar effect to
+# target_link_libraries(${COMPONENT_LIB} PRIVATE idf::dependency_name), only if 'dependency_name'
+# component is part of the build. Otherwise, no dependency gets added. Multiple names may be given.
+#
+# @param[in]  type of the dependency, one of: PRIVATE, PUBLIC, INTERFACE
+# @param[in, multivalue] list of component names which should be added as dependencies
+#
+function(idf_component_optional_requires req_type)
+    set(optional_reqs ${ARGN})
+    idf_build_get_property(build_components BUILD_COMPONENTS)
+    foreach(req ${optional_reqs})
+        if(req IN_LIST build_components)
+            idf_component_get_property(req_lib ${req} COMPONENT_LIB)
+            target_link_libraries(${COMPONENT_LIB} ${req_type} ${req_lib})
+        endif()
+    endforeach()
+endfunction()
+
+# idf_component_add_link_dependency
+#
+# @brief Specify than an ESP-IDF component library depends on another component
+# library at link time only.
+#
+# @note Almost always it's better to use idf_component_register() REQUIRES or
+# PRIV_REQUIRES for this. However using this function allows adding a dependency
+# from inside a different component, as a last resort.
+#
+# @param[in, required] FROM Component the dependency is from (this component depends on the other component)
+# @param[in, optional] TO Component the dependency is to (this component is depended on by FROM). If omitted
+# then the current component is assumed. For this default value to work, this function must be called after
+# idf_component_register() in the component CMakeLists.txt file.
+function(idf_component_add_link_dependency)
+    set(single_value FROM TO)
+    cmake_parse_arguments(_ "" "${single_value}" "" ${ARGN})
+
+    idf_component_get_property(from_lib ${__FROM} COMPONENT_LIB)
+    if(__TO)
+        idf_component_get_property(to_lib ${__TO} COMPONENT_LIB)
+    else()
+        set(to_lib ${COMPONENT_LIB})
+    endif()
+    set_property(TARGET ${from_lib} APPEND PROPERTY INTERFACE_LINK_LIBRARIES $<LINK_ONLY:${to_lib}>)
+endfunction()
+
 
 #
 # Deprecated functions

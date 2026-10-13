@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef __BTC_TASK_H__
 #define __BTC_TASK_H__
@@ -28,7 +20,7 @@ typedef struct btc_msg {
     uint8_t aid;    //application id
     uint8_t pid;    //profile id
     uint8_t act;    //profile action, defined in seprerate header files
-    void   *arg;    //param for btc function or function param
+    UINT8   arg[0]; //param for btc function or function param
 } btc_msg_t;
 
 typedef struct btc_adv_packet {
@@ -53,7 +45,9 @@ typedef enum {
     BTC_PID_GAP_BLE,
     BTC_PID_BLE_HID,
     BTC_PID_SPPLIKE,
+#if (BLUFI_INCLUDED == TRUE)
     BTC_PID_BLUFI,
+#endif  ///BLUFI_INCLUDED == TRUE
     BTC_PID_DM_SEC,
     BTC_PID_ALARM,
 #if (CLASSIC_BT_INCLUDED == TRUE)
@@ -63,12 +57,30 @@ typedef enum {
     BTC_PID_AVRC_CT,
     BTC_PID_AVRC_TG,
     BTC_PID_SPP,
+#if (BTC_PAN_INCLUDED == TRUE)
+    BTC_PID_PAN,
+#endif /* BTC_PAN_INCLUDED */
+    BTC_PID_HD,
+    BTC_PID_HH,
+    BTC_PID_L2CAP,
+    BTC_PID_SDP,
 #if (BTC_HF_INCLUDED == TRUE)
     BTC_PID_HF,
 #endif /* BTC_HF_INCLUDED */
 #if (BTC_HF_CLIENT_INCLUDED == TRUE)
     BTC_PID_HF_CLIENT,
 #endif /* BTC_HF_CLIENT_INCLUDED */
+#if (BTC_PBA_CLIENT_INCLUDED == TRUE)
+    BTC_PID_PBA_CLIENT,
+#endif /* BTC_PBA_CLIENT_INCLUDED */
+#if (BTC_OPP_INCLUDED == TRUE)
+#if (BTC_OPP_SERVER_INCLUDED == TRUE)
+    BTC_PID_OPP_SERVER,
+#endif /* BTC_OPP_SERVER_INCLUDED */
+#if (BTC_OPP_CLIENT_INCLUDED == TRUE)
+    BTC_PID_OPP_CLIENT,
+#endif /* BTC_OPP_CLIENT_INCLUDED */
+#endif /* BTC_OPP_INCLUDED */
 #endif  /* CLASSIC_BT_INCLUDED */
 #if CONFIG_BLE_MESH
     BTC_PID_PROV,
@@ -77,6 +89,24 @@ typedef enum {
     BTC_PID_HEALTH_SERVER,
     BTC_PID_CONFIG_CLIENT,
     BTC_PID_CONFIG_SERVER,
+    BTC_PID_AGG_CLIENT,
+    BTC_PID_AGG_SERVER,
+    BTC_PID_BRC_CLIENT,
+    BTC_PID_BRC_SERVER,
+    BTC_PID_DF_CLIENT,
+    BTC_PID_DF_SERVER,
+    BTC_PID_LCD_CLIENT,
+    BTC_PID_LCD_SERVER,
+    BTC_PID_ODP_CLIENT,
+    BTC_PID_ODP_SERVER,
+    BTC_PID_PRB_CLIENT,
+    BTC_PID_PRB_SERVER,
+    BTC_PID_RPR_CLIENT,
+    BTC_PID_RPR_SERVER,
+    BTC_PID_SAR_CLIENT,
+    BTC_PID_SAR_SERVER,
+    BTC_PID_SRPL_CLIENT,
+    BTC_PID_SRPL_SERVER,
     BTC_PID_GENERIC_CLIENT,
     BTC_PID_LIGHTING_CLIENT,
     BTC_PID_SENSOR_CLIENT,
@@ -85,7 +115,25 @@ typedef enum {
     BTC_PID_LIGHTING_SERVER,
     BTC_PID_SENSOR_SERVER,
     BTC_PID_TIME_SCENE_SERVER,
+    BTC_PID_MBT_CLIENT,
+    BTC_PID_MBT_SERVER,
+    BTC_PID_BLOB_CLIENT,
+    BTC_PID_BLOB_SERVER,
+    BTC_PID_DFU_CLIENT,
+    BTC_PID_DFU_SERVER,
+    BTC_PID_DFD_CLIENT,
+    BTC_PID_DFD_SERVER,
+    BTC_PID_BLE_MESH_BLE_COEX,
 #endif /* CONFIG_BLE_MESH */
+#if (BLE_FEAT_ISO_EN == TRUE)
+    BTC_PID_ISO_BLE,
+#endif // #if (BLE_FEAT_ISO_EN == TRUE)
+#if (BLE_FEAT_CTE_EN == TRUE)
+    BTC_PID_BLE_CTE,
+#endif // #if (BLE_FEAT_CTE_EN == TRUE)
+#if (BLE_L2CAP_COC_INCLUDED == TRUE)
+    BTC_PID_BLE_L2CAP,
+#endif // #if (BLE_L2CAP_COC_INCLUDED == TRUE)
     BTC_PID_NUM,
 } btc_pid_t; //btc profile id
 
@@ -95,29 +143,46 @@ typedef struct {
 } btc_func_t;
 
 typedef void (* btc_arg_deep_copy_t)(btc_msg_t *msg, void *dst, void *src);
+typedef void (* btc_arg_deep_free_t)(btc_msg_t *msg);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * transfer an message to another module in the different task.
  * @param  msg       message
- * @param  arg       paramter
- * @param  arg_len   length of paramter
+ * @param  arg       parameter
+ * @param  arg_len   length of parameter
  * @param  copy_func deep copy function
+ * @param  free_func deep free function
  * @return           BT_STATUS_SUCCESS: success
  *                   others: fail
  */
-bt_status_t btc_transfer_context(btc_msg_t *msg, void *arg, int arg_len, btc_arg_deep_copy_t copy_func);
+bt_status_t btc_transfer_context(btc_msg_t *msg, void *arg, int arg_len, btc_arg_deep_copy_t copy_func,
+                                    btc_arg_deep_free_t free_func);
 
 /**
- * transfer an message to another module in tha same task.
+ * transfer an message to another module in the same task.
  * @param  msg       message
- * @param  arg       paramter
  * @return           BT_STATUS_SUCCESS: success
  *                   others: fail
  */
-bt_status_t btc_inter_profile_call(btc_msg_t *msg, void *arg);
+bt_status_t btc_inter_profile_call(btc_msg_t *msg);
 
 bt_status_t btc_init(void);
 void btc_deinit(void);
-bool btc_check_queue_is_congest(void);
+int get_btc_work_queue_size(void);
+
+/**
+ * get the BTC thread handle
+ * @return           NULL: fail
+ *                   others: pointer of osi_thread structure of BTC
+ */
+osi_thread_t *btc_get_current_thread(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* __BTC_TASK_H__ */

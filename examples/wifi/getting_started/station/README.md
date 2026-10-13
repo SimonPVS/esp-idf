@@ -1,29 +1,39 @@
-# WiFi station example
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-P4 | ESP32-S2 | ESP32-S3 | ESP32-S31 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- | -------- | -------- | --------- |
+
+# Wi-Fi Station Example
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
 
+This example shows how to use the Wi-Fi Station functionality of the Wi-Fi driver of ESP for connecting to an Access Point.
 
 ## How to use example
 
 ### Configure the project
 
-```
-idf.py menuconfig
-```
+Open the project configuration menu (`idf.py menuconfig`).
 
-* Set WiFi SSID and WiFi Password and Maximum retry under Example Configuration Options.
+In the `Example Configuration` menu:
+
+* Set the Wi-Fi configuration.
+    * Set `WiFi SSID`.
+    * Set `WiFi Password`.
+
+Optional: If you need, change the other options according to your requirements.
 
 ### Build and Flash
 
-Build the project and flash it to the board, then run monitor tool to view serial output:
+Build the project and flash it to the board, then run the monitor tool to view the serial output:
 
-```
-idf.py -p PORT flash monitor
-```
+Run `idf.py -p PORT flash monitor` to build, flash and monitor the project.
 
 (To exit the serial monitor, type ``Ctrl-]``.)
 
-See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
+See the Getting Started Guide for all the steps to configure and use the ESP-IDF to build projects.
+
+* [ESP-IDF Getting Started Guide on ESP32](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html)
+* [ESP-IDF Getting Started Guide on ESP32-S2](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/get-started/index.html)
+* [ESP-IDF Getting Started Guide on ESP32-C3](https://docs.espressif.com/projects/esp-idf/en/latest/esp32c3/get-started/index.html)
 
 ## Example Output
 Note that the output, in particular the order of the output, may vary depending on the environment.
@@ -36,7 +46,7 @@ I (599) system_api: Base MAC address is not set, read default base MAC address f
 I (599) system_api: Base MAC address is not set, read default base MAC address from BLK0 of EFUSE
 I (629) wifi: wifi firmware version: 2d94f02
 I (629) wifi: config NVS flash: enabled
-I (629) wifi: config nano formating: disabled
+I (629) wifi: config nano formatting: disabled
 I (629) wifi: Init dynamic tx buffer num: 32
 I (629) wifi: Init data frame dynamic rx buffer num: 32
 I (639) wifi: Init management frame dynamic rx buffer num: 32
@@ -69,7 +79,7 @@ I (599) system_api: Base MAC address is not set, read default base MAC address f
 I (599) system_api: Base MAC address is not set, read default base MAC address from BLK0 of EFUSE
 I (629) wifi: wifi firmware version: 2d94f02
 I (629) wifi: config NVS flash: enabled
-I (629) wifi: config nano formating: disabled
+I (629) wifi: config nano formatting: disabled
 I (629) wifi: Init dynamic tx buffer num: 32
 I (629) wifi: Init data frame dynamic rx buffer num: 32
 I (639) wifi: Init management frame dynamic rx buffer num: 32
@@ -105,3 +115,11 @@ I (8249) wifi station: connect to the AP fail
 I (10299) wifi station: connect to the AP fail
 I (10299) wifi station: Failed to connect to SSID:myssid, password:mypassword
 ```
+
+## Running the example on ESP Chips without Wi-Fi
+
+This example can run on ESP Chips without Wi-Fi using ESP-Hosted. See the [Two-Chip Solution](../../README.md#wi-fi-examples-with-two-chip-solution) section in the upper level `README.md` for information.
+
+## Troubleshooting
+
+For any technical queries, please open an [issue](https://github.com/espressif/esp-idf/issues) on GitHub. We will get back to you soon.

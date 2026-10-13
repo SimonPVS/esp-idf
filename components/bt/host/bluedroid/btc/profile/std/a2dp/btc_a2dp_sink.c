@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 /******************************************************************************
  **
@@ -38,14 +30,13 @@
 #include "btc_av.h"
 #include "btc/btc_util.h"
 #include "esp_a2dp_api.h"
-#include "oi_codec_sbc.h"
-#include "oi_status.h"
 #include "osi/future.h"
 #include <assert.h>
 
-#if (BTC_AV_SINK_INCLUDED == TRUE)
+#if (BTC_AV_SINK_INCLUDED == TRUE) && (BTC_AV_EXT_CODEC == FALSE)
 
-extern osi_thread_t *btc_thread;
+#include "oi_codec_sbc.h"
+#include "oi_status.h"
 
 /*****************************************************************************
  **  Constants
@@ -86,7 +77,9 @@ enum {
    layers we might need to temporarily buffer up data */
 
 /* 18 frames is equivalent to 6.89*18*2.9 ~= 360 ms @ 44.1 khz, 20 ms mediatick */
-#define MAX_OUTPUT_A2DP_SNK_FRAME_QUEUE_SZ     (18)
+#define MAX_OUTPUT_A2DP_SNK_FRAME_QUEUE_SZ     (25)
+
+#define BTC_A2DP_SNK_DATA_QUEUE_IDX            (1)
 
 typedef struct {
     uint32_t sig;
@@ -94,18 +87,17 @@ typedef struct {
 } a2dp_sink_task_evt_t;
 
 typedef struct {
-    UINT16 num_frames_to_be_processed;
-    UINT16 len;
-    UINT16 offset;
-    UINT16 layer_specific;
-} tBT_SBC_HDR;
-
-typedef struct {
     BOOLEAN rx_flush; /* discards any incoming data when true */
     UINT8   channel_count;
+    struct osi_event *data_ready_event;
     fixed_queue_t *RxSbcQ;
     UINT32  sample_rate;
 } tBTC_A2DP_SINK_CB;
+
+typedef struct {
+    uint16_t expected_seq_num;
+    bool seq_num_recount;
+} a2dp_sink_media_pkt_seq_num_t;
 
 typedef struct {
     tBTC_A2DP_SINK_CB   btc_aa_snk_cb;
@@ -113,6 +105,7 @@ typedef struct {
     OI_CODEC_SBC_DECODER_CONTEXT    context;
     OI_UINT32           contextData[CODEC_DATA_WORDS(2, SBC_CODEC_FAST_FILTER_BUFFERS)];
     OI_INT16            pcmData[15 * SBC_MAX_SAMPLES_PER_FRAME * SBC_MAX_CHANNELS];
+    a2dp_sink_media_pkt_seq_num_t   media_pkt_seq_num;
 } a2dp_sink_local_param_t;
 
 static void btc_a2dp_sink_thread_init(UNUSED_ATTR void *context);
@@ -122,7 +115,7 @@ static void btc_a2dp_sink_rx_flush(void);
 static int btc_a2dp_sink_get_track_frequency(UINT8 frequency);
 static int btc_a2dp_sink_get_track_channel_count(UINT8 channeltype);
 /* Handle incoming media packets A2DP SINK streaming*/
-static void btc_a2dp_sink_handle_inc_media(tBT_SBC_HDR *p_msg);
+static void btc_a2dp_sink_handle_inc_media(BT_HDR *p_msg);
 static void btc_a2dp_sink_handle_decoder_reset(tBTC_MEDIA_SINK_CFG_UPDATE *p_msg);
 static void btc_a2dp_sink_handle_clear_track(void);
 static BOOLEAN btc_a2dp_sink_clear_track(void);
@@ -151,7 +144,6 @@ static inline void btc_a2d_data_cb_to_app(const uint8_t *data, uint32_t len)
         bt_aa_snk_data_cb(data, len);
     }
 }
-
 
 /*****************************************************************************
  **  Misc helper functions
@@ -214,7 +206,7 @@ bool btc_a2dp_sink_startup(void)
 
     APPL_TRACE_EVENT("## A2DP SINK START MEDIA THREAD ##");
 
-    a2dp_sink_local_param.btc_aa_snk_task_hdl = btc_thread;
+    a2dp_sink_local_param.btc_aa_snk_task_hdl = btc_get_current_thread();
 
     if (btc_a2dp_sink_ctrl(BTC_MEDIA_TASK_SINK_INIT, NULL) == false) {
         goto error_exit;
@@ -238,6 +230,11 @@ error_exit:;
 
 void btc_a2dp_sink_shutdown(void)
 {
+    if (btc_a2dp_sink_state != BTC_A2DP_SINK_STATE_ON) {
+        APPL_TRACE_ERROR("a2dp sink already shutdown");
+        return;
+    }
+
     APPL_TRACE_EVENT("## A2DP SINK STOP MEDIA THREAD ##\n");
 
     // Exit thread
@@ -294,11 +291,6 @@ void btc_a2dp_sink_on_suspended(tBTA_AV_SUSPEND *p_av)
     return;
 }
 
-static void btc_a2dp_sink_data_post(void)
-{
-    osi_thread_post(a2dp_sink_local_param.btc_aa_snk_task_hdl, btc_a2dp_sink_data_ready, NULL, 1, OSI_THREAD_MAX_TIMEOUT);
-}
-
 /*******************************************************************************
  **
  ** Function         btc_a2dp_sink_clear_track
@@ -317,6 +309,10 @@ static BOOLEAN btc_a2dp_sink_clear_track(void)
 void btc_a2dp_sink_set_rx_flush(BOOLEAN enable)
 {
     APPL_TRACE_EVENT("## DROP RX %d ##\n", enable);
+    if (enable == FALSE) {
+        a2dp_sink_local_param.media_pkt_seq_num.expected_seq_num = 0x1;
+        a2dp_sink_local_param.media_pkt_seq_num.seq_num_recount = true;
+    }
     a2dp_sink_local_param.btc_aa_snk_cb.rx_flush = enable;
 }
 
@@ -349,7 +345,8 @@ void btc_a2dp_sink_reset_decoder(UINT8 *p_av)
 
 static void btc_a2dp_sink_data_ready(UNUSED_ATTR void *context)
 {
-    tBT_SBC_HDR *p_msg;
+    BT_HDR *p_msg;
+    int nb_of_msgs_to_process = 0;
 
     if (fixed_queue_is_empty(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ)) {
         APPL_TRACE_DEBUG("  QUE  EMPTY ");
@@ -358,20 +355,25 @@ static void btc_a2dp_sink_data_ready(UNUSED_ATTR void *context)
             btc_a2dp_sink_flush_q(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ);
             return;
         }
-
-        while ((p_msg = (tBT_SBC_HDR *)fixed_queue_try_peek_first(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ)) != NULL ) {
+        nb_of_msgs_to_process = fixed_queue_length(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ);
+        APPL_TRACE_DEBUG("nb:%d", nb_of_msgs_to_process);
+        while (nb_of_msgs_to_process > 0) {
             if (btc_a2dp_sink_state != BTC_A2DP_SINK_STATE_ON){
                 return;
             }
-            btc_a2dp_sink_handle_inc_media(p_msg);
-            p_msg = (tBT_SBC_HDR *)fixed_queue_dequeue(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ, 0);
+            p_msg = (BT_HDR *)fixed_queue_dequeue(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ, 0);
             if ( p_msg == NULL ) {
                 APPL_TRACE_ERROR("Insufficient data in que ");
                 break;
             }
-            osi_free(p_msg);
+            btc_a2dp_sink_handle_inc_media(p_msg);
+            nb_of_msgs_to_process--;
         }
         APPL_TRACE_DEBUG(" Process Frames - ");
+
+        if (!fixed_queue_is_empty(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ)) {
+            osi_thread_post_event(a2dp_sink_local_param.btc_aa_snk_cb.data_ready_event, OSI_THREAD_MAX_TIMEOUT);
+        }
     }
 }
 
@@ -410,9 +412,11 @@ static void btc_a2dp_sink_handle_decoder_reset(tBTC_MEDIA_SINK_CFG_UPDATE *p_msg
     a2dp_sink_local_param.btc_aa_snk_cb.rx_flush = FALSE;
     APPL_TRACE_EVENT("Reset to sink role");
     status = OI_CODEC_SBC_DecoderReset(&a2dp_sink_local_param.context, a2dp_sink_local_param.contextData,
-                                        sizeof(a2dp_sink_local_param.contextData), 2, 2, FALSE, FALSE);
+                                        sizeof(a2dp_sink_local_param.contextData), a2dp_sink_local_param.btc_aa_snk_cb.channel_count,
+                                        a2dp_sink_local_param.btc_aa_snk_cb.channel_count, FALSE, FALSE);
     if (!OI_SUCCESS(status)) {
         APPL_TRACE_ERROR("OI_CODEC_SBC_DecoderReset failed with error code %d\n", status);
+        return;
     }
 
     btc_a2dp_control_set_datachnl_stat(TRUE);
@@ -521,45 +525,71 @@ static void btc_a2dp_sink_handle_decoder_reset(tBTC_MEDIA_SINK_CFG_UPDATE *p_msg
  ** Returns          void
  **
  *******************************************************************************/
-static void btc_a2dp_sink_handle_inc_media(tBT_SBC_HDR *p_msg)
+static void btc_a2dp_sink_handle_inc_media(BT_HDR *p_msg)
 {
-    UINT8 *sbc_start_frame = ((UINT8 *)(p_msg + 1) + p_msg->offset + 1);
+    UINT8 *sbc_start_frame;
     int count;
     UINT32 pcmBytes, availPcmBytes;
     OI_INT16 *pcmDataPointer = a2dp_sink_local_param.pcmData; /*Will be overwritten on next packet receipt*/
     OI_STATUS status;
-    int num_sbc_frames = p_msg->num_frames_to_be_processed;
-    UINT32 sbc_frame_len = p_msg->len - 1;
+    int num_sbc_frames;
+    UINT32 sbc_frame_len;
+
+    if (p_msg->len < 1) {
+        osi_free(p_msg);
+        return;
+    }
+
+    sbc_start_frame = ((UINT8 *)(p_msg + 1) + p_msg->offset + 1);
+    num_sbc_frames = (*((UINT8 *)(p_msg + 1) + p_msg->offset)) & 0x0f;
+    sbc_frame_len = (UINT32)p_msg->len - 1U;
     availPcmBytes = sizeof(a2dp_sink_local_param.pcmData);
 
     /* XXX: Check if the below check is correct, we are checking for peer to be sink when we are sink */
     if (btc_av_get_peer_sep() == AVDT_TSEP_SNK || (a2dp_sink_local_param.btc_aa_snk_cb.rx_flush)) {
         APPL_TRACE_DEBUG(" State Changed happened in this tick ");
+        osi_free(p_msg);
         return;
     }
 
     // ignore data if no one is listening
     if (!btc_a2dp_control_get_datachnl_stat()) {
+        osi_free(p_msg);
         return;
     }
+
+    if (p_msg->layer_specific != a2dp_sink_local_param.media_pkt_seq_num.expected_seq_num) {
+        /* Because the sequence number of some devices is not recounted */
+        if (!a2dp_sink_local_param.media_pkt_seq_num.seq_num_recount ||
+                a2dp_sink_local_param.media_pkt_seq_num.expected_seq_num != 0x1) {
+            APPL_TRACE_WARNING("Sequence numbers error, recv:0x%x, expect:0x%x, recount:0x%x",
+                                p_msg->layer_specific, a2dp_sink_local_param.media_pkt_seq_num.expected_seq_num,
+                                a2dp_sink_local_param.media_pkt_seq_num.seq_num_recount);
+        }
+    }
+    a2dp_sink_local_param.media_pkt_seq_num.expected_seq_num  = p_msg->layer_specific + 1;
+    a2dp_sink_local_param.media_pkt_seq_num.seq_num_recount = false;
 
     APPL_TRACE_DEBUG("Number of sbc frames %d, frame_len %d\n", num_sbc_frames, sbc_frame_len);
 
     for (count = 0; count < num_sbc_frames && sbc_frame_len != 0; count ++) {
         pcmBytes = availPcmBytes;
         status = OI_CODEC_SBC_DecodeFrame(&a2dp_sink_local_param.context, (const OI_BYTE **)&sbc_start_frame,
-                                          (OI_UINT32 *)&sbc_frame_len,
-                                          (OI_INT16 *)pcmDataPointer,
-                                          (OI_UINT32 *)&pcmBytes);
+                                        (OI_UINT32 *)&sbc_frame_len,
+                                        (OI_INT16 *)pcmDataPointer,
+                                        (OI_UINT32 *)&pcmBytes);
         if (!OI_SUCCESS(status)) {
             APPL_TRACE_ERROR("Decoding failure: %d\n", status);
             break;
         }
         availPcmBytes -= pcmBytes;
         pcmDataPointer += pcmBytes / 2;
-        p_msg->offset += (p_msg->len - 1) - sbc_frame_len;
-        p_msg->len = sbc_frame_len + 1;
     }
+    if (count != num_sbc_frames || sbc_frame_len) {
+        APPL_TRACE_WARNING("Potential decoding error, cnt:%d, num:%d, len:%d. Please ignore if playback is normal.",
+                             count, num_sbc_frames, sbc_frame_len);
+    }
+    osi_free(p_msg);
 
     btc_a2d_data_cb_to_app((uint8_t *)a2dp_sink_local_param.pcmData, (sizeof(a2dp_sink_local_param.pcmData) - availPcmBytes));
 }
@@ -646,35 +676,28 @@ static int btc_a2dp_sink_get_track_channel_count(UINT8 channeltype)
  *******************************************************************************/
 UINT8 btc_a2dp_sink_enque_buf(BT_HDR *p_pkt)
 {
-    tBT_SBC_HDR *p_msg;
-
     if (btc_a2dp_sink_state != BTC_A2DP_SINK_STATE_ON){
+        osi_free(p_pkt);
         return 0;
     }
 
-    if (a2dp_sink_local_param.btc_aa_snk_cb.rx_flush == TRUE) { /* Flush enabled, do not enque*/
+    if (a2dp_sink_local_param.btc_aa_snk_cb.rx_flush == TRUE) { /* Flush enabled, do not enqueue */
+        osi_free(p_pkt);
         return fixed_queue_length(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ);
     }
 
     if (fixed_queue_length(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ) >= MAX_OUTPUT_A2DP_SNK_FRAME_QUEUE_SZ) {
+        osi_free(p_pkt);
         APPL_TRACE_WARNING("Pkt dropped\n");
         return fixed_queue_length(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ);
     }
 
     APPL_TRACE_DEBUG("btc_a2dp_sink_enque_buf + ");
 
-    /* allocate and Queue this buffer */
-    if ((p_msg = (tBT_SBC_HDR *) osi_malloc(sizeof(tBT_SBC_HDR) +
-                                            p_pkt->offset + p_pkt->len)) != NULL) {
-        memcpy(p_msg, p_pkt, (sizeof(BT_HDR) + p_pkt->offset + p_pkt->len));
-        p_msg->num_frames_to_be_processed = (*((UINT8 *)(p_msg + 1) + p_msg->offset)) & 0x0f;
-        APPL_TRACE_VERBOSE("btc_a2dp_sink_enque_buf %d + \n", p_msg->num_frames_to_be_processed);
-        fixed_queue_enqueue(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ, p_msg, FIXED_QUEUE_MAX_TIMEOUT);
-        btc_a2dp_sink_data_post();
-    } else {
-        /* let caller deal with a failed allocation */
-        APPL_TRACE_WARNING("btc_a2dp_sink_enque_buf No Buffer left - ");
-    }
+    // p_msg->num_frames_to_be_processed = (*((UINT8 *)(p_msg + 1) + p_msg->offset)) & 0x0f;
+    fixed_queue_enqueue(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ, p_pkt, FIXED_QUEUE_MAX_TIMEOUT);
+    osi_thread_post_event(a2dp_sink_local_param.btc_aa_snk_cb.data_ready_event, OSI_THREAD_MAX_TIMEOUT);
+
     return fixed_queue_length(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ);
 }
 
@@ -706,6 +729,11 @@ static void btc_a2dp_sink_thread_init(UNUSED_ATTR void *context)
 
     btc_a2dp_sink_state = BTC_A2DP_SINK_STATE_ON;
 
+    struct osi_event *data_event = osi_event_create(btc_a2dp_sink_data_ready, NULL);
+    assert (data_event != NULL);
+    osi_event_bind(data_event, a2dp_sink_local_param.btc_aa_snk_task_hdl, BTC_A2DP_SNK_DATA_QUEUE_IDX);
+    a2dp_sink_local_param.btc_aa_snk_cb.data_ready_event = data_event;
+
     a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ = fixed_queue_new(QUEUE_SIZE_MAX);
 
     btc_a2dp_control_init();
@@ -722,6 +750,9 @@ static void btc_a2dp_sink_thread_cleanup(UNUSED_ATTR void *context)
     fixed_queue_free(a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ, osi_free_func);
 
     a2dp_sink_local_param.btc_aa_snk_cb.RxSbcQ = NULL;
+
+    osi_event_delete(a2dp_sink_local_param.btc_aa_snk_cb.data_ready_event);
+    a2dp_sink_local_param.btc_aa_snk_cb.data_ready_event = NULL;
 }
 
-#endif /* BTC_AV_SINK_INCLUDED */
+#endif /* (BTC_AV_SINK_INCLUDED == TRUE) && (BTC_AV_EXT_CODEC == FALSE) */

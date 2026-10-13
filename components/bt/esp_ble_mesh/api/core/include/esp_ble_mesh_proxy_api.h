@@ -1,16 +1,8 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_BLE_MESH_PROXY_API_H_
 #define _ESP_BLE_MESH_PROXY_API_H_
@@ -20,6 +12,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define ESP_BLE_MESH_PROXY_CLI_DIRECTED_FORWARDING_ENABLE 0x01
+#define ESP_BLE_MESH_PROXY_CLI_DIRECTED_FORWARDING_DISABLE 0x00
 
 /**
  * @brief   Enable advertising with Node Identity.
@@ -52,6 +47,30 @@ esp_err_t esp_ble_mesh_proxy_gatt_enable(void);
  *
  */
 esp_err_t esp_ble_mesh_proxy_gatt_disable(void);
+
+/**
+ * @brief   Enable advertising with Private Node Identity.
+ *
+ * @note    This API requires that GATT Proxy support be enabled. Once called,
+ *          each subnet starts advertising using Private Node Identity for the
+ *          next 60 seconds, and after 60s Private Network ID will be advertised.
+ *          Under normal conditions, the BLE Mesh Proxy Node Identity, Network
+ *          ID advertising, Proxy Private Node Identity and Private Network
+ *          ID advertising will be enabled automatically by BLE Mesh stack
+ *          after the device is provisioned.
+ *
+ * @return  ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_private_proxy_identity_enable(void);
+
+/**
+ * @brief   Disable advertising with Private Node Identity.
+ *
+ * @return  ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_private_proxy_identity_disable(void);
 
 /**
  * @brief        Proxy Client creates a connection with the Proxy Server.
@@ -119,9 +138,33 @@ esp_err_t esp_ble_mesh_proxy_client_add_filter_addr(uint8_t conn_handle, uint16_
 esp_err_t esp_ble_mesh_proxy_client_remove_filter_addr(uint8_t conn_handle, uint16_t net_idx,
                                                        uint16_t *addr, uint16_t addr_num);
 
+/**
+ * @brief        Proxy Client sets whether or not the Directed Proxy Server uses directed forwarding
+ *               for Directed Proxy Client messages.
+ *
+ * @param[in]    conn_handle:  Proxy connection handle.
+ * @param[in]    net_idx:      Corresponding NetKey Index.
+ * @param[in]    use_directed: Whether or not to send message by directed forwarding.
+ *
+ * @return       ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_proxy_client_directed_proxy_set(uint8_t conn_handle, uint16_t net_idx,
+                                                       uint8_t use_directed);
+/**
+ * @brief        Proxy Client sends Solicitation PDU.
+ *
+ * @param[in]    net_idx:   Corresponding NetKey Index.
+ * @param[in]    ssrc:      Solicitation SRC, shall be one of its element address.
+ * @param[in]    dst:       Solicitation DST (TBD).
+ *
+ * @return       ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_proxy_client_send_solic_pdu(uint16_t net_idx, uint16_t ssrc, uint16_t dst);
+
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* _ESP_BLE_MESH_PROXY_API_H_ */
-

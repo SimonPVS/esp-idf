@@ -1,55 +1,147 @@
-﻿*********************************************
-Standard Setup of Toolchain for Linux
-*********************************************
+************************************************
+Installation of ESP-IDF and Tools on Linux
+************************************************
 
 :link_to_translation:`zh_CN:[中文]`
 
-Install Prerequisites
-=====================
-
-To compile with ESP-IDF you need to get the following packages:
-
-- CentOS 7::
-
-    sudo yum install git wget flex bison gperf python cmake ninja-build ccache dfu-util
-
-- Ubuntu and Debian::
-
-    sudo apt-get install git wget flex bison gperf python python-pip python-setuptools cmake ninja-build ccache libffi-dev libssl-dev dfu-util
-
-- Arch::
-
-    sudo pacman -S --needed gcc git make flex bison gperf python-pip cmake ninja ccache dfu-util
+This section describes how to install ESP-IDF and its required tools on Linux distributions (e.g., Ubuntu) using the ESP-IDF Installation Manager (EIM).
 
 .. note::
-    CMake version 3.5 or newer is required for use with ESP-IDF. Older Linux distributions may require updating, enabling of a "backports" repository, or installing of a "cmake3" package rather than "cmake".
 
-Additional Tips
-===============
+    This document describes the default and recommended way to install ESP-IDF v6.0 and newer versions. ESP-IDF also supports the :doc:`legacy installation method on Linux <linux-macos-setup-legacy>`, which was the default before ESP-IDF v6.0.
 
-Permission issues /dev/ttyUSB0
-------------------------------
 
-With some Linux distributions you may get the ``Failed to open port /dev/ttyUSB0`` error message when flashing the {IDF_TARGET_NAME}. :ref:`This can be solved by adding the current user to the dialout group<linux-dialout-group>`.
+Step 1: Install the Prerequisites (Optional)
+============================================
 
-Setting up Python 3 as default for Ubuntu and Debian
-----------------------------------------------------
+Skip this step if you plan to install EIM using :ref:`APT <install-eim-linux-apt>`.
 
-Ubuntu (distributions before v20.04) and Debian (distributions before v7) are still providing Python 2.7 as the default interpreter. Python 3 is recommended instead and can be installed in old distributions as follows, or please consult the documentation of your operating system for other recommended ways to achieve this::
-
-    sudo apt-get install python3 python3-pip python3-setuptools
-
-Making Python 3 the default interpreter is possible by running::
-
-    sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
+For other installation methods, install the `required prerequisites <https://docs.espressif.com/projects/idf-im-ui/en/latest/prerequisites.html#linux>`_. These prerequisites may vary depending on your Linux distribution.
 
 .. note::
-    This is system-wide change which may affect all of the applications.
 
-Next Steps
-==========
+    Python 3.11 is the minimum supported version for ESP-IDF.
 
-To carry on with development environment setup, proceed to :ref:`get-started-get-esp-idf`.
+    For the Python version required by the EIM, please refer to the `EIM documentation <https://docs.espressif.com/projects/idf-im-ui/en/latest/prerequisites.html#python-version>`_.
 
 
-.. _AUR: https://wiki.archlinux.org/index.php/Arch_User_Repository
+Step 2: Install the EIM
+=======================
+
+You can install the EIM using one of the following methods:
+
+- `Download the EIM`_
+- `Debian-Based Linux Installation via APT`_
+- `RPM-Based Linux Installation via DNF`_
+- `Linux Installation via Homebrew`_
+
+Installing via APT or DNF allows you to easily keep EIM up to date with a single command.
+
+
+Download the EIM
+~~~~~~~~~~~~~~~~~
+
+.. figure:: ../../_static/get-started-eim-download.drawio.png
+   :alt: EIM Download Page
+   :align: left
+   :width: 35%
+   :target: https://dl.espressif.com/dl/eim/
+
+You can choose either an online or offline installer, available in Graphical User Interface (GUI) or Command Line Interface (CLI) versions.
+
+
+.. _install-eim-linux-apt:
+
+Debian-Based Linux Installation via APT
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Add the EIM repository to your APT sources list to make it available for installation:
+
+.. code-block:: bash
+
+    echo "deb [trusted=yes] https://dl.espressif.com/dl/eim/apt/ stable main" | sudo tee /etc/apt/sources.list.d/espressif.list
+
+    sudo apt update
+
+Then, install the EIM Command Line Interface (CLI) alone, or together with Graphical User Interface (GUI) via APT:
+
+- GUI and CLI:
+    .. code-block:: bash
+
+        sudo apt install eim
+
+- CLI only:
+    .. code-block:: bash
+
+        sudo apt install eim-cli
+
+
+RPM-Based Linux Installation via DNF
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Add the EIM repository to your DNF sources list to make it available for installation:
+
+.. code-block:: bash
+
+    sudo tee /etc/yum.repos.d/espressif-eim.repo << 'EOF'
+    [eim]
+    name=ESP-IDF Installation Manager
+    baseurl=https://dl.espressif.com/dl/eim/rpm/$basearch
+    enabled=1
+    gpgcheck=0
+    EOF
+
+Then, install the EIM Command Line Interface (CLI) alone, or together with Graphical User Interface (GUI) via DNF:
+
+- GUI and CLI:
+    .. code-block:: bash
+
+        sudo dnf install eim
+
+- CLI only:
+    .. code-block:: bash
+
+        sudo dnf install eim-cli
+
+
+Linux Installation via Homebrew
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+EIM can also be installed on Linux using `Homebrew <https://brew.sh/>`_. This method works on most Linux distributions and is a good alternative if you prefer Homebrew over system package managers.
+
+First, install Homebrew if you have not already:
+
+.. code-block:: bash
+
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+Then add the Espressif tap and install EIM:
+
+.. code-block:: bash
+
+    # Add the Espressif tap
+    brew tap espressif/eim
+
+    # Install CLI only
+    brew install eim
+
+    # Or install GUI (includes CLI)
+    brew install --cask eim-gui
+
+To update EIM later:
+
+.. code-block:: bash
+
+    brew upgrade eim
+    # or
+    brew upgrade --cask eim-gui
+
+.. note::
+
+    The GUI version requires a graphical environment and may have additional dependencies depending on your Linux distribution.
+
+
+Step 3: Install ESP-IDF Using EIM
+=================================
+
+.. include:: eim-install-idf.rst

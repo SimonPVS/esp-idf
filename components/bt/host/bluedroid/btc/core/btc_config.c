@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <ctype.h>
 #include <stdio.h>
@@ -28,13 +20,36 @@
 #include "osi/mutex.h"
 
 #include "stack/bt_types.h"
+#include "nvs.h"
 
-static const char *CONFIG_FILE_PATH = "bt_config.conf";
+static char CONFIG_FILE_PATH[NVS_NS_NAME_MAX_SIZE] = "bt_config.conf";
 static const period_ms_t CONFIG_SETTLE_PERIOD_MS = 3000;
 
 static void btc_key_value_to_string(uint8_t *key_value, char *value_str, int key_length);
 static osi_mutex_t lock;  // protects operations on |config|.
 static config_t *config;
+
+
+int btc_config_file_path_get(char *file_path)
+{
+    if (file_path == NULL) {
+        return -1;
+    }
+
+    strcpy(file_path, CONFIG_FILE_PATH);
+    return 0;
+}
+
+int btc_config_file_path_update(const char *file_path)
+{
+    if (file_path != NULL && strlen(file_path) < NVS_NS_NAME_MAX_SIZE) {
+        memcpy(CONFIG_FILE_PATH, file_path, strlen(file_path));
+        CONFIG_FILE_PATH[strlen(file_path)] = '\0';
+        return 0;
+    }
+    BTC_TRACE_ERROR("Update failed, file_path is NULL or length should be less than %d\n", NVS_NS_NAME_MAX_SIZE);
+    return -1;
+}
 
 bool btc_compare_address_key_value(const char *section, const char *key_type, void *key_value, int key_length)
 {
@@ -70,10 +85,14 @@ static void btc_key_value_to_string(uint8_t *key_value, char *value_str, int key
 
 bool btc_config_init(void)
 {
-    osi_mutex_new(&lock);
+    if (osi_mutex_new(&lock) != 0) {
+        BTC_TRACE_ERROR("%s unable to create lock.\n", __func__);
+        return false;
+    }
+
     config = config_new(CONFIG_FILE_PATH);
     if (!config) {
-        BTC_TRACE_WARNING("%s unable to load config file; starting unconfigured.\n", __func__);
+        BTC_TRACE_WARNING("%s unable to load/parse config; starting unconfigured without overwriting NVS.\n", __func__);
         config = config_new_empty();
         if (!config) {
             BTC_TRACE_ERROR("%s unable to allocate a config object.\n", __func__);
@@ -86,7 +105,7 @@ bool btc_config_init(void)
 
     return true;
 
-error:;
+error:
     config_free(config);
     osi_mutex_free(&lock);
     config = NULL;
@@ -167,7 +186,7 @@ bool btc_config_get_str(const char *section, const char *key, char *value, int *
         return false;
     }
 
-    strlcpy(value, stored_value, *size_bytes);
+    BCM_STRLCPY_S(value, stored_value, *size_bytes);
     *size_bytes = strlen(value) + 1;
 
     return true;
@@ -258,6 +277,7 @@ bool btc_config_set_bin(const char *section, const char *key, const uint8_t *val
 
     config_set_string(config, section, key, str, false);
 
+    memset(str, 0, length * 2 + 1);
     osi_free(str);
     return true;
 }
@@ -307,6 +327,14 @@ bool btc_config_remove_section(const char *section)
     return config_remove_section(config, section);
 }
 
+bool btc_config_update_newest_section(const char *section)
+{
+    assert(config != NULL);
+    assert(section != NULL);
+
+    return config_update_newest_section(config, section);
+}
+
 void btc_config_flush(void)
 {
     assert(config != NULL);
@@ -318,14 +346,17 @@ int btc_config_clear(void)
 {
     assert(config != NULL);
 
-    config_free(config);
+    btc_config_lock();
 
+    config_free(config);
     config = config_new_empty();
     if (config == NULL) {
-        return false;
+        btc_config_unlock();
+        return -1;
     }
-    int ret = config_save(config, CONFIG_FILE_PATH);
-    return ret;
+    bool ret = config_save(config, CONFIG_FILE_PATH);
+    btc_config_unlock();
+    return ret ? 0 : -1;
 }
 
 void btc_config_lock(void)

@@ -1,49 +1,60 @@
 #!/usr/bin/env python
-#
-# Copyright 2018 Espressif Systems (Shanghai) PTE LTD
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-from __future__ import print_function
+# SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+# SPDX-License-Identifier: Apache-2.0
+import logging
+import os
 import sys
-import collections
+from pathlib import Path
+from shutil import copytree
+from subprocess import PIPE
+from subprocess import run
+from subprocess import STDOUT
+from tempfile import TemporaryDirectory
+from typing import Any
+from typing import Optional
+from typing import Tuple
+from typing import Union
 
-try:
-    import idf_size
-except ImportError:
-    sys.path.append('..')
-    import idf_size
+
+IDF_PATH = Path(os.environ['IDF_PATH'])
+IDF_PY_PATH = IDF_PATH / 'tools' / 'idf.py'
+IDF_SIZE_PY_PATH = IDF_PATH / 'tools' / 'idf_size.py'
+HELLO_WORLD_PATH = IDF_PATH / 'examples' / 'get-started' / 'hello_world'
+
+PathLike = Union[str, Path]
 
 
-if __name__ == "__main__":
-    # Should deliver a RuntimeError as the 'test' header doesn't exist
-    try:
-        idf_size.scan_to_header([], 'test')
-    except RuntimeError as e:
-        assert "Didn't find line" in str(e)
+def run_cmd(*cmd: PathLike, cwd: Optional[PathLike]=None, check: bool=True, text: bool=True) -> Tuple[int, str]:
+    logging.info('running: {}'.format(' '.join([str(arg) for arg in cmd])))
+    p = run(cmd, stdout=PIPE, stderr=STDOUT, cwd=cwd, check=check, text=text)
+    return p.returncode, p.stdout
 
-    # Should deliver a RuntimeError as there's no content under the heading
-    try:
-        idf_size.load_memory_config(["Memory Configuration"])
-        pass
-    except RuntimeError as e:
-        assert "End of file" in str(e)
 
-    # This used to crash with a division by zero error but now it just prints nan% due to
-    # zero lengths
-    MemRegNames = collections.namedtuple('MemRegNames', ['iram_names', 'dram_names', 'diram_names', 'used_iram_names',
-                                                         'used_dram_names', 'used_diram_names'])
-    mem_reg = MemRegNames(set(), set(), set(), set(), set(), set())
+def run_idf_py(*args: PathLike, **kwargs: Any) -> Tuple[int, str]:
+    return run_cmd(sys.executable, IDF_PY_PATH, *args, **kwargs)
 
-    print(idf_size.get_summary('a.map', mem_reg, {"iram0_0_seg": {"origin":0,"length":0}, "dram0_0_seg":
-          {"origin":0, "length":0}}, {}), end="")
+
+def run_idf_size_py(*args: PathLike, **kwargs: Any) -> Tuple[int, str]:
+    return run_cmd(sys.executable, IDF_SIZE_PY_PATH, *args, **kwargs)
+
+
+def test_idf_size() -> None:
+    # Simple test to make sure that the idf_size.py wrapper is compatible
+    # with idf.py minimum required python version.
+    logging.info('idf_size.py python compatibility check')
+    run_idf_size_py('--help')
+
+
+def test_idf_py_size_diff() -> None:
+    # Test idf.py size with diff option, utilizing the same map file, as the focus
+    # of the test lies solely on the option, not on the resulting output.
+    logging.info('idf.py size --diff option test')
+    tmpdir = TemporaryDirectory()
+    app_path = Path(tmpdir.name) / 'app'
+    copytree(HELLO_WORLD_PATH, app_path, symlinks=True)
+    run_idf_py('fullclean', cwd=app_path)
+    run_idf_py('build', cwd=app_path)
+    run_idf_py('size', '--diff', '.', cwd=app_path)
+    # The diff map file should be found automatically in project or project's build directory
+    run_idf_py('size', '--diff', 'build', cwd=app_path)
+    run_idf_py('size', '--diff', Path('build') / 'hello_world.map', cwd=app_path)

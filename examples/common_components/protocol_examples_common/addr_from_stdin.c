@@ -10,7 +10,7 @@
 
 #define HOST_IP_SIZE 128
 
-esp_err_t get_addr_from_stdin(int port, int sock_type, int *ip_protocol, int *addr_family, struct sockaddr_in6 *dest_addr)
+esp_err_t get_addr_from_stdin(int port, int sock_type, int *ip_protocol, int *addr_family, struct sockaddr_storage *dest_addr)
 {
     char host_ip[HOST_IP_SIZE];
     int len;
@@ -41,6 +41,7 @@ esp_err_t get_addr_from_stdin(int port, int sock_type, int *ip_protocol, int *ad
     }
     for( cur = addr_list; cur != NULL; cur = cur->ai_next ) {
         memcpy(dest_addr, cur->ai_addr, sizeof(*dest_addr));
+#if CONFIG_EXAMPLE_CONNECT_IPV4
         if (cur->ai_family == AF_INET) {
             *ip_protocol = IPPROTO_IP;
             *addr_family = AF_INET;
@@ -48,16 +49,19 @@ esp_err_t get_addr_from_stdin(int port, int sock_type, int *ip_protocol, int *ad
             ((struct sockaddr_in*)dest_addr)->sin_port = htons(port);
             freeaddrinfo( addr_list );
             return ESP_OK;
-
-        } else if (cur->ai_family == AF_INET6) {
+        }
+#endif // IPV4
+#if CONFIG_EXAMPLE_CONNECT_IPV6
+        if (cur->ai_family == AF_INET6) {
             *ip_protocol = IPPROTO_IPV6;
             *addr_family = AF_INET6;
             // add port and interface number and return on first IPv6 match
-            dest_addr->sin6_port = htons(port);
-            dest_addr->sin6_scope_id = esp_netif_get_netif_impl_index(EXAMPLE_INTERFACE);
+            ((struct sockaddr_in6*)dest_addr)->sin6_port = htons(port);
+            ((struct sockaddr_in6*)dest_addr)->sin6_scope_id = esp_netif_get_netif_impl_index(EXAMPLE_INTERFACE);
             freeaddrinfo( addr_list );
             return ESP_OK;
         }
+#endif // IPV6
     }
     // no match found
     freeaddrinfo( addr_list );

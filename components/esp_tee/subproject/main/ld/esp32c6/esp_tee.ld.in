@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/* ESP32-C6 parameters for the common ESP-TEE linker script (esp_tee_common.ld.in) */
+
+#include "sdkconfig.h"
+
+/* TEE I/DRAM region (start of the HP SRAM) */
+#define SRAM_TEE_SEG_START         (0x40800000)
+
+/* TEE flash (XIP) region (start of the flash cache address space) */
+#define FLASH_TEE_SEG_START        (0x42000000)
+
+/* Size of the REE vector table; must match OFFSET_TEE in esp_system/ld/esp32c6/memory.ld.in */
+#if CONFIG_ESP_DEBUG_INCLUDE_OCD_STUB_BINS
+#define TEE_APP_CFG_OFFSET         (0x32e0)
+#else
+#define TEE_APP_CFG_OFFSET         (0x2e0)
+#endif
+
+PROVIDE ( GDMA                      = 0x60080000 );
+
+/* SPI Flash functions required from the ROM (refer esp32c6.rom.spiflash.ld) */
+PROVIDE ( spi_flash_check_and_flush_cache            = 0x4000021c );
+PROVIDE ( spi_flash_chip_generic_config_host_io_mode = 0x400002c4 );
+PROVIDE ( memspi_host_flush_cache                    = 0x40000308 );
+
+#include "esp_tee_common.ld.in"

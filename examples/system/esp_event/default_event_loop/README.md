@@ -1,3 +1,6 @@
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 | ESP32-S31 | Linux |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- | --------- | ----- |
+
 # Default Event Loop Example
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
@@ -20,7 +23,7 @@ Simply put, posting an event to a loop is the act of queueing its handlers for e
 
 ### Handler Registration/Unregistration
 
-This example demonstrates handler registration to the default event loop using `esp_event_handler_register` for (1) specific events, (2) **any** event under a certain base, and (3) **any** event. This also shows the possbility of registering multiple handlers to the same event as well as registering one handler to the same event multiple times.
+This example demonstrates handler registration to the default event loop using `esp_event_handler_register` for (1) specific events, (2) **any** event under a certain base, and (3) **any** event. This also shows the possibility of registering multiple handlers to the same event as well as registering one handler to the same event multiple times.
 
 Unregistering a handler is done using `esp_event_handler_unregister()`. Unregistering a handler means that it no longer executes even when the event it was previously registered to gets posted to the loop.
 
@@ -101,12 +104,12 @@ I (3398) default_event_loop: TASK_EVENTS:TASK_ITERATION_EVENT: deleting task eve
 
 ### Setting of Event Sources
 
-This example uses two event sources: 
+This example uses two event sources:
 
 - A periodic timer. An event is raised when (1) the timer is started (2) the timer period expires and (3) the timer is stopped
 - A task with a loop inside. An event is raised for the when (1) the loop iterates.
 
-All of the events mentioned above have their own specific handler, however there are the following additional handlers. 
+All of the events mentioned above have their own specific handler, however there are the following additional handlers.
 
 - One handler executes when **any** event under the periodic timer event is posted
 - The other handler executes if **any** event is posted.

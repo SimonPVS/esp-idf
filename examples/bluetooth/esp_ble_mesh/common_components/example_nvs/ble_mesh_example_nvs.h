@@ -1,13 +1,15 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #ifndef _BLE_MESH_EXAMPLE_NVS_H_
 #define _BLE_MESH_EXAMPLE_NVS_H_
+
+#ifdef __cplusplus
+extern "C" {
+#endif /**< __cplusplus */
 
 #include <stdint.h>
 #include "esp_err.h"
@@ -22,5 +24,9 @@ esp_err_t ble_mesh_nvs_get_length(nvs_handle_t handle, const char *key, size_t *
 esp_err_t ble_mesh_nvs_restore(nvs_handle_t handle, const char *key, void *data, size_t length, bool *exist);
 
 esp_err_t ble_mesh_nvs_erase(nvs_handle_t handle, const char *key);
+
+#ifdef __cplusplus
+}
+#endif /**< __cplusplus */
 
 #endif /* _BLE_MESH_EXAMPLE_NVS_H_ */

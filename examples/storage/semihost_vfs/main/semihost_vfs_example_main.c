@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_cpu.h"
 #include "esp_vfs_semihost.h"
 
 static const char *TAG = "example";
@@ -26,7 +27,7 @@ static uint8_t s_buf[512];
 void app_main(void)
 {
     // Register host FS at '/host'. On the host file will be written/read in the current semihosting dir of OpenOCD
-    esp_err_t ret = esp_vfs_semihost_register("/host", NULL);
+    esp_err_t ret = esp_vfs_semihost_register("/host");
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register semihost driver (%s)!", esp_err_to_name(ret));
         return;
@@ -52,7 +53,7 @@ void app_main(void)
     fflush(fout); // ensure that all data are sent to the host file
     // ftell can also be used, get file size before closing it in `freopen`
     int count = ftell(fout);
-    stdout = freopen("/dev/uart/" STRINGIFY(CONFIG_ESP_CONSOLE_UART_NUM), "w", fout);
+    stdout = freopen("/dev/console", "w", fout);
     if (stdout == NULL) {
         ESP_LOGE(TAG, "Failed to reopen semihosted stdout (%d)!", errno);
         return;

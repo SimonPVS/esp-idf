@@ -1,3 +1,6 @@
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 | ESP32-S31 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- | --------- |
+
 # UART Asynchronous Example with Separate Receive and Transfer Tasks
 
 (See the README.md file in the upper level 'examples' directory for more information about examples.)
@@ -13,8 +16,8 @@ The example starts two FreeRTOS tasks:
 
 ### Hardware Required
 
-The example can be run on any commonly available ESP32 development board. You will need a USB cable to connect the
-development board to a computer, and a simple one-wire cable for shorting two pins of the board.
+The example can be run on any commonly available development board, that is based on the Espressif SoC. You will need a
+USB cable to connect the development board to a computer, and a simple one-wire cable for shorting two pins of the board.
 
 ### Setup the Hardware
 

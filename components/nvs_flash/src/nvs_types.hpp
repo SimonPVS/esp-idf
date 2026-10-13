@@ -1,18 +1,9 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-#ifndef nvs_types_h
-#define nvs_types_h
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
 
 #include <cstdint>
 #include <cstring>
@@ -22,8 +13,7 @@
 #include "nvs_handle.hpp"
 #include "compressed_enum_table.hpp"
 #include "string.h"
-
-using namespace std;
+#include "nvs_constants.h"
 
 namespace nvs
 {
@@ -101,22 +91,32 @@ public:
 
     uint32_t calculateCrc32() const;
     uint32_t calculateCrc32WithoutValue() const;
-    static uint32_t calculateCrc32(const uint8_t* data, size_t size);
+    static uint32_t calculateCrc32(const uint8_t* data, size_t size, uint32_t* initial_crc32 = nullptr);
 
     void getKey(char* dst, size_t dstSize)
     {
-        strncpy(dst, key, min(dstSize, sizeof(key)));
+        strncpy(dst, key, std::min(dstSize, sizeof(key)));
         dst[dstSize-1] = 0;
     }
 
     template<typename T>
-    void getValue(T& dst)
+    esp_err_t getValue(T& dst)
     {
-        assert(itemTypeOf(dst) == datatype);
+        NVS_ASSERT_OR_RETURN(itemTypeOf(dst) == datatype, ESP_FAIL);
         dst = *reinterpret_cast<T*>(data);
+        return ESP_OK;
     }
+
+    // Returns true if item's header:
+    // crc32 matches the calculated crc32
+    // and datatype is one of the supported types
+    // and span is within the allowed range for the datatype and below the maximum calculated from the entryIndex
+    //
+    // Parameter entryIndex is used to calculate the maximum span for the given entry
+    bool checkHeaderConsistency(const uint8_t entryIndex) const;
 };
 
-} // namespace nvs
+// Safeguard for Item size
+static_assert(sizeof(Item) == NVS_CONST_ENTRY_SIZE, "Item size must be 32 bytes");
 
-#endif /* nvs_types_h */
+} // namespace nvs

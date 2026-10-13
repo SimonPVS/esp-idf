@@ -141,6 +141,17 @@ extern tHID_STATUS HID_HostAddDev (BD_ADDR addr, UINT16 attr_mask,
 
 /*******************************************************************************
 **
+** Function         HID_HostGetDev
+**
+** Description      This is called so HID-host can find this device.
+**
+** Returns          tHID_STATUS
+**
+*******************************************************************************/
+extern tHID_STATUS HID_HostGetDev(BD_ADDR addr, UINT8 *handle);
+
+/*******************************************************************************
+**
 ** Function         HID_HostRemoveDev
 **
 ** Description      This removes the device from list devices that host has to manage.
@@ -191,9 +202,18 @@ extern tHID_STATUS HID_HostCloseDev(UINT8 dev_handle );
 **
 ** Description      This function initializes the control block and trace variable
 **
+** Returns          tHID_STATUS
+*******************************************************************************/
+extern tHID_STATUS HID_HostInit(void);
+
+/*******************************************************************************
+** Function         HID_HostDeinit
+**
+** Description      This function deinitializes the control block
+**
 ** Returns          void
 *******************************************************************************/
-extern void HID_HostInit(void);
+extern void HID_HostDeinit(void);
 
 /*******************************************************************************
 ** Function        HID_HostSetSecurityLevel
@@ -203,7 +223,7 @@ extern void HID_HostInit(void);
 **
 ** Returns         tHID_STATUS
 *******************************************************************************/
-extern tHID_STATUS HID_HostSetSecurityLevel( char serv_name[], UINT8 sec_lvl );
+extern tHID_STATUS HID_HostSetSecurityLevel( const char *serv_name, UINT8 sec_lvl );
 
 /*******************************************************************************
 **
@@ -228,6 +248,17 @@ BOOLEAN hid_known_hid_device (BD_ADDR bd_addr);
 **
 *******************************************************************************/
 extern UINT8 HID_HostSetTraceLevel (UINT8 new_level);
+
+/*******************************************************************************
+**
+** Function         HID_HostConnectOrig
+**
+** Description      Check if the HID Host initiates the connection
+**
+** Returns          TRUE if the HID Host initiates the connection else FALSE
+**
+*******************************************************************************/
+extern BOOLEAN HID_HostConnectOrig(UINT8 dev_handle);
 
 #ifdef __cplusplus
 }

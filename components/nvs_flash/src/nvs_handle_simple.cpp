@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <cstdlib>
 #include "nvs_handle.hpp"
 #include "nvs_partition_manager.hpp"
@@ -26,7 +18,7 @@ esp_err_t NVSHandleSimple::set_typed_item(ItemType datatype, const char *key, co
     if (!valid) return ESP_ERR_NVS_INVALID_HANDLE;
     if (mReadOnly) return ESP_ERR_NVS_READ_ONLY;
 
-    return mStoragePtr->writeItem(mNsIndex, datatype, key, data, dataSize);
+    return mStoragePtr->writeItem(mNsIndex, datatype, key, data, dataSize, mPurgeAfterErase);
 }
 
 esp_err_t NVSHandleSimple::get_typed_item(ItemType datatype, const char *key, void* data, size_t dataSize)
@@ -40,8 +32,9 @@ esp_err_t NVSHandleSimple::set_string(const char *key, const char* str)
 {
     if (!valid) return ESP_ERR_NVS_INVALID_HANDLE;
     if (mReadOnly) return ESP_ERR_NVS_READ_ONLY;
+    if (str == nullptr) return ESP_ERR_INVALID_ARG;
 
-    return mStoragePtr->writeItem(mNsIndex, nvs::ItemType::SZ, key, str, strlen(str) + 1);
+    return mStoragePtr->writeItem(mNsIndex, nvs::ItemType::SZ, key, str, strlen(str) + 1, mPurgeAfterErase);
 }
 
 esp_err_t NVSHandleSimple::set_blob(const char *key, const void* blob, size_t len)
@@ -49,7 +42,7 @@ esp_err_t NVSHandleSimple::set_blob(const char *key, const void* blob, size_t le
     if (!valid) return ESP_ERR_NVS_INVALID_HANDLE;
     if (mReadOnly) return ESP_ERR_NVS_READ_ONLY;
 
-    return mStoragePtr->writeItem(mNsIndex, nvs::ItemType::BLOB, key, blob, len);
+    return mStoragePtr->writeItem(mNsIndex, nvs::ItemType::BLOB, key, blob, len, mPurgeAfterErase);
 }
 
 esp_err_t NVSHandleSimple::get_string(const char *key, char* out_str, size_t len)
@@ -73,12 +66,29 @@ esp_err_t NVSHandleSimple::get_item_size(ItemType datatype, const char *key, siz
     return mStoragePtr->getItemDataSize(mNsIndex, datatype, key, size);
 }
 
+esp_err_t NVSHandleSimple::find_key(const char* key, nvs_type_t &nvstype)
+{
+    if (!valid) return ESP_ERR_NVS_INVALID_HANDLE;
+
+    nvs::ItemType datatype;
+    esp_err_t err = mStoragePtr->findKey(mNsIndex, key, &datatype);
+    if(err != ESP_OK)
+        return err;
+
+    if(datatype == ItemType::BLOB_IDX || datatype == ItemType::BLOB)
+        datatype = ItemType::BLOB_DATA;
+
+    nvstype = (nvs_type_t) datatype;
+
+    return err;
+}
+
 esp_err_t NVSHandleSimple::erase_item(const char* key)
 {
     if (!valid) return ESP_ERR_NVS_INVALID_HANDLE;
     if (mReadOnly) return ESP_ERR_NVS_READ_ONLY;
 
-    return mStoragePtr->eraseItem(mNsIndex, key);
+    return mStoragePtr->eraseItem(mNsIndex, key, mPurgeAfterErase);
 }
 
 esp_err_t NVSHandleSimple::erase_all()
@@ -86,7 +96,15 @@ esp_err_t NVSHandleSimple::erase_all()
     if (!valid) return ESP_ERR_NVS_INVALID_HANDLE;
     if (mReadOnly) return ESP_ERR_NVS_READ_ONLY;
 
-    return mStoragePtr->eraseNamespace(mNsIndex);
+    return mStoragePtr->eraseNamespace(mNsIndex, mPurgeAfterErase);
+}
+
+esp_err_t NVSHandleSimple::purge_all()
+{
+    if (!valid) return ESP_ERR_NVS_INVALID_HANDLE;
+    if (mReadOnly) return ESP_ERR_NVS_READ_ONLY;
+
+    return mStoragePtr->purgeNamespace(mNsIndex);
 }
 
 esp_err_t NVSHandleSimple::commit()
@@ -126,8 +144,20 @@ bool NVSHandleSimple::findEntry(nvs_opaque_iterator_t* it, const char* name) {
     return mStoragePtr->findEntry(it, name);
 }
 
+bool NVSHandleSimple::findEntryNs(nvs_opaque_iterator_t* it) {
+    return mStoragePtr->findEntryNs(it, mNsIndex);
+}
+
 bool NVSHandleSimple::nextEntry(nvs_opaque_iterator_t* it) {
     return mStoragePtr->nextEntry(it);
+}
+
+const char *NVSHandleSimple::get_partition_name() const {
+    return mStoragePtr->getPartName();
+}
+
+Storage *NVSHandleSimple::get_storage() const {
+    return mStoragePtr;
 }
 
 }

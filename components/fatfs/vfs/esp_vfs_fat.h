@@ -1,34 +1,58 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 #include <stddef.h>
 #include "esp_err.h"
-#include "driver/gpio.h"
-#include "driver/sdmmc_types.h"
+#ifndef CONFIG_IDF_TARGET_LINUX
+#include "sd_protocol_types.h"
 #include "driver/sdspi_host.h"
+#endif
 #include "ff.h"
 #include "wear_levelling.h"
+#include "esp_blockdev.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+typedef enum {
+    FORMATTED_DURING_LAST_MOUNT = 1 << 0, // The FATFS partition was formatted during the last mount
+} vfs_fat_x_ctx_flags_t;
+
+typedef PARTITION esp_vfs_fat_pdrv_part_t;
+
+/**
+ * @note When the value of item is less than or equal to 100, it specifies the partition size in percentage of the entire drive space.
+ *       When it is larger than 100, it specifies number of sectors. The partition map table is terminated by a zero,
+ *       4th partition in MBR format or no remaining space for next allocation. If the specified size is larger than remaining space on the drive,
+ *       the partition is truncated at end of the drive.
+ *
+ *       For example:
+ *
+ *       `{100, 0, 0, 0}` will create a single partition with 100% of the drive space.
+ *       `{50, 50, 0, 0}` will create two partitions, first with 50% of the drive space and second with the remaining 50%.
+ *       `{0x10000000, 0x10000000, 0x10000000, 0}` will create three partitions, each with a size of 256 MiB, leaving remaining space non-allocated.
+ */
+typedef LBA_t esp_vfs_fat_drive_divide_arr_t[4];
+
+/**
+ * @brief Configuration structure for esp_vfs_fat_register
+ */
+typedef struct {
+    const char* base_path; /*!< Path prefix where FATFS should be registered, */
+    const char* fat_drive; /*!< FATFS drive specification; if only one drive is used, can be an empty string. */
+    size_t max_files;      /*!< Maximum number of files which can be open at the same time. */
+} esp_vfs_fat_conf_t;
+
 /**
  * @brief Register FATFS with VFS component
  *
  * This function registers given FAT drive in VFS, at the specified base path.
+ * Input arguments are held in esp_vfs_fat_conf_t structure.
  * If only one drive is used, fat_drive argument can be an empty string.
  * Refer to FATFS library documentation on how to specify FAT drive.
  * This function also allocates FATFS structure which should be used for f_mount
@@ -38,17 +62,16 @@ extern "C" {
  *       POSIX and C standard library IO function with FATFS. You need to mount
  *       desired drive into FATFS separately.
  *
- * @param base_path  path prefix where FATFS should be registered
- * @param fat_drive  FATFS drive specification; if only one drive is used, can be an empty string
- * @param max_files  maximum number of files which can be open at the same time
+ * @param conf  pointer to esp_vfs_fat_conf_t configuration structure
  * @param[out] out_fs  pointer to FATFS structure which can be used for FATFS f_mount call is returned via this argument.
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_register was already called
+ *      - ESP_ERR_INVALID_STATE if a filesystem is already registered at this base path.
+ *        If @p out_fs is not NULL, @p *out_fs is set to the existing FATFS object so callers
+ *        can run f_mount (e.g. remount the same path).
  *      - ESP_ERR_NO_MEM if not enough memory or too many VFSes already registered
  */
-esp_err_t esp_vfs_fat_register(const char* base_path, const char* fat_drive,
-        size_t max_files, FATFS** out_fs);
+esp_err_t esp_vfs_fat_register(const esp_vfs_fat_conf_t* conf, FATFS** out_fs);
 
 /**
  * @brief Un-register FATFS from VFS
@@ -70,7 +93,7 @@ esp_err_t esp_vfs_fat_unregister_path(const char* base_path);
 
 
 /**
- * @brief Configuration arguments for esp_vfs_fat_sdmmc_mount and esp_vfs_fat_spiflash_mount functions
+ * @brief Configuration arguments for esp_vfs_fat_sdmmc_mount and esp_vfs_fat_spiflash_mount_rw_wl functions
  */
 typedef struct {
     /**
@@ -93,11 +116,50 @@ typedef struct {
      * sector size.
      */
     size_t allocation_unit_size;
+    /**
+     * Enables real ff_disk_status function implementation for SD cards
+     * (ff_sdmmc_status). Possibly slows down IO performance.
+     *
+     * Try to enable if you need to handle situations when SD cards
+     * are not unmounted properly before physical removal
+     * or you are experiencing issues with SD cards.
+     *
+     * Doesn't do anything for other memory storage media.
+     */
+    bool disk_status_check_enable;
+    /**
+     * Use 1 FAT (File Allocation Tables) instead of 2.
+     * This decreases reliability, but makes more space available
+     * (usually only one sector).
+     * Note that this option has effect only when the filesystem is formatted.
+     * When mounting an already-formatted partition, the actual number of FATs
+     * may be different.
+     */
+    bool use_one_fat;
+    /**
+     * Mount the filesystem in read-only mode.
+     * When set to true, all write operations (open for write, mkdir, unlink,
+     * rename, etc.) will fail with errno set to EROFS.
+     * This flag is independent of the underlying storage — it can be used
+     * with wear-levelled, raw, BDL, or SD card partitions.
+     */
+    bool read_only;
 } esp_vfs_fat_mount_config_t;
+
+#define VFS_FAT_MOUNT_DEFAULT_CONFIG() \
+    { \
+        .format_if_mount_failed = false, \
+        .max_files = 5, \
+        .allocation_unit_size = 0, \
+        .disk_status_check_enable = false, \
+        .use_one_fat = false, \
+        .read_only = false, \
+    }
 
 // Compatibility definition
 typedef esp_vfs_fat_mount_config_t esp_vfs_fat_sdmmc_mount_config_t;
 
+#ifndef CONFIG_IDF_TARGET_LINUX
 /**
  * @brief Convenience function to get FAT filesystem on SD card registered in VFS
  *
@@ -124,12 +186,11 @@ typedef esp_vfs_fat_mount_config_t esp_vfs_fat_sdmmc_mount_config_t;
  * @param slot_config   Pointer to structure with slot configuration.
  *                      For SDMMC peripheral, pass a pointer to sdmmc_slot_config_t
  *                      structure initialized using SDMMC_SLOT_CONFIG_DEFAULT.
- *                      (Deprecated) For SPI peripheral, pass a pointer to sdspi_slot_config_t
- *                      structure initialized using SDSPI_SLOT_CONFIG_DEFAULT().
  * @param mount_config  pointer to structure with extra parameters for mounting FATFS
- * @param[out] out_card  if not NULL, pointer to the card information structure will be returned via this argument
+ * @param[out] out_card  pointer to the card information structure will be returned via this argument
  * @return
  *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if any of the arguments is NULL
  *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_sdmmc_mount was already called
  *      - ESP_ERR_NO_MEM if memory can not be allocated
  *      - ESP_FAIL if partition can not be mounted
@@ -167,12 +228,13 @@ esp_err_t esp_vfs_fat_sdmmc_mount(const char* base_path,
  *                      For SPI peripheral, pass a pointer to sdspi_device_config_t
  *                      structure initialized using SDSPI_DEVICE_CONFIG_DEFAULT().
  * @param mount_config  pointer to structure with extra parameters for mounting FATFS
- * @param[out] out_card If not NULL, pointer to the card information structure will be returned via
+ * @param[out] out_card Pointer to the card information structure will be returned via
  *                      this argument. It is suggested to hold this handle and use it to unmount the card later if
  *                      needed. Otherwise it's not suggested to use more than one card at the same time and unmount one
  *                      of them in your application.
  * @return
  *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if any of the arguments is NULL
  *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_sdmmc_mount was already called
  *      - ESP_ERR_NO_MEM if memory can not be allocated
  *      - ESP_FAIL if partition can not be mounted
@@ -185,17 +247,6 @@ esp_err_t esp_vfs_fat_sdspi_mount(const char* base_path,
                                   sdmmc_card_t** out_card);
 
 /**
- * @brief Unmount FAT filesystem and release resources acquired using esp_vfs_fat_sdmmc_mount
- *
- * @deprecated Use `esp_vfs_fat_sdcard_unmount()` instead.
- *
- * @return
- *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_sdmmc_mount hasn't been called
- */
-esp_err_t esp_vfs_fat_sdmmc_unmount(void);
-
-/**
  * @brief Unmount an SD card from the FAT filesystem and release resources acquired using
  *        `esp_vfs_fat_sdmmc_mount()` or `esp_vfs_fat_sdspi_mount()`
  *
@@ -204,7 +255,44 @@ esp_err_t esp_vfs_fat_sdmmc_unmount(void);
  *      - ESP_ERR_INVALID_ARG if the card argument is unregistered
  *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_sdmmc_mount hasn't been called
  */
-esp_err_t esp_vfs_fat_sdcard_unmount(const char *base_path, sdmmc_card_t *card);
+esp_err_t esp_vfs_fat_sdcard_unmount(const char* base_path, sdmmc_card_t *card);
+
+/**
+ * @brief Format FAT filesystem with given configuration
+ *
+ * @note
+ * This API should be only called when the FAT is already mounted.
+ *
+ * @param base_path  Path where partition should be registered (e.g. "/sdcard")
+ * @param card       Pointer to the card handle, which should be initialised by calling `esp_vfs_fat_sdspi_mount` first
+ * @param cfg        Pointer to structure with extra parameters for formatting FATFS (only relevant fields are used).
+ *                   If NULL, the previous configuration will be used.
+ *
+ * @return
+ *        - ESP_OK
+ *        - ESP_ERR_INVALID_STATE: FAT partition isn't mounted, call esp_vfs_fat_sdmmc_mount or esp_vfs_fat_sdspi_mount first
+ *        - ESP_ERR_NO_MEM: if memory can not be allocated
+ *        - ESP_FAIL: fail to format it, or fail to mount back
+ */
+esp_err_t esp_vfs_fat_sdcard_format_cfg(const char *base_path, sdmmc_card_t *card, esp_vfs_fat_mount_config_t *cfg);
+
+/**
+ * @brief Format FAT filesystem
+ *
+ * @note
+ * This API should be only called when the FAT is already mounted.
+ *
+ * @param base_path  Path where partition should be registered (e.g. "/sdcard")
+ * @param card       Pointer to the card handle, which should be initialised by calling `esp_vfs_fat_sdspi_mount` first
+ *
+ * @return
+ *        - ESP_OK
+ *        - ESP_ERR_INVALID_STATE: FAT partition isn't mounted, call esp_vfs_fat_sdmmc_mount or esp_vfs_fat_sdspi_mount first
+ *        - ESP_ERR_NO_MEM: if memory can not be allocated
+ *        - ESP_FAIL: fail to format it, or fail to mount back
+ */
+esp_err_t esp_vfs_fat_sdcard_format(const char *base_path, sdmmc_card_t *card);
+#endif
 
 /**
  * @brief Convenience function to initialize FAT filesystem in SPI flash and register it in VFS
@@ -227,28 +315,66 @@ esp_err_t esp_vfs_fat_sdcard_unmount(const char *base_path, sdmmc_card_t *card);
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_NOT_FOUND if the partition table does not contain FATFS partition with given label
- *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_spiflash_mount was already called
+ *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_spiflash_mount_rw_wl was already called
  *      - ESP_ERR_NO_MEM if memory can not be allocated
  *      - ESP_FAIL if partition can not be mounted
  *      - other error codes from wear levelling library, SPI flash driver, or FATFS drivers
  */
-esp_err_t esp_vfs_fat_spiflash_mount(const char* base_path,
+esp_err_t esp_vfs_fat_spiflash_mount_rw_wl(const char* base_path,
     const char* partition_label,
     const esp_vfs_fat_mount_config_t* mount_config,
     wl_handle_t* wl_handle);
 
 /**
- * @brief Unmount FAT filesystem and release resources acquired using esp_vfs_fat_spiflash_mount
+ * @brief Unmount FAT filesystem and release resources acquired using esp_vfs_fat_spiflash_mount_rw_wl
  *
  * @param base_path  path where partition should be registered (e.g. "/spiflash")
- * @param wl_handle  wear levelling driver handle returned by esp_vfs_fat_spiflash_mount
+ * @param wl_handle  wear levelling driver handle returned by esp_vfs_fat_spiflash_mount_rw_wl
  *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_spiflash_mount hasn't been called
+ *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_spiflash_mount_rw_wl hasn't been called
  */
- esp_err_t esp_vfs_fat_spiflash_unmount(const char* base_path, wl_handle_t wl_handle);
+esp_err_t esp_vfs_fat_spiflash_unmount_rw_wl(const char* base_path, wl_handle_t wl_handle);
 
+/**
+ * @brief Format FAT filesystem with given configuration
+ *
+ * @note
+ * This API can be called when the FAT is mounted / not mounted.
+ * If this API is called when the FAT isn't mounted (by calling esp_vfs_fat_spiflash_mount_rw_wl),
+ * this API will first mount the FAT then format it, then restore back to the original state.
+ *
+ * @param base_path        Path where partition should be registered (e.g. "/spiflash")
+ * @param partition_label  Label of the partition which should be used
+ * @param cfg              Pointer to structure with extra parameters for formatting FATFS (only relevant fields are used).
+ *                         If NULL and mounted the previous configuration will be used.
+ *                         If NULL and unmounted the default configuration will be used.
+ *
+ * @return
+ *        - ESP_OK
+ *        - ESP_ERR_NO_MEM: if memory can not be allocated
+ *        - Other errors from esp_vfs_fat_spiflash_mount_rw_wl
+ */
+esp_err_t esp_vfs_fat_spiflash_format_cfg_rw_wl(const char* base_path, const char* partition_label, esp_vfs_fat_mount_config_t *cfg);
+
+/**
+ * @brief Format FAT filesystem
+ *
+ * @note
+ * This API can be called when the FAT is mounted / not mounted.
+ * If this API is called when the FAT isn't mounted (by calling esp_vfs_fat_spiflash_mount_rw_wl),
+ * this API will first mount the FAT then format it, then restore back to the original state.
+ *
+ * @param base_path        Path where partition should be registered (e.g. "/spiflash")
+ * @param partition_label  Label of the partition which should be used
+ *
+ * @return
+ *        - ESP_OK
+ *        - ESP_ERR_NO_MEM: if memory can not be allocated
+ *        - Other errors from esp_vfs_fat_spiflash_mount_rw_wl
+ */
+esp_err_t esp_vfs_fat_spiflash_format_rw_wl(const char* base_path, const char* partition_label);
 
 /**
  * @brief Convenience function to initialize read-only FAT filesystem and register it in VFS
@@ -268,27 +394,152 @@ esp_err_t esp_vfs_fat_spiflash_mount(const char* base_path,
  * @return
  *      - ESP_OK on success
  *      - ESP_ERR_NOT_FOUND if the partition table does not contain FATFS partition with given label
- *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_rawflash_mount was already called for the same partition
+ *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_spiflash_mount_ro was already called for the same partition
  *      - ESP_ERR_NO_MEM if memory can not be allocated
  *      - ESP_FAIL if partition can not be mounted
  *      - other error codes from SPI flash driver, or FATFS drivers
  */
-esp_err_t esp_vfs_fat_rawflash_mount(const char* base_path,
+esp_err_t esp_vfs_fat_spiflash_mount_ro(const char* base_path,
     const char* partition_label,
     const esp_vfs_fat_mount_config_t* mount_config);
 
 /**
- * @brief Unmount FAT filesystem and release resources acquired using esp_vfs_fat_rawflash_mount
+ * @brief Unmount FAT filesystem and release resources acquired using esp_vfs_fat_spiflash_mount_ro
  *
  * @param base_path  path where partition should be registered (e.g. "/spiflash")
- * @param partition_label label of partition to be unmounted
+ * @param partition_label  label of partition to be unmounted
  *
  * @return
  *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_spiflash_mount hasn't been called
+ *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_spiflash_mount_ro hasn't been called
  */
- esp_err_t esp_vfs_fat_rawflash_unmount(const char* base_path, const char* partition_label);
+esp_err_t esp_vfs_fat_spiflash_unmount_ro(const char* base_path, const char* partition_label);
 
+/**
+ * @brief Convenience function to mount a FatFS volume on a BDL (Block Device Layer) device
+ *
+ * The FatFS logical sector size is derived from BDL geometry as
+ * LCM(FF_MIN_SS, read_size, write_size [, erase_size]).  erase_size is
+ * included when it fits within FF_MAX_SS, making the sector erase-aligned
+ * for NOR-style devices and page-aligned for NAND-style devices (where
+ * the FTL/WL layer handles erase internally).
+ *
+ * The caller is responsible for constructing the BDL stack (e.g. partition BDL ->
+ * WL BDL) before calling this function.  Read-only devices are detected
+ * automatically.
+ *
+ * @param base_path     path where FATFS partition should be mounted (e.g. "/spiflash")
+ * @param bdl_handle    BDL device handle providing the storage
+ * @param mount_config  pointer to structure with extra parameters for mounting FATFS
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if any of the arguments is invalid
+ *      - ESP_ERR_NO_MEM if memory can not be allocated or no free drives
+ *      - ESP_FAIL if partition can not be mounted
+ */
+esp_err_t esp_vfs_fat_bdl_mount(const char *base_path,
+    esp_blockdev_handle_t bdl_handle,
+    const esp_vfs_fat_mount_config_t *mount_config);
+
+/**
+ * @brief Unmount FAT filesystem and release resources acquired using esp_vfs_fat_bdl_mount
+ *
+ * @note This function does NOT release the BDL device handle — the caller owns
+ *       the BDL stack lifecycle.
+ *
+ * @param base_path     path where partition was registered (e.g. "/spiflash")
+ * @param bdl_handle    BDL device handle used during mount
+ *
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_bdl_mount hasn't been called
+ */
+esp_err_t esp_vfs_fat_bdl_unmount(const char *base_path, esp_blockdev_handle_t bdl_handle);
+
+/**
+ * @brief Get information for FATFS partition
+ *
+ * @param base_path  Base path of the partition examined (e.g. "/spiflash")
+ * @param[out] out_total_bytes  Size of the file system
+ * @param[out] out_free_bytes   Free bytes available in the file system
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_STATE if partition not found
+ *      - ESP_FAIL if another FRESULT error (saved in errno)
+ */
+
+esp_err_t esp_vfs_fat_info(const char* base_path, uint64_t* out_total_bytes, uint64_t* out_free_bytes);
+
+/**
+ * @brief Create a file with contiguous space at given path
+ *
+ * @note The file cannot exist before calling this function (or the file size has to be 0)
+ *       For more information see documentation for `f_expand` from FATFS library
+ *
+ * @param base_path  Base path of the partition examined (e.g. "/spiflash")
+ * @param full_path  Full path of the file (e.g. "/spiflash/ABC.TXT")
+ * @param size       File size expanded to, number of bytes in size to prepare or allocate for the file
+ * @param alloc_now  True == allocate space now, false == prepare to allocate -- see `f_expand` from FATFS
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if invalid arguments (e.g. any of arguments are NULL or size lower or equal to 0)
+ *      - ESP_ERR_INVALID_STATE if partition not found
+ *      - ESP_FAIL if another FRESULT error (saved in errno)
+ */
+esp_err_t esp_vfs_fat_create_contiguous_file(const char* base_path, const char* full_path, uint64_t size, bool alloc_now);
+
+/**
+ * @brief Test if a file is contiguous in the FAT filesystem
+ *
+ * @param base_path  Base path of the partition examined (e.g. "/spiflash")
+ * @param full_path  Full path of the file (e.g. "/spiflash/ABC.TXT")
+ * @param[out] is_contiguous  True == allocate space now, false == prepare to allocate -- see `f_expand` from FATFS
+ * @return
+ *      - ESP_OK on success
+ *      - ESP_ERR_INVALID_ARG if invalid arguments (e.g. any of arguments are NULL)
+ *      - ESP_ERR_INVALID_STATE if partition not found
+ *      - ESP_FAIL if another FRESULT error (saved in errno)
+ */
+esp_err_t esp_vfs_fat_test_contiguous_file(const char* base_path, const char* full_path, bool* is_contiguous);
+
+/** @cond */
+/**
+ * @deprecated Please use `esp_vfs_fat_register` instead
+ */
+esp_err_t esp_vfs_fat_register_cfg(const esp_vfs_fat_conf_t* conf, FATFS** out_fs);
+
+#ifndef CONFIG_IDF_TARGET_LINUX
+/**
+ * @deprecated Please use `esp_vfs_fat_spiflash_mount_rw_wl` instead
+ */
+esp_err_t esp_vfs_fat_spiflash_mount(const char* base_path,
+    const char* partition_label,
+    const esp_vfs_fat_mount_config_t* mount_config,
+    wl_handle_t* wl_handle)
+    __attribute__((deprecated("esp_vfs_fat_spiflash_mount is deprecated, please use esp_vfs_fat_spiflash_mount_rw_wl instead")));
+
+/**
+ * @deprecated Please use `esp_vfs_fat_spiflash_unmount_rw_wl` instead
+ */
+esp_err_t esp_vfs_fat_spiflash_unmount(const char* base_path, wl_handle_t wl_handle)
+    __attribute__((deprecated("esp_vfs_fat_spiflash_unmount is deprecated, please use esp_vfs_fat_spiflash_unmount_rw_wl instead")));
+
+/**
+ * @deprecated Please use `esp_vfs_fat_spiflash_mount_ro` instead
+ */
+esp_err_t esp_vfs_fat_rawflash_mount(const char* base_path,
+    const char* partition_label,
+    const esp_vfs_fat_mount_config_t* mount_config)
+    __attribute__((deprecated("esp_vfs_fat_rawflash_mount is deprecated, please use esp_vfs_fat_spiflash_mount_ro instead")));
+
+/**
+ * @deprecated Please use `esp_vfs_fat_spiflash_unmount_ro` instead
+ */
+esp_err_t esp_vfs_fat_rawflash_unmount(const char* base_path, const char* partition_label)
+    __attribute__((deprecated("esp_vfs_fat_rawflash_unmount is deprecated, please use esp_vfs_fat_spiflash_unmount_ro instead")));
+#endif
+/** @endcond */
 
 #ifdef __cplusplus
 }

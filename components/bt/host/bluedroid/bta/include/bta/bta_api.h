@@ -78,7 +78,7 @@ typedef UINT8 tBTA_STATUS;
 #define BTA_SAP_SERVICE_ID      17          /* SIM Access profile */
 #define BTA_A2DP_SINK_SERVICE_ID        18  /* A2DP Sink */
 #define BTA_AVRCP_SERVICE_ID    19          /* A/V remote control */
-#define BTA_HID_SERVICE_ID      20          /* HID */
+#define BTA_HID_SERVICE_ID      20          /* HID Host*/
 #define BTA_VDP_SERVICE_ID      21          /* Video distribution */
 #define BTA_PBAP_SERVICE_ID     22          /* PhoneBook Access Server*/
 #define BTA_HSP_HS_SERVICE_ID   23          /* HFP HS role */
@@ -175,6 +175,8 @@ typedef struct {
 #define BTA_SEC_IN_16_DIGITS    (BTM_SEC_IN_MIN_16_DIGIT_PIN)                        /* Min 16 digit for pin code */
 
 typedef UINT16 tBTA_SEC;
+
+typedef tBTM_GET_DEV_NAME_CBACK tBTA_GET_DEV_NAME_CBACK;
 
 /* Ignore for Discoverable, Connectable, Pairable and Connectable Paired only device modes */
 #define BTA_DM_IGNORE           0x00FF
@@ -291,9 +293,6 @@ typedef struct {
     BOOLEAN             report_dup;     /* report duplicated inquiry response with higher RSSI value */
     tBTA_DM_INQ_FILT    filter_type;    /* Filter condition type. */
     tBTA_DM_INQ_COND    filter_cond;    /* Filter condition data. */
-#if (defined(BTA_HOST_INTERLEAVE_SEARCH) && BTA_HOST_INTERLEAVE_SEARCH == TRUE)
-    UINT8               intl_duration[4];/*duration array storing the interleave scan's time portions*/
-#endif
 } tBTA_DM_INQ;
 
 /* Config EIR callback */
@@ -301,6 +300,7 @@ typedef void (tBTA_DM_CONFIG_EIR_CBACK) (tBTA_STATUS status, UINT8 eir_type_num,
 
 typedef struct {
     BOOLEAN bta_dm_eir_fec_required;        /* FEC required */
+    BOOLEAN bta_dm_eir_included_name;       /* Included device name or not */
     UINT8   bta_dm_eir_min_name_len;        /* minimum length of local name when it is shortened */
 
     BOOLEAN bta_dm_eir_included_uuid;       /* Included UUIDs or not */
@@ -395,7 +395,7 @@ typedef tBTM_BLE_128SERVICE tBTA_BLE_128SERVICE;
 typedef tBTM_BLE_32SERVICE  tBTA_BLE_32SERVICE;
 
 typedef struct {
-    tBTA_BLE_INT_RANGE      int_range;          /* slave prefered conn interval range */
+    tBTA_BLE_INT_RANGE      int_range;          /* slave preferred conn interval range */
     tBTA_BLE_MANU           *p_manu;            /* manufacturer data */
     tBTA_BLE_SERVICE        *p_services;        /* 16 bits services */
     tBTA_BLE_128SERVICE     *p_services_128b;   /* 128 bits service */
@@ -410,30 +410,31 @@ typedef struct {
     UINT8                   tx_power;
 } tBTA_BLE_ADV_DATA;
 
-typedef void (tBTA_UPDATE_DUPLICATE_EXCEPTIONAL_LIST_CMPL_CBACK) (tBTA_STATUS status, uint8_t subcode, uint32_t length, uint8_t *device_info);
+// typedef void (tBTA_UPDATE_DUPLICATE_EXCEPTIONAL_LIST_CMPL_CBACK) (tBTA_STATUS status, uint8_t subcode, uint32_t length, uint8_t *device_info);
 
-typedef void (tBTA_SET_ADV_DATA_CMPL_CBACK) (tBTA_STATUS status);
+typedef tBTM_VSC_CMPL_CB tBTA_SEND_VENDOR_HCI_CMPL_CBACK;
 
-typedef tBTM_START_ADV_CMPL_CBACK tBTA_START_ADV_CMPL_CBACK;
+// typedef tBTM_UPDATE_WHITELIST_CBACK tBTA_UPDATE_WHITELIST_CBACK;
 
-typedef tBTM_START_STOP_ADV_CMPL_CBACK tBTA_START_STOP_ADV_CMPL_CBACK;
-
-typedef tBTM_ADD_WHITELIST_CBACK tBTA_ADD_WHITELIST_CBACK;
-
-typedef tBTM_SET_PKT_DATA_LENGTH_CBACK tBTA_SET_PKT_DATA_LENGTH_CBACK;
-
-typedef tBTM_SET_RAND_ADDR_CBACK tBTA_SET_RAND_ADDR_CBACK;
-
-typedef tBTM_SET_LOCAL_PRIVACY_CBACK tBTA_SET_LOCAL_PRIVACY_CBACK;
+typedef tBTM_DTM_CMD_CMPL_CBACK tBTA_DTM_CMD_CMPL_CBACK;
 
 typedef tBTM_CMPL_CB tBTA_CMPL_CB;
 
-typedef tBTM_TX_POWER_RESULTS tBTA_TX_POWER_RESULTS;
+typedef tBTM_VSC_CMPL tBTA_VSC_CMPL;
 
 typedef tBTM_RSSI_RESULTS tBTA_RSSI_RESULTS;
 
+typedef tBTM_BLE_CH_MAP_RESULTS tBTA_BLE_CH_MAP_RESULTS;
+
 typedef tBTM_SET_AFH_CHANNELS_RESULTS tBTA_SET_AFH_CHANNELS_RESULTS;
 typedef tBTM_BLE_SET_CHANNELS_RESULTS tBTA_BLE_SET_CHANNELS_RESULTS;
+
+typedef tBTM_SET_PAGE_TIMEOUT_RESULTS tBTA_SET_PAGE_TIMEOUT_RESULTS;
+typedef tBTM_GET_PAGE_TIMEOUT_RESULTS tBTA_GET_PAGE_TIMEOUT_RESULTS;
+
+typedef tBTM_SET_ACL_PKT_TYPES_RESULTS tBTA_SET_ACL_PKT_TYPES_RESULTS;
+
+typedef tBTM_SET_MIN_ENC_KEY_SIZE_RESULTS tBTA_SET_MIN_ENC_KEY_SIZE_RESULTS;
 
 typedef tBTM_REMOTE_DEV_NAME tBTA_REMOTE_DEV_NAME;
 
@@ -485,13 +486,6 @@ typedef struct {
 } tBTA_BLE_INQ_DATA;
 
 enum {
-    BTA_BLE_BATCH_SCAN_MODE_PASS = 1,
-    BTA_BLE_BATCH_SCAN_MODE_ACTI = 2,
-    BTA_BLE_BATCH_SCAN_MODE_PASS_ACTI = 3
-};
-typedef UINT8 tBTA_BLE_BATCH_SCAN_MODE;
-
-enum {
     BTA_BLE_DISCARD_OLD_ITEMS = 0,
     BTA_BLE_DISCARD_LOWER_RSSI_ITEMS = 1
 };
@@ -503,17 +497,6 @@ enum {
 };
 typedef UINT8 tBTA_BLE_ADV_CHANGE_REASON;
 
-enum {
-    BTA_BLE_BATCH_SCAN_ENB_EVT      = 1,
-    BTA_BLE_BATCH_SCAN_CFG_STRG_EVT = 2,
-    BTA_BLE_BATCH_SCAN_DATA_EVT     = 3,
-    BTA_BLE_BATCH_SCAN_THRES_EVT    = 4,
-    BTA_BLE_BATCH_SCAN_PARAM_EVT    = 5,
-    BTA_BLE_BATCH_SCAN_DIS_EVT      = 6
-};
-typedef tBTM_BLE_BATCH_SCAN_EVT tBTA_BLE_BATCH_SCAN_EVT;
-
-typedef tBTM_BLE_TRACK_ADV_ACTION tBTA_BLE_TRACK_ADV_ACTION;
 // #endif
 
 /* BLE customer specific feature function type definitions */
@@ -547,25 +530,12 @@ enum {
     BTA_DM_BLE_SCAN_COND_DELETE,
     BTA_DM_BLE_SCAN_COND_CLEAR = 2
 };
-typedef UINT8 tBTA_DM_BLE_SCAN_COND_OP;
 
 /* ADV payload filtering vendor specific call event */
 enum {
     BTA_BLE_SCAN_PF_ENABLE_EVT = 7,
     BTA_BLE_SCAN_PF_COND_EVT
 };
-
-/* filter selection bit index  */
-#define BTA_DM_BLE_PF_ADDR_FILTER          BTM_BLE_PF_ADDR_FILTER
-#define BTA_DM_BLE_PF_SRVC_DATA            BTM_BLE_PF_SRVC_DATA
-#define BTA_DM_BLE_PF_SRVC_UUID            BTM_BLE_PF_SRVC_UUID
-#define BTA_DM_BLE_PF_SRVC_SOL_UUID        BTM_BLE_PF_SRVC_SOL_UUID
-#define BTA_DM_BLE_PF_LOCAL_NAME           BTM_BLE_PF_LOCAL_NAME
-#define BTA_DM_BLE_PF_MANU_DATA            BTM_BLE_PF_MANU_DATA
-#define BTA_DM_BLE_PF_SRVC_DATA_PATTERN    BTM_BLE_PF_SRVC_DATA_PATTERN
-#define BTA_DM_BLE_PF_TYPE_ALL             BTM_BLE_PF_TYPE_ALL
-#define BTA_DM_BLE_PF_TYPE_MAX             BTM_BLE_PF_TYPE_MAX
-typedef UINT8   tBTA_DM_BLE_PF_COND_TYPE;
 
 typedef union {
     UINT16              uuid16_mask;
@@ -601,18 +571,6 @@ typedef struct {
     UINT8                   *p_pattern_mask; /* Service data matching mask, same length
                                                 as data pattern, set to all 0xff, match exact data */
 } tBTA_DM_BLE_PF_SRVC_PATTERN_COND;
-
-typedef union {
-    tBLE_BD_ADDR                            target_addr;
-    tBTA_DM_BLE_PF_LOCAL_NAME_COND             local_name; /* local name filtering */
-    tBTA_DM_BLE_PF_MANU_COND                   manu_data;  /* manufacturer data filtering */
-    tBTA_DM_BLE_PF_UUID_COND                   srvc_uuid;  /* service UUID filtering */
-    tBTA_DM_BLE_PF_UUID_COND                   solicitate_uuid;   /* solicited service UUID filtering */
-    tBTA_DM_BLE_PF_SRVC_PATTERN_COND           srvc_data;      /* service data pattern */
-} tBTA_DM_BLE_PF_COND_PARAM;
-
-typedef UINT8 tBTA_DM_BLE_PF_FILT_INDEX;
-typedef UINT8 tBTA_DM_BLE_PF_AVBL_SPACE;
 
 typedef INT8 tBTA_DM_RSSI_VALUE;
 typedef UINT8 tBTA_DM_LINK_QUALITY_VALUE;
@@ -651,11 +609,15 @@ typedef UINT8 tBTA_SIG_STRENGTH_MASK;
 // btla-specific --
 #define BTA_DM_DEV_UNPAIRED_EVT         25      /* BT unpair event */
 #define BTA_DM_HW_ERROR_EVT             26      /* BT Chip H/W error */
-#define BTA_DM_LE_FEATURES_READ         27      /* Cotroller specific LE features are read */
+#define BTA_DM_LE_FEATURES_READ         27      /* Controller specific LE features are read */
 #define BTA_DM_ENER_INFO_READ           28      /* Energy info read */
 #define BTA_DM_BLE_DEV_UNPAIRED_EVT     29      /* BLE unpair event */
 #define BTA_DM_SP_KEY_REQ_EVT           30      /* Simple Pairing Passkey request */
 #define BTA_DM_PM_MODE_CHG_EVT          31      /* Mode changed event */
+#define BTA_DM_ACL_LINK_STAT_EVT        32      /* ACL connection status report event */
+#define BTA_DM_BLE_SC_OOB_REQ_EVT       33      /* BLE SMP SC OOB request event */
+#define BTA_DM_BLE_SC_CR_LOC_OOB_EVT    34      /* BLE SMP SC Create Local OOB request event */
+#define BTA_DM_ENC_CHG_EVT              35      /* Encryption change event */
 
 typedef UINT8 tBTA_DM_SEC_EVT;
 
@@ -758,7 +720,6 @@ typedef UINT8 tBTA_DM_BLE_CONN_TYPE;
 typedef BOOLEAN (tBTA_DM_BLE_SEL_CBACK)(BD_ADDR random_bda, UINT8 *p_remote_name);
 
 typedef tBTM_LE_UPDATE_CONN_PRAMS tBTA_LE_UPDATE_CONN_PRAMS;
-typedef tBTM_UPDATE_CONN_PARAM_CBACK tBTA_UPDATE_CONN_PARAM_CBACK;
 
 
 /* Structure associated with BTA_DM_BLE_SEC_REQ_EVT */
@@ -786,6 +747,12 @@ typedef struct {
     tBT_DEVICE_TYPE dev_type;
     UINT8           auth_mode;
     BOOLEAN           sc_support;         /* Denotes if peer device supported secure connection while bonding. */
+    /* TRUE when the stack refused the procedure on purpose (hardened re-pairing)
+       and the existing bond must not be erased. */
+    BOOLEAN         keep_bond;
+    /* TRUE when the local device was Central (HCI master) for this LE procedure.
+       Used with REMOVE_BOND_ON_PAIR_FAIL_AS_CENTRAL / _AS_PERIPHERAL. */
+    BOOLEAN         is_central;
 } tBTA_DM_AUTH_CMPL;
 
 
@@ -818,6 +785,33 @@ typedef struct {
     tBTA_TRANSPORT  link_type;
 #endif
 } tBTA_DM_LINK_DOWN;
+
+enum {
+    BTA_ACL_LINK_STAT_CONN_CMPL,
+    BTA_ACL_LINK_STAT_DISCONN_CMPL
+};
+typedef UINT8 tBTA_ACL_LINK_STAT_EVT;
+
+typedef struct {
+    UINT8      status;             /* ACL link connection status */
+    UINT16     handle;             /* ACL connection handle */
+    BD_ADDR    bd_addr;            /* peer bluetooth address */
+} tBTA_DM_ACL_CONN_CMPL_STAT;
+
+typedef struct {
+    UINT8     reason;             /* ACL link disconnection reason */
+    UINT16    handle;             /* ACL connection handle */
+    BD_ADDR   bd_addr;            /* peer bluetooth address */
+} tBTA_DM_ACL_DISCONN_CMPL_STAT;
+
+/* Structure associated with BTA_DM_ACL_LINK_STAT_EVT */
+typedef struct {
+    tBTA_ACL_LINK_STAT_EVT            event;       /* ACL link event */
+    union {
+        tBTA_DM_ACL_CONN_CMPL_STAT     conn_cmpl;
+        tBTA_DM_ACL_DISCONN_CMPL_STAT  disconn_cmpl;
+    } link_act;
+} tBTA_DM_ACL_LINK_STAT;
 
 /* Structure associated with BTA_DM_ROLE_CHG_EVT */
 typedef struct {
@@ -946,8 +940,18 @@ typedef struct {
 typedef struct {
     BD_ADDR         bd_addr;            /* BD address peer device. */
     tBTA_PM_MODE    mode;               /* the new connection role */
+    UINT16          interval;           /* Number of baseband slots */
 } tBTA_DM_MODE_CHG;
 
+typedef struct {
+    BT_OCTET16      local_oob_c;    /* Local OOB Data Confirmation/Commitment */
+    BT_OCTET16      local_oob_r;    /* Local OOB Data Randomizer */
+} tBTA_DM_LOC_OOB_DATA;
+
+typedef struct {
+    BD_ADDR bd_addr;                /* BD address peer device */
+    UINT8 enc_mode;                 /* Encryption mode */
+} tBTA_DM_ENC_CHG;
 
 /* Union of all security callback structures */
 typedef union {
@@ -957,6 +961,7 @@ typedef union {
     tBTA_DM_AUTHORIZE           authorize;          /* Authorization request. */
     tBTA_DM_LINK_UP             link_up;            /* ACL connection up event */
     tBTA_DM_LINK_DOWN           link_down;          /* ACL connection down event */
+    tBTA_DM_ACL_LINK_STAT       acl_link_stat;      /* ACL link status event */
     tBTA_DM_BUSY_LEVEL          busy_level;         /* System busy level */
     tBTA_DM_SP_CFM_REQ          cfm_req;            /* user confirm request */
     tBTA_DM_SP_KEY_REQ          key_req;            /* user passkey request */
@@ -972,89 +977,20 @@ typedef union {
 #if BTA_DM_PM_INCLUDED
     tBTA_DM_MODE_CHG            mode_chg;           /* mode change event */
 #endif ///BTA_DM_PM_INCLUDED
+    tBTA_DM_LOC_OOB_DATA        local_oob_data;     /* Local OOB data generated by us */
+    tBTA_DM_ENC_CHG             enc_chg;            /* Encryption change event */
 } tBTA_DM_SEC;
 
 /* Security callback */
 typedef void (tBTA_DM_SEC_CBACK)(tBTA_DM_SEC_EVT event, tBTA_DM_SEC *p_data);
 
-#define BTA_BLE_MULTI_ADV_ILLEGAL 0
-
-/* multi adv callback event */
-#define BTA_BLE_MULTI_ADV_ENB_EVT           1
-#define BTA_BLE_MULTI_ADV_DISABLE_EVT       2
-#define BTA_BLE_MULTI_ADV_PARAM_EVT         3
-#define BTA_BLE_MULTI_ADV_DATA_EVT          4
-
-typedef UINT8 tBTA_BLE_MULTI_ADV_EVT;
-
-/* multi adv callback */
-typedef void (tBTA_BLE_MULTI_ADV_CBACK)(tBTA_BLE_MULTI_ADV_EVT event,
-                                        UINT8 inst_id, void *p_ref, tBTA_STATUS status);
 typedef UINT32 tBTA_DM_BLE_REF_VALUE;
-
-#define BTA_DM_BLE_PF_ENABLE_EVT       BTM_BLE_PF_ENABLE
-#define BTA_DM_BLE_PF_CONFIG_EVT       BTM_BLE_PF_CONFIG
-typedef UINT8 tBTA_DM_BLE_PF_EVT;
-
-#define BTA_DM_BLE_PF_ENABLE       1
-#define BTA_DM_BLE_PF_CONFIG       2
-typedef UINT8 tBTA_DM_BLE_PF_ACTION;
-
-/* Config callback */
-typedef void (tBTA_DM_BLE_PF_CFG_CBACK) (tBTA_DM_BLE_PF_ACTION action,
-        tBTA_DM_BLE_PF_COND_TYPE cfg_cond,
-        tBTA_DM_BLE_PF_AVBL_SPACE avbl_space, tBTA_STATUS status,
-        tBTA_DM_BLE_REF_VALUE ref_value);
-/* Param callback */
-typedef void (tBTA_DM_BLE_PF_PARAM_CBACK) (UINT8 action_type, tBTA_DM_BLE_PF_AVBL_SPACE avbl_space,
-        tBTA_DM_BLE_REF_VALUE ref_value, tBTA_STATUS status);
-
-/* Status callback */
-typedef void (tBTA_DM_BLE_PF_STATUS_CBACK) (UINT8 action, tBTA_STATUS status,
-        tBTA_DM_BLE_REF_VALUE ref_value);
-
-
-#define BTA_DM_BLE_PF_BRDCAST_ADDR_FILT  1
-#define BTA_DM_BLE_PF_SERV_DATA_CHG_FILT 2
-#define BTA_DM_BLE_PF_SERV_UUID          4
-#define BTA_DM_BLE_PF_SERV_SOLC_UUID     8
-#define BTA_DM_BLE_PF_LOC_NAME_CHECK    16
-#define BTA_DM_BLE_PF_MANUF_NAME_CHECK  32
-#define BTA_DM_BLE_PF_SERV_DATA_CHECK   64
-typedef UINT16 tBTA_DM_BLE_PF_FEAT_SEL;
-
-#define BTA_DM_BLE_PF_LIST_LOGIC_OR   1
-#define BTA_DM_BLE_PF_LIST_LOGIC_AND  2
-typedef UINT16 tBTA_DM_BLE_PF_LIST_LOGIC_TYPE;
-
-#define BTA_DM_BLE_PF_FILT_LOGIC_OR   0
-#define BTA_DM_BLE_PF_FILT_LOGIC_AND  1
-typedef UINT16 tBTA_DM_BLE_PF_FILT_LOGIC_TYPE;
-
-typedef UINT8  tBTA_DM_BLE_PF_RSSI_THRESHOLD;
-typedef UINT8  tBTA_DM_BLE_PF_DELIVERY_MODE;
-typedef UINT16 tBTA_DM_BLE_PF_TIMEOUT;
-typedef UINT8  tBTA_DM_BLE_PF_TIMEOUT_CNT;
-typedef UINT16 tBTA_DM_BLE_PF_ADV_TRACK_ENTRIES;
-
-typedef struct {
-    tBTA_DM_BLE_PF_FEAT_SEL feat_seln;
-    tBTA_DM_BLE_PF_LIST_LOGIC_TYPE list_logic_type;
-    tBTA_DM_BLE_PF_FILT_LOGIC_TYPE filt_logic_type;
-    tBTA_DM_BLE_PF_RSSI_THRESHOLD  rssi_high_thres;
-    tBTA_DM_BLE_PF_RSSI_THRESHOLD  rssi_low_thres;
-    tBTA_DM_BLE_PF_DELIVERY_MODE dely_mode;
-    tBTA_DM_BLE_PF_TIMEOUT found_timeout;
-    tBTA_DM_BLE_PF_TIMEOUT lost_timeout;
-    tBTA_DM_BLE_PF_TIMEOUT_CNT found_timeout_cnt;
-    tBTA_DM_BLE_PF_ADV_TRACK_ENTRIES num_of_tracking_entries;
-} tBTA_DM_BLE_PF_FILT_PARAMS;
 
 /* Search callback events */
 #define BTA_DM_INQ_RES_EVT              0       /* Inquiry result for a peer device. */
 #define BTA_DM_INQ_CMPL_EVT             1       /* Inquiry complete. */
 #define BTA_DM_DISC_RES_EVT             2       /* Discovery result for a peer device. */
-#define BTA_DM_DISC_BLE_RES_EVT         3       /* Discovery result for BLE GATT based servoce on a peer device. */
+#define BTA_DM_DISC_BLE_RES_EVT         3       /* Discovery result for BLE GATT based service on a peer device. */
 #define BTA_DM_DISC_CMPL_EVT            4       /* Discovery complete. */
 #define BTA_DM_DI_DISC_CMPL_EVT         5       /* Discovery complete. */
 #define BTA_DM_SEARCH_CANCEL_CMPL_EVT   6       /* Search cancelled */
@@ -1149,6 +1085,71 @@ typedef struct {
     tBTA_DM_SEARCH          *p_data;    /* Union of all search callback structures */
 } tBTA_DM_SEARCH_PARAM;
 
+#if (BT_BLE_FEAT_CHANNEL_SOUNDING == TRUE)
+typedef struct {
+    UINT16 conn_handle;
+    UINT8 num_config_supported;
+    UINT16 max_consecutive_proc_supported;
+    UINT8 num_ant_supported;
+    UINT8 max_ant_paths_supported;
+    UINT8 roles_supported;
+    UINT8 modes_supported;
+    UINT8 rtt_capability;
+    UINT8 rtt_aa_only_n;
+    UINT8 rtt_sounding_n;
+    UINT8 rtt_random_payload_n;
+    UINT16 NADM_sounding_capability;
+    UINT16 NADM_random_capability;
+    UINT8  cs_sync_phys_supported;
+    UINT16 subfeatures_supported;
+    UINT16 T_IP1_times_supported;
+    UINT16 T_IP2_times_supported;
+    UINT16 T_FCS_times_supported;
+    UINT16 T_PM_times_supported;
+    UINT8 T_SW_times_supported;
+    UINT8 TX_SNR_capability;
+} tBTA_DM_CS_WRITE_CACHED_REMOTE_SUPP_CAPS;
+
+typedef struct {
+    UINT16 conn_handle;
+    UINT8 config_id;
+    UINT8 create_context;
+    UINT8 main_mode_type;
+    UINT8 sub_mode_type;
+    UINT8 min_main_mode_steps;
+    UINT8 max_main_mode_steps;
+    UINT8 main_mode_repetition;
+    UINT8 mode_0_steps;
+    UINT8 role;
+    UINT8 rtt_type;
+    UINT8 cs_sync_phy;
+    UINT8 channel_map[10];
+    UINT8 channel_map_repetition;
+    UINT8 channel_selection_type;
+    UINT8 ch3c_shape;
+    UINT8 ch3c_jump;
+    UINT8 reserved;
+} tBTA_DM_CS_CREATE_CONFIG_PARAMS;
+
+typedef struct {
+    UINT16 conn_handle;
+    UINT8 config_id;
+    UINT16 max_procedure_len;
+    UINT16 min_procedure_interval;
+    UINT16 max_procedure_interval;
+    UINT16 max_procedure_count;
+    uint32_t min_subevent_len;
+    uint32_t max_subevent_len;
+    UINT8 tone_ant_config_selection;
+    UINT8 phy;
+    UINT8 tx_power_delta;
+    UINT8 preferred_peer_antenna;
+    UINT8 SNR_control_initiator;
+    UINT8 SNR_control_reflector;
+} tBTA_DM_CS_SET_PROC_PARAMS;
+
+#endif // (BT_BLE_FEAT_CHANNEL_SOUNDING == TRUE)
+
 /* Search callback */
 typedef void (tBTA_DM_SEARCH_CBACK)(tBTA_DM_SEARCH_EVT event, tBTA_DM_SEARCH *p_data);
 
@@ -1166,11 +1167,6 @@ typedef void (tBTA_DM_ENCRYPT_CBACK) (BD_ADDR bd_addr, tBTA_TRANSPORT transport,
 #define BTA_DM_BLE_SEC_MITM         BTM_BLE_SEC_ENCRYPT_MITM
 typedef tBTM_BLE_SEC_ACT            tBTA_DM_BLE_SEC_ACT;
 
-typedef tBTM_BLE_TX_TIME_MS         tBTA_DM_BLE_TX_TIME_MS;
-typedef tBTM_BLE_RX_TIME_MS         tBTA_DM_BLE_RX_TIME_MS;
-typedef tBTM_BLE_IDLE_TIME_MS       tBTA_DM_BLE_IDLE_TIME_MS;
-typedef tBTM_BLE_ENERGY_USED        tBTA_DM_BLE_ENERGY_USED;
-
 #define BTA_DM_CONTRL_UNKNOWN 0       /* Unknown state */
 #define BTA_DM_CONTRL_ACTIVE  1       /* ACL link on, SCO link ongoing, sniff mode */
 #define BTA_DM_CONTRL_SCAN    2       /* Scan state - paging/inquiry/trying to connect*/
@@ -1183,34 +1179,13 @@ typedef UINT8 tBTA_DM_BLE_ADV_INFO_PRESENT;
 typedef UINT8 tBTA_DM_BLE_RSSI_VALUE;
 typedef UINT16 tBTA_DM_BLE_ADV_INFO_TIMESTAMP;
 
-typedef tBTM_BLE_TRACK_ADV_DATA tBTA_DM_BLE_TRACK_ADV_DATA;
-
 typedef void (tBTA_BLE_SCAN_THRESHOLD_CBACK)(tBTA_DM_BLE_REF_VALUE ref_value);
 
 typedef void (tBTA_BLE_SCAN_REP_CBACK) (tBTA_DM_BLE_REF_VALUE ref_value, UINT8 report_format,
                                         UINT8 num_records, UINT16 data_len,
                                         UINT8 *p_rep_data, tBTA_STATUS status);
 
-typedef void (tBTA_BLE_SCAN_SETUP_CBACK) (tBTA_BLE_BATCH_SCAN_EVT evt,
-        tBTA_DM_BLE_REF_VALUE ref_value,
-        tBTA_STATUS status);
 
-typedef void (tBTA_START_STOP_SCAN_CMPL_CBACK) (tBTA_STATUS status);
-
-typedef void (tBTA_START_STOP_ADV_CMPL_CBACK) (tBTA_STATUS status);
-
-typedef void (tBTA_BLE_TRACK_ADV_CMPL_CBACK)(int action, tBTA_STATUS status,
-        tBTA_DM_BLE_PF_AVBL_SPACE avbl_space,
-        tBTA_DM_BLE_REF_VALUE ref_value);
-
-typedef void (tBTA_BLE_TRACK_ADV_CBACK)(tBTA_DM_BLE_TRACK_ADV_DATA *p_adv_data);
-
-typedef void (tBTA_BLE_ENERGY_INFO_CBACK)(tBTA_DM_BLE_TX_TIME_MS tx_time,
-        tBTA_DM_BLE_RX_TIME_MS rx_time,
-        tBTA_DM_BLE_IDLE_TIME_MS idle_time,
-        tBTA_DM_BLE_ENERGY_USED  energy_used,
-        tBTA_DM_CONTRL_STATE ctrl_state,
-        tBTA_STATUS status);
 
 #else
 typedef UINT8                       tBTA_DM_BLE_SEC_ACT;
@@ -1266,37 +1241,52 @@ typedef UINT8 tBTA_DM_PM_ACTION;
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_A2DP_IDX
-#define BTA_DM_PM_SNIFF_A2DP_IDX      BTA_DM_PM_SNIFF
+#define BTA_DM_PM_SNIFF_A2DP_IDX        BTA_DM_PM_SNIFF
+#endif
+
+#ifndef BTA_DM_PM_SNIFF_AVK_IDLE_IDX
+#define BTA_DM_PM_SNIFF_AVK_IDLE_IDX    BTA_DM_PM_SNIFF4
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_JV_IDX
-#define BTA_DM_PM_SNIFF_JV_IDX      BTA_DM_PM_SNIFF
+#define BTA_DM_PM_SNIFF_JV_IDX          BTA_DM_PM_SNIFF
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_HD_IDLE_IDX
-#define BTA_DM_PM_SNIFF_HD_IDLE_IDX   BTA_DM_PM_SNIFF2
+#define BTA_DM_PM_SNIFF_HD_IDLE_IDX     BTA_DM_PM_SNIFF4
+#endif
+
+#ifndef BTA_DM_PM_SNIFF_AG_OPEN_IDX
+#define BTA_DM_PM_SNIFF_AG_OPEN_IDX     BTA_DM_PM_SNIFF
+#endif
+
+#ifndef BTA_DM_PM_SNIFF_AG_IDLE_IDX
+#define BTA_DM_PM_SNIFF_AG_IDLE_IDX     BTA_DM_PM_SNIFF
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_SCO_OPEN_IDX
-#define BTA_DM_PM_SNIFF_SCO_OPEN_IDX  BTA_DM_PM_SNIFF3
+#define BTA_DM_PM_SNIFF_SCO_OPEN_IDX    BTA_DM_PM_SNIFF3
+#endif
+
+#ifndef BTA_DM_PM_SNIFF_SCO_CLOSE_IDX
+#define BTA_DM_PM_SNIFF_SCO_CLOSE_IDX   BTA_DM_PM_SNIFF
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_HD_ACTIVE_IDX
-#define BTA_DM_PM_SNIFF_HD_ACTIVE_IDX BTA_DM_PM_SNIFF4
+#define BTA_DM_PM_SNIFF_HD_ACTIVE_IDX   BTA_DM_PM_SNIFF5
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_HH_OPEN_IDX
-#define BTA_DM_PM_SNIFF_HH_OPEN_IDX BTA_DM_PM_SNIFF2
+#define BTA_DM_PM_SNIFF_HH_OPEN_IDX     BTA_DM_PM_SNIFF4
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_HH_ACTIVE_IDX
-#define BTA_DM_PM_SNIFF_HH_ACTIVE_IDX BTA_DM_PM_SNIFF2
+#define BTA_DM_PM_SNIFF_HH_ACTIVE_IDX   BTA_DM_PM_SNIFF4
 #endif
 
 #ifndef BTA_DM_PM_SNIFF_HH_IDLE_IDX
-#define BTA_DM_PM_SNIFF_HH_IDLE_IDX BTA_DM_PM_SNIFF2
+#define BTA_DM_PM_SNIFF_HH_IDLE_IDX     BTA_DM_PM_SNIFF4
 #endif
-
 
 #ifndef BTA_DM_PM_HH_OPEN_DELAY
 #define BTA_DM_PM_HH_OPEN_DELAY 30000
@@ -1331,8 +1321,8 @@ typedef UINT8 tBTA_DM_PM_ACTION;
 #endif
 
 #ifndef BTA_DM_PM_SNIFF2_MAX
-#define BTA_DM_PM_SNIFF2_MAX     180
-#define BTA_DM_PM_SNIFF2_MIN     150
+#define BTA_DM_PM_SNIFF2_MAX     180 //54
+#define BTA_DM_PM_SNIFF2_MIN     150 //30
 #define BTA_DM_PM_SNIFF2_ATTEMPT 4
 #define BTA_DM_PM_SNIFF2_TIMEOUT 1
 #endif
@@ -1345,17 +1335,17 @@ typedef UINT8 tBTA_DM_PM_ACTION;
 #endif
 
 #ifndef BTA_DM_PM_SNIFF4_MAX
-#define BTA_DM_PM_SNIFF4_MAX     54
-#define BTA_DM_PM_SNIFF4_MIN     30
+#define BTA_DM_PM_SNIFF4_MAX     54 //18
+#define BTA_DM_PM_SNIFF4_MIN     30 //10
 #define BTA_DM_PM_SNIFF4_ATTEMPT 4
 #define BTA_DM_PM_SNIFF4_TIMEOUT 1
 #endif
 
 #ifndef BTA_DM_PM_SNIFF5_MAX
-#define BTA_DM_PM_SNIFF5_MAX     36
-#define BTA_DM_PM_SNIFF5_MIN     30
-#define BTA_DM_PM_SNIFF5_ATTEMPT 2
-#define BTA_DM_PM_SNIFF5_TIMEOUT 0
+#define BTA_DM_PM_SNIFF5_MAX     18
+#define BTA_DM_PM_SNIFF5_MIN     10
+#define BTA_DM_PM_SNIFF5_ATTEMPT 4
+#define BTA_DM_PM_SNIFF5_TIMEOUT 1
 #endif
 
 #ifndef BTA_DM_PM_PARK_MAX
@@ -1415,6 +1405,410 @@ typedef UINT8 tBTA_DM_LINK_TYPE;
 #define BATCH_DELY_MODE      0x02
 #define ALLOW_ALL_FILTER     0x00
 #define LOWEST_RSSI_VALUE     129
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_CONNECTABLE       (1 << 0)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_SCANNABLE         (1 << 1)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_DIRECTED          (1 << 2)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_HD_DIRECTED       (1 << 3)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY            (1 << 4)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_ANON_ADV          (1 << 5)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_INCLUDE_TX_PWR    (1 << 6)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_MASK              (0x7F)
+
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY_IND        (BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY |\
+                                                           BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_CONNECTABLE |\
+                                                           BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_SCANNABLE)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY_LD_DIR     (BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY |\
+                                                           BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_CONNECTABLE |\
+                                                           BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_DIRECTED)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY_HD_DIR     (BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY |\
+                                                           BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_CONNECTABLE |\
+                                                           BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_HD_DIRECTED)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY_SCAN       (BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY |\
+                                                           BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_SCANNABLE)
+#define BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY_NONCONN    (BTA_DM_BLE_GAP_SET_EXT_ADV_PROP_LEGACY)
+typedef UINT16 tBTA_DM_BLE_EXT_ADV_TYPE_MASK;
+
+
+#define BTA_DM_BLE_GAP_PHY_1M                             1
+#define BTA_DM_BLE_GAP_PHY_2M                             2
+#define BTA_DM_BLE_GAP_PHY_CODED                          3
+typedef UINT8 tBTA_DM_BLE_GAP_PHY;
+
+#define BTA_DM_BLE_GAP_PHY_NO_TX_PREF_MASK                (0x01)
+#define BTA_DM_BLE_GAP_PHY_NO_RX_PREF_MASK                (0x02)
+#define BTA_DM_BLE_GAP_PHY_1M_PREF_MASK                   (0x03)
+#define BTA_DM_BLE_GAP_PHY_2M_PREF_MASK                   (0x04)
+#define BTA_DM_BLE_GAP_PHY_CODED_PREF_MASK                (0x05)
+typedef UINT8 tBTA_DM_BLE_GAP_PHY_MASK;
+
+#define BTA_DM_BLE_GAP_EXT_SCAN_UNCODE_MASK                0x01
+#define BTA_DM_BLE_GAP_EXT_SCAN_CODE_MASK                  0x02
+typedef UINT8 tBTA_DM_BLE_EXT_SCAN_CFG_MASK;
+
+
+typedef struct {
+    tBTA_DM_BLE_EXT_ADV_TYPE_MASK type;
+    UINT32 interval_min;
+    UINT32 interval_max;
+    tBTA_BLE_ADV_CHNL_MAP channel_map;
+    tBLE_ADDR_TYPE own_addr_type;
+    tBLE_ADDR_TYPE peer_addr_type;
+    BD_ADDR peer_addr;
+    tBTA_BLE_AFP filter_policy;
+    INT8 tx_power;
+    tBTA_DM_BLE_GAP_PHY primary_phy;
+    UINT8 max_skip;
+    tBTA_DM_BLE_GAP_PHY secondary_phy;
+    UINT8 sid;
+    BOOLEAN scan_req_notif;
+#if (BT_BLE_FEAT_ADV_CODING_SELECTION == TRUE)
+    uint8_t primary_adv_phy_options;
+    uint8_t secondary_adv_phy_options;
+#endif // (BT_BLE_FEAT_ADV_CODING_SELECTION == TRUE)
+} tBTA_DM_BLE_GAP_EXT_ADV_PARAMS;
+
+typedef struct {
+    UINT8 instance;
+    int duration;
+    int max_events;
+} tBTA_DM_BLE_EXT_ADV;
+
+typedef struct {
+    UINT16 interval_min;
+    UINT16 interval_max;
+    UINT16  properties;
+#if (BT_BLE_FEAT_PAWR_EN == TRUE)
+    UINT8 num_subevents;
+    UINT8 subevent_interval;
+    UINT8 rsp_slot_delay;
+    UINT8 rsp_slot_spacing;
+    UINT8 num_rsp_slots;
+#endif // (BT_BLE_FEAT_PAWR_EN == TRUE)
+} tBTA_DM_BLE_Periodic_Adv_Params;
+
+typedef struct {
+    UINT8 filter_policy;
+#if (BLE_FEAT_CREATE_SYNC_ENH == TRUE)
+    UINT8 reports_disabled;
+    UINT8 filter_duplicates;
+#endif // (BLE_FEAT_CREATE_SYNC_ENH == TRUE)
+    UINT8 sid;
+    tBLE_ADDR_TYPE addr_type;
+    BD_ADDR addr;
+    UINT16 skip;
+    UINT16 sync_timeout;
+    UINT8 sync_cte_type;
+} tBTA_DM_BLE_Periodic_Sync_Params;
+
+typedef struct {
+    tBLE_SCAN_MODE scan_type;
+    UINT16 scan_interval;
+    UINT16 scan_window;
+} tBTA_DM_BLE_EXT_SCAN_CFG;
+
+typedef struct {
+    tBLE_ADDR_TYPE own_addr_type;
+    UINT8 filter_policy;
+    UINT8  scan_duplicate;
+    tBTA_DM_BLE_EXT_SCAN_CFG_MASK cfg_mask;
+    tBTA_DM_BLE_EXT_SCAN_CFG uncoded_cfg;
+    tBTA_DM_BLE_EXT_SCAN_CFG coded_cfg;
+} tBTA_DM_BLE_EXT_SCAN_PARAMS;
+
+typedef struct {
+    UINT16 scan_interval;
+    UINT16 scan_window;
+    UINT16 interval_min;
+    UINT16 interval_max;
+    UINT16 latency;
+    UINT16 supervision_timeout;
+    UINT16 min_ce_len;
+    UINT16 max_ce_len;
+} tBTA_DM_BLE_CONN_PARAMS;
+
+#define BTA_DM_BLE_5_GAP_READ_PHY_COMPLETE_EVT                     BTM_BLE_5_GAP_READ_PHY_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_SET_PREFERED_DEFAULT_PHY_COMPLETE_EVT     BTM_BLE_5_GAP_SET_PREFERED_DEFAULT_PHY_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_SET_PREFERED_PHY_COMPLETE_EVT             BTM_BLE_5_GAP_SET_PREFERED_PHY_COMPLETE_EVT
+#if (BLE_50_EXTEND_ADV_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_EXT_ADV_SET_RAND_ADDR_COMPLETE_EVT        BTM_BLE_5_GAP_EXT_ADV_SET_RAND_ADDR_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_ADV_SET_PARAMS_COMPLETE_EVT           BTM_BLE_5_GAP_EXT_ADV_SET_PARAMS_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_ADV_DATA_SET_COMPLETE_EVT             BTM_BLE_5_GAP_EXT_ADV_DATA_SET_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_SCAN_RSP_DATA_SET_COMPLETE_EVT        BTM_BLE_5_GAP_EXT_SCAN_RSP_DATA_SET_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_ADV_START_COMPLETE_EVT                BTM_BLE_5_GAP_EXT_ADV_START_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_ADV_STOP_COMPLETE_EVT                 BTM_BLE_5_GAP_EXT_ADV_STOP_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_ADV_SET_REMOVE_COMPLETE_EVT           BTM_BLE_5_GAP_EXT_ADV_SET_REMOVE_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_ADV_SET_CLEAR_COMPLETE_EVT            BTM_BLE_5_GAP_EXT_ADV_SET_CLEAR_COMPLETE_EVT
+#endif // #if (BLE_50_EXTEND_ADV_EN == TRUE)
+#if (BLE_50_PERIODIC_ADV_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_SET_PARAMS_COMPLETE_EVT      BTM_BLE_5_GAP_PERIODIC_ADV_SET_PARAMS_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_DATA_SET_COMPLETE_EVT        BTM_BLE_5_GAP_PERIODIC_ADV_DATA_SET_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_START_COMPLETE_EVT           BTM_BLE_5_GAP_PERIODIC_ADV_START_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_STOP_COMPLETE_EVT            BTM_BLE_5_GAP_PERIODIC_ADV_STOP_COMPLETE_EVT
+#endif // #if (BLE_50_PERIODIC_ADV_EN == TRUE)
+#if (BLE_50_EXTEND_SYNC_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_CREATE_SYNC_COMPLETE_EVT     BTM_BLE_5_GAP_PERIODIC_ADV_CREATE_SYNC_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_SYNC_CANCEL_COMPLETE_EVT     BTM_BLE_5_GAP_PERIODIC_ADV_SYNC_CANCEL_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_SYNC_TERMINATE_COMPLETE_EVT  BTM_BLE_5_GAP_PERIODIC_ADV_SYNC_TERMINATE_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_ADD_DEV_COMPLETE_EVT         BTM_BLE_5_GAP_PERIODIC_ADV_ADD_DEV_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_REMOVE_DEV_COMPLETE_EVT      BTM_BLE_5_GAP_PERIODIC_ADV_REMOVE_DEV_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_CLEAR_DEV_COMPLETE_EVT       BTM_BLE_5_GAP_PERIODIC_ADV_CLEAR_DEV_COMPLETE_EVT
+#endif // #if (BLE_50_EXTEND_SYNC_EN == TRUE)
+#if (BLE_50_EXTEND_SCAN_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_SET_EXT_SCAN_PARAMS_COMPLETE_EVT          BTM_BLE_5_GAP_SET_EXT_SCAN_PARAMS_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_SCAN_START_COMPLETE_EVT               BTM_BLE_5_GAP_EXT_SCAN_START_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_EXT_SCAN_STOP_COMPLETE_EVT                BTM_BLE_5_GAP_EXT_SCAN_STOP_COMPLETE_EVT
+#endif // #if (BLE_50_EXTEND_SCAN_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_PREFER_EXT_CONN_PARAMS_SET_COMPLETE_EVT   BTM_BLE_5_GAP_PREFER_EXT_CONN_PARAMS_SET_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_PHY_UPDATE_COMPLETE_EVT                   BTM_BLE_5_GAP_PHY_UPDATE_COMPLETE_EVT
+#if (BLE_50_EXTEND_SCAN_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_EXT_ADV_REPORT_EVT                        BTM_BLE_5_GAP_EXT_ADV_REPORT_EVT
+#define BTA_DM_BLE_5_GAP_SCAN_TIMEOUT_EVT                          BTM_BLE_5_GAP_SCAN_TIMEOUT_EVT
+#endif // #if (BLE_50_EXTEND_SCAN_EN == TRUE)
+#if (BLE_50_EXTEND_ADV_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_ADV_TERMINATED_EVT                        BTM_BLE_5_GAP_ADV_TERMINATED_EVT
+#define BTA_DM_BLE_5_GAP_SCAN_REQ_RECEIVED_EVT                     BTM_BLE_5_GAP_SCAN_REQ_RECEIVED_EVT
+#endif // #if (BLE_50_EXTEND_ADV_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_CHANNEL_SELETE_ALGORITHM_EVT              BTM_BLE_5_GAP_CHANNEL_SELETE_ALGORITHM_EVT
+#if (BLE_50_EXTEND_SYNC_EN == TRUE)
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_REPORT_EVT                   BTM_BLE_5_GAP_PERIODIC_ADV_REPORT_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_SYNC_LOST_EVT                BTM_BLE_5_GAP_PERIODIC_ADV_SYNC_LOST_EVT
+#define BTA_DM_BLE_5_GAP_PERIODIC_ADV_SYNC_ESTAB_EVT               BTM_BLE_5_GAP_PERIODIC_ADV_SYNC_ESTAB_EVT
+#endif // #if (BLE_50_EXTEND_SYNC_EN == TRUE)
+#if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+#define BTA_BLE_GAP_PERIODIC_ADV_RECV_ENABLE_COMPLETE_EVT          BTM_BLE_GAP_PERIODIC_ADV_RECV_ENABLE_COMPLETE_EVT
+#define BTA_BLE_GAP_PERIODIC_ADV_SYNC_TRANS_COMPLETE_EVT           BTM_BLE_GAP_PERIODIC_ADV_SYNC_TRANS_COMPLETE_EVT
+#define BTA_BLE_GAP_PERIODIC_ADV_SET_INFO_TRANS_COMPLETE_EVT       BTM_BLE_GAP_PERIODIC_ADV_SET_INFO_TRANS_COMPLETE_EVT
+#define BTA_BLE_GAP_SET_PAST_PARAMS_COMPLETE_EVT                   BTM_BLE_GAP_SET_PAST_PARAMS_COMPLETE_EVT
+#define BTA_BLE_GAP_PERIODIC_ADV_SYNC_TRANS_RECV_EVT               BTM_BLE_GAP_PERIODIC_ADV_SYNC_TRANS_RECV_EVT
+#endif // #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+
+#if (BLE_FEAT_POWER_CONTROL_EN == TRUE)
+#define BTA_BLE_GAP_ENH_READ_TRANS_POWER_LEVEL_EVT                 BTM_BLE_GAP_ENH_READ_TRANS_POWER_LEVEL_EVT
+#define BTA_BLE_GAP_READ_REMOTE_TRANS_POWER_LEVEL_EVT              BTM_BLE_GAP_READ_REMOTE_TRANS_POWER_LEVEL_EVT
+#define BTA_BLE_GAP_SET_PATH_LOSS_REPORTING_PARAMS_EVT             BTM_BLE_GAP_SET_PATH_LOSS_REPORTING_PARAMS_EVT
+#define BTA_BLE_GAP_SET_PATH_LOSS_REPORTING_ENABLE_EVT             BTM_BLE_GAP_SET_PATH_LOSS_REPORTING_ENABLE_EVT
+#define BTA_BLE_GAP_SET_TRANS_POWER_REPORTING_ENABLE_EVT           BTM_BLE_GAP_SET_TRANS_POWER_REPORTING_ENABLE_EVT
+#define BTA_BLE_GAP_PATH_LOSS_THRESHOLD_EVT                        BTM_BLE_GAP_PATH_LOSS_THRESHOLD_EVT
+#define BTA_BLE_GAP_TRANMIT_POWER_REPORTING_EVT                    BTM_BLE_GAP_TRANMIT_POWER_REPORTING_EVT
+#endif // #if (BLE_FEAT_POWER_CONTROL_EN == TRUE)
+#if (BLE_FEAT_CONN_SUBRATING == TRUE)
+#define BTA_BLE_GAP_SET_DEFAULT_SUBRATE_EVT                        BTM_BLE_GAP_SET_DEFAULT_SUBRATE_EVT
+#define BTA_BLE_GAP_SUBRATE_REQUEST_EVT                            BTM_BLE_GAP_SUBRATE_REQUEST_EVT
+#define BTA_BLE_GAP_SUBRATE_CHANGE_EVT                             BTM_BLE_GAP_SUBRATE_CHANGE_EVT
+#endif // #if (BLE_FEAT_CONN_SUBRATING == TRUE)
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+#define BTA_BLE_GAP_SET_HOST_FEATURE_EVT                           BTM_BLE_GAP_SET_HOST_FEATURE_EVT
+#endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
+#if (BLE_FEAT_ADV_MONITOR == TRUE)
+#define BTA_DM_BLE_5_GAP_MONITOR_ADV_REPORT_EVT                    BTM_BLE_5_GAP_MONITOR_ADV_REPORT_EVT
+#define BTA_DM_BLE_5_GAP_ADD_MONITOR_ADV_COMPLETE_EVT              BTM_BLE_5_GAP_ADD_MONITOR_ADV_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_REMOVE_MONITOR_ADV_COMPLETE_EVT           BTM_BLE_5_GAP_REMOVE_MONITOR_ADV_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_CLEAR_MONITOR_ADV_COMPLETE_EVT            BTM_BLE_5_GAP_CLEAR_MONITOR_ADV_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_READ_MONITOR_ADV_LIST_SIZE_COMPLETE_EVT   BTM_BLE_5_GAP_READ_MONITOR_ADV_LIST_SIZE_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_ENABLE_MONITOR_ADV_COMPLETE_EVT           BTM_BLE_5_GAP_ENABLE_MONITOR_ADV_COMPLETE_EVT
+#endif // #if (BLE_FEAT_ADV_MONITOR == TRUE)
+
+#if (BLE_FEAT_DBAF == TRUE)
+#define BTA_DM_BLE_5_GAP_SET_DECISION_DATA_COMPLETE_EVT            BTM_BLE_5_GAP_SET_DECISION_DATA_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_SET_DECISION_INSTRUCTIONS_COMPLETE_EVT    BTM_BLE_5_GAP_SET_DECISION_INSTRUCTIONS_COMPLETE_EVT
+#endif // #if (BLE_FEAT_DBAF == TRUE)
+
+#if (BLE_FEAT_FRAME_SPACE_UPDATE == TRUE)
+#define BTA_DM_BLE_5_GAP_FRAME_SPACE_UPDATE_COMPLETE_EVT           BTM_BLE_5_GAP_FRAME_SPACE_UPDATE_COMPLETE_EVT
+#endif // #if (BLE_FEAT_FRAME_SPACE_UPDATE == TRUE)
+
+#if (BLE_FEAT_LL_EXT_FEAT == TRUE)
+#define BTA_DM_BLE_5_GAP_READ_ALL_LOCAL_SUPP_FEAT_COMPLETE_EVT     BTM_BLE_5_GAP_READ_ALL_LOCAL_SUPP_FEAT_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_READ_ALL_REMOTE_FEAT_COMPLETE_EVT         BTM_BLE_5_GAP_READ_ALL_REMOTE_FEAT_COMPLETE_EVT
+#endif // #if (BLE_FEAT_LL_EXT_FEAT == TRUE)
+
+#if (BLE_FEAT_SHORTER_CONN_INTERVALS == TRUE)
+#define BTA_DM_BLE_5_GAP_CONNECTION_RATE_REQUEST_COMPLETE_EVT      BTM_BLE_5_GAP_CONNECTION_RATE_REQUEST_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_CONN_RATE_CHANGE_EVT                      BTM_BLE_5_GAP_CONN_RATE_CHANGE_EVT
+#define BTA_DM_BLE_5_GAP_SET_DEFAULT_RATE_PARAMETERS_COMPLETE_EVT  BTM_BLE_5_GAP_SET_DEFAULT_RATE_PARAMETERS_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_READ_MIN_SUPP_CONN_INTERVAL_COMPLETE_EVT  BTM_BLE_5_GAP_READ_MIN_SUPP_CONN_INTERVAL_COMPLETE_EVT
+#endif // #if (BLE_FEAT_SHORTER_CONN_INTERVALS == TRUE)
+
+#if (BLE_FEAT_LE_UTP == TRUE)
+#define BTA_DM_BLE_5_GAP_ENABLE_UTP_OTA_MODE_COMPLETE_EVT          BTM_BLE_5_GAP_ENABLE_UTP_OTA_MODE_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_UTP_SEND_COMPLETE_EVT                     BTM_BLE_5_GAP_UTP_SEND_COMPLETE_EVT
+#define BTA_DM_BLE_5_GAP_UTP_RECEIVE_EVT                           BTM_BLE_5_GAP_UTP_RECEIVE_EVT
+#endif // #if (BLE_FEAT_LE_UTP == TRUE)
+
+#if (BT_BLE_FEAT_PAWR_EN == TRUE)
+#define BTA_BLE_GAP_SET_PERIODIC_ADV_SUBEVT_DATA_EVT               BTM_BLE_GAP_SET_PERIODIC_ADV_SUBEVT_DATA_EVT
+#define BTA_BLE_GAP_SET_PERIODIC_ADV_RESPONSE_DATA_EVT             BTM_BLE_GAP_SET_PERIODIC_ADV_RESPONSE_DATA_EVT
+#define BTA_BLE_GAP_SET_PERIODIC_SYNC_SUBEVT_EVT                   BTM_BLE_GAP_SET_PERIODIC_SYNC_SUBEVT_EVT
+#define BTA_BLE_GAP_PERIODIC_ADV_SUBEVT_DATA_REQUEST_EVT           BTM_BLE_GAP_PERIODIC_ADV_SUBEVT_DATA_REQUEST_EVT
+#define BTA_BLE_GAP_PERIODIC_ADV_RESPONSE_REPORT_EVT               BTM_BLE_GAP_PERIODIC_ADV_RESPONSE_REPORT_EVT
+#endif // #if (BT_BLE_FEAT_PAWR_EN == TRUE)
+
+#if (BT_BLE_FEAT_CHANNEL_SOUNDING == TRUE)
+#define BTA_BLE_GAP_CS_READ_LOCAL_SUPP_CAPS_EVT                    BTM_BLE_GAP_CS_READ_LOCAL_SUPP_CAPS_EVT
+#define BTA_BLE_GAP_CS_WRITE_CACHED_REMOTE_SUPP_CAPS_EVT           BTM_BLE_GAP_CS_WRITE_CACHED_REMOTE_SUPP_CAPS_EVT
+#define BTA_BLE_GAP_CS_SET_DEFAULT_SETTINGS_EVT                    BTM_BLE_GAP_CS_SET_DEFAULT_SETTINGS_EVT
+#define BTA_BLE_GAP_CS_WRITE_CACHED_REMOTE_FAE_TAB_EVT             BTM_BLE_GAP_CS_WRITE_CACHED_REMOTE_FAE_TAB_EVT
+#define BTA_BLE_GAP_CS_READ_REMOTE_SUPP_CAPS_CMPL_EVT              BTM_BLE_GAP_CS_READ_REMOTE_SUPP_CAPS_CMPL_EVT
+#define BTA_BLE_GAP_CS_SET_CHANNEL_CLASS_CMPL_EVT                  BTM_BLE_GAP_CS_SET_CHANNEL_CLASS_CMPL_EVT
+#define BTA_BLE_GAP_CS_PROC_PARAMS_CMPL_EVT                        BTM_BLE_GAP_CS_PROC_PARAMS_CMPL_EVT
+#define BTA_BLE_GAP_CS_PROC_ENABLE_CMPL_EVT                        BTM_BLE_GAP_CS_PROC_ENABLE_CMPL_EVT
+#define BTA_BLE_GAP_CS_READ_REMOTE_FAE_TABLE_CMPL_EVT              BTM_BLE_GAP_CS_READ_REMOTE_FAE_TABLE_CMPL_EVT
+#define BTA_BLE_GAP_CS_SECURITY_ENABLE_CMPL_EVT                    BTM_BLE_GAP_CS_SECURITY_ENABLE_CMPL_EVT
+#define BTA_BLE_GAP_CS_CONFIG_CMPL_EVT                             BTM_BLE_GAP_CS_CONFIG_CMPL_EVT
+#define BTA_BLE_GAP_CS_SUBEVENT_RESULT_EVT                         BTM_BLE_GAP_CS_SUBEVENT_RESULT_EVT
+#define BTA_BLE_GAP_CS_SUBEVENT_RESULT_CONTINUE_EVT                BTM_BLE_GAP_CS_SUBEVENT_RESULT_CONTINUE_EVT
+#endif // (BT_BLE_FEAT_CHANNEL_SOUNDING == TRUE)
+#if (BT_BLE_FEAT_CS_SECURITY_REQUIREMENTS == TRUE)
+#define BTA_BLE_GAP_CS_SET_SECURITY_REQUIREMENTS_CMPL_EVT          BTM_BLE_GAP_CS_SET_SECURITY_REQUIREMENTS_CMPL_EVT
+#define BTA_BLE_GAP_CS_SET_DEFAULT_SECURITY_REQUIREMENTS_CMPL_EVT  BTM_BLE_GAP_CS_SET_DEFAULT_SECURITY_REQUIREMENTS_CMPL_EVT
+#endif // (BT_BLE_FEAT_CS_SECURITY_REQUIREMENTS == TRUE)
+
+#define BTA_DM_BLE_5_GAP_UNKNOWN_EVT                               BTM_BLE_5_GAP_UNKNOWN_EVT
+typedef tBTM_BLE_5_GAP_EVENT tBTA_DM_BLE_5_GAP_EVENT;
+
+typedef tBTM_BLE_5_GAP_CB_PARAMS tBTA_DM_BLE_5_GAP_CB_PARAMS;
+typedef tBTM_BLE_5_HCI_CBACK tBTA_DM_BLE_5_HCI_CBCAK;
+
+extern tBTM_BLE_5_HCI_CBACK ble_5_hci_cb;
+
+#endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
+
+#if (BLE_FEAT_ISO_EN == TRUE)
+#if (BLE_FEAT_ISO_BIG_BROADCASTER_EN == TRUE)
+#define BTA_BLE_ISO_BIG_CREATE_COMPLETE_EVT                        BTM_BLE_ISO_BIG_CREATE_COMPLETE_EVT
+#define BTA_BLE_ISO_BIG_TERMINATE_COMPLETE_EVT                     BTM_BLE_ISO_BIG_TERMINATE_COMPLETE_EVT
+#endif // #if (BLE_FEAT_ISO_BIG_BROADCASTER_EN == TRUE)
+#if (BLE_FEAT_ISO_BIG_SYNCER_EN == TRUE)
+#define BTA_BLE_ISO_BIG_SYNC_ESTABLISHED_EVT                       BTM_BLE_ISO_BIG_SYNC_ESTABLISHED_EVT
+#define BTA_BLE_ISO_BIG_SYNC_LOST_EVT                              BTM_BLE_ISO_BIG_SYNC_LOST_EVT
+#define BTA_BLE_ISO_BIG_SYNC_TERMINATE_COMPLETE_EVT                BTM_BLE_ISO_BIG_SYNC_TERMINATE_COMPLETE_EVT
+#define BTA_BLE_ISO_BIGINFO_ADV_REPORT_EVT                         BTM_BLE_ISO_BIGINFO_ADV_REPORT_EVT
+#endif // #if (BLE_FEAT_ISO_BIG_SYNCER_EN == TRUE)
+#define BTA_BLE_ISO_DATA_PATH_UPFATE_EVT                           BTM_BLE_ISO_DATA_PATH_UPFATE_EVT
+#define BTA_BLE_ISO_READ_TX_SYNC_EVT                               BTM_BLE_ISO_READ_TX_SYNC_EVT
+#define BTA_BLE_ISO_READ_LINK_QUALITY_EVT                          BTM_BLE_ISO_READ_LINK_QUALITY_EVT
+#if (BLE_FEAT_ISO_CIG_CENTRAL_EN == TRUE)
+#define BTA_BLE_ISO_SET_CIG_PARAMS_EVT                             BTM_BLE_ISO_SET_CIG_PARAMS_EVT
+#define BTA_BLE_ISO_CREATE_CIS_EVT                                 BTM_BLE_ISO_CREATE_CIS_EVT
+#define BTA_BLE_ISO_REMOVE_CIG_EVT                                 BTM_BLE_ISO_REMOVE_CIG_EVT
+#endif // #if (BLE_FEAT_ISO_CIG_CENTRAL_EN == TRUE)
+
+#if (BLE_FEAT_ISO_CIG_PERIPHERAL_EN == TRUE)
+#define BTA_BLE_ISO_ACCEPT_CIS_REQ_EVT                             BTM_BLE_ISO_ACCEPT_CIS_REQ_EVT
+#define BTA_BLE_ISO_REJECT_CIS_REQ_EVT                             BTM_BLE_ISO_REJECT_CIS_REQ_EVT
+#define BTA_BLE_ISO_CIS_REQUEST_EVT                                BTM_BLE_ISO_CIS_REQUEST_EVT
+#endif // #if (BLE_FEAT_ISO_CIG_PERIPHERAL_EN == TRUE)
+
+#if (BLE_FEAT_ISO_CIG_EN == TRUE)
+#define BTA_BLE_ISO_CIS_ESTABLISHED_EVT                            BTM_BLE_ISO_CIS_ESTABLISHED_EVT
+#define BTA_BLE_ISO_CIS_DISCONNECTED_EVT                           BTM_BLE_ISO_CIS_DISCONNECTED_EVT
+#endif // #if (BLE_FEAT_ISO_CIG_EN == TRUE)
+
+#define BTA_DM_BLE_ISO_UNKNOWN_EVT                                 BTM_BLE_ISO_UNKNOWN_EVT
+#endif // #if (BLE_FEAT_ISO_EN == TRUE)
+
+#if (BLE_FEAT_CTE_EN == TRUE)
+#if (BLE_FEAT_CTE_CONNECTIONLESS_EN == TRUE)
+#define BTA_BLE_CTE_SET_TRANS_PARAMS_EVT                           BTM_BLE_CTE_SET_TRANS_PARAMS_EVT
+#define BTA_BLE_CTE_SET_TRANS_ENABLE_EVT                           BTM_BLE_CTE_SET_TRANS_ENABLE_EVT
+#define BTA_BLE_CTE_SET_IQ_SAMP_ENABLE_EVT                         BTM_BLE_CTE_SET_IQ_SAMP_ENABLE_EVT
+#endif // #if (BLE_FEAT_CTE_CONNECTIONLESS_EN == TRUE)
+#if (BLE_FEAT_CTE_CONNECTION_EN == TRUE)
+#define BTA_BLE_CTE_SET_CONN_RECV_PARAMS_EVT                       BTM_BLE_CTE_SET_CONN_RECV_PARAMS_EVT
+#define BTA_BLE_CTE_SET_CONN_TRANS_PARAMS_EVT                      BTM_BLE_CTE_SET_CONN_TRANS_PARAMS_EVT
+#define BTA_BLE_CTE_SET_CONN_REQ_ENABLE_EVT                        BTM_BLE_CTE_SET_CONN_REQ_ENABLE_EVT
+#define BTA_BLE_CTE_SET_CONN_RSP_ENABLE_EVT                        BTM_BLE_CTE_SET_CONN_RSP_ENABLE_EVT
+#endif // #if (BLE_FEAT_CTE_CONNECTION_EN == TRUE)
+#define BTA_BLE_CTE_READ_ANT_INFOR_EVT                             BTM_BLE_CTE_READ_ANT_INFOR_EVT
+#if (BLE_FEAT_CTE_CONNECTIONLESS_EN == TRUE)
+#define BTA_BLE_CTE_CONNLESS_IQ_REPORT_EVT                         BTM_BLE_CTE_CONNLESS_IQ_REPORT_EVT
+#endif // #if (BLE_FEAT_CTE_CONNECTIONLESS_EN == TRUE)
+#if (BLE_FEAT_CTE_CONNECTION_EN == TRUE)
+#define BTA_BLE_CTE_CONN_IQ_REPORT_EVT                             BTM_BLE_CTE_CONN_IQ_REPORT_EVT
+#define BTA_BLE_CTE_REQUEST_FAILED_EVT                             BTM_BLE_CTE_REQUEST_FAILED_EVT
+#endif // #if (BLE_FEAT_CTE_CONNECTION_EN == TRUE)
+#endif // #if (BLE_FEAT_CTE_EN == TRUE)
+
+#if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+typedef struct {
+    UINT8 mode;
+    UINT16 skip;
+    UINT16 sync_timeout;
+    UINT8 cte_type;
+} tBTA_DM_BLE_PAST_PARAMS;
+#endif // #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+
+#if (BLE_FEAT_ISO_EN == TRUE)
+typedef struct {
+    UINT8 big_handle;
+    UINT8 adv_handle;
+    UINT8 num_bis;
+    UINT32 sdu_interval;
+    UINT16 max_sdu;
+    UINT16 max_transport_latency;
+    UINT8 rtn;
+    UINT8 phy;
+    UINT8 packing;
+    UINT8 framing;
+    UINT8 encryption;
+    UINT8 broadcast_code[16];
+} tBTA_DM_BLE_BIG_CREATE_PARAMS;
+
+typedef struct {
+    UINT8 big_handle;
+    UINT8 adv_handle;
+    UINT8 num_bis;
+    UINT32 sdu_interval;
+    UINT16 iso_interval;
+    UINT8 nse;
+    UINT16 max_sdu;
+    UINT16 max_pdu;
+    UINT8 phy;
+    UINT8 packing;
+    UINT8 framing;
+    UINT8 bn;
+    UINT8 irc;
+    UINT8 pto;
+    UINT8 encryption;
+    UINT8 broadcast_code[16];
+} tBTA_DM_BLE_BIG_CREATE_TEST_PARAMS;
+typedef struct {
+    UINT8 big_handle;
+    UINT8 reason;
+} tBTA_DM_BLE_BIG_TERMINATE_PARAMS;
+typedef struct {
+    UINT8 big_handle;
+    UINT16 sync_handle;
+    UINT8 encryption;
+    UINT8 bc_code[16];
+    UINT8 mse;
+    UINT16 big_sync_timeout;
+    UINT8 num_bis;
+    UINT8 bis[BLE_ISO_BIS_MAX_COUNT];
+} tBTA_DM_BLE_BIG_SYNC_CREATE_PARAMS;
+typedef struct {
+    UINT8 big_handle;
+} tBTA_DM_BLE_BIG_SYNC_TERMINATE_PARAMS;
+
+typedef struct {
+    uint16_t conn_handle;
+    uint8_t data_path_dir;
+    uint8_t data_path_id;
+    uint8_t coding_fmt;
+    uint16_t company_id;
+    uint16_t vs_codec_id;
+    uint32_t controller_delay;
+    uint8_t codec_len;
+    uint8_t *codec_cfg;
+} tBTA_DM_BLE_ISO_SET_DATA_PATH_PARAMS;
+
+typedef struct {
+    uint16_t conn_handle;
+    uint8_t data_path_dir;
+} tBTA_DM_BLE_ISO_REMOVE_DATA_PATH_PARAMS;
+#endif // #if (BLE_FEAT_ISO_EN == TRUE)
+
 
 /*****************************************************************************
 **  External Function Declarations
@@ -1489,7 +1883,35 @@ extern void BTA_DisableTestMode(void);
 ** Returns          void
 **
 *******************************************************************************/
-extern void BTA_DmSetDeviceName(const char *p_name);
+extern void BTA_DmSetDeviceName(const char *p_name, tBT_DEVICE_TYPE name_type);
+
+/*******************************************************************************
+**
+** Function         BTA_DmGetDeviceName
+**
+** Description      This function gets the Bluetooth name of the local device.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+extern void BTA_DmGetDeviceName(tBTA_GET_DEV_NAME_CBACK *p_cback, tBT_DEVICE_TYPE name_type);
+
+/*******************************************************************************
+**
+** Function         BTA_DmCfgCoexStatus
+**
+** Description      This function configures coexist status.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+#if (ESP_COEX_VSC_INCLUDED == TRUE)
+extern void BTA_DmCfgCoexStatus(UINT8 op, UINT8 type, UINT8 status);
+#endif
+
+extern void BTA_DmsendVendorHciCmd(UINT16 opcode, UINT8 param_len, UINT8 *p_param_buf, tBTA_SEND_VENDOR_HCI_CMPL_CBACK p_vendor_cmd_complete_cback);
 
 /*******************************************************************************
 **
@@ -1527,6 +1949,67 @@ extern void BTA_DmConfigEir(tBTA_DM_EIR_CONF *eir_config);
 *******************************************************************************/
 void BTA_DmSetAfhChannels(const uint8_t *channels, tBTA_CMPL_CB  *set_afh_cb);
 
+#if (BTA_DM_QOS_INCLUDED == TRUE)
+/*******************************************************************************
+**
+** Function         BTA_DmSetQos
+**
+** Description      This function sets the QOS
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_DmSetQos(BD_ADDR bd_addr, UINT32 t_poll, tBTM_CMPL_CB *p_cb);
+#endif /// (BTA_DM_QOS_INCLUDED == TRUE)
+
+/*******************************************************************************
+**
+** Function         BTA_DmSetPageTimeout
+**
+** Description      This function sets the Bluetooth page timeout.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_DmSetPageTimeout(UINT16 page_to, tBTM_CMPL_CB *p_cb);
+/*******************************************************************************
+**
+** Function         BTA_DmGetPageTimeout
+**
+** Description      This function gets the Bluetooth page timeout.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_DmGetPageTimeout(tBTM_CMPL_CB *p_cb);
+
+/*******************************************************************************
+**
+** Function         BTA_DmSetAclPktTypes
+**
+** Description      This function sets the packet types used for ACL traffic.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_DmSetAclPktTypes(BD_ADDR remote_addr, UINT16 pkt_types, tBTM_CMPL_CB *p_cb);
+
+/*******************************************************************************
+**
+** Function         BTA_DmSetMinEncKeySize
+**
+** Description      This function sets the minimal size of encryption key.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_DmSetMinEncKeySize(UINT8 key_size, tBTM_CMPL_CB *p_cb);
+
 #if (BLE_INCLUDED == TRUE)
 /*******************************************************************************
 **
@@ -1538,9 +2021,9 @@ void BTA_DmSetAfhChannels(const uint8_t *channels, tBTA_CMPL_CB  *set_afh_cb);
 ** Returns          void
 **
 *******************************************************************************/
-void BTA_DmBleSetChannels(const uint8_t *channels, tBTA_CMPL_CB  *set_channels_cb);
+void BTA_DmBleSetChannels(const uint8_t *channels);
 
-extern void BTA_DmUpdateWhiteList(BOOLEAN add_remove,  BD_ADDR remote_addr, tBLE_ADDR_TYPE addr_type, tBTA_ADD_WHITELIST_CBACK *add_wl_cb);
+extern void BTA_DmUpdateWhiteList(BOOLEAN add_remove,  BD_ADDR remote_addr, tBLE_ADDR_TYPE addr_type);
 
 extern void BTA_DmClearWhiteList(void);
 
@@ -1548,6 +2031,18 @@ extern void BTA_DmBleReadAdvTxPower(tBTA_CMPL_CB *cmpl_cb);
 #endif  ///BLE_INCLUDED == TRUE
 
 extern void BTA_DmReadRSSI(BD_ADDR remote_addr, tBTA_TRANSPORT transport, tBTA_CMPL_CB *cmpl_cb);
+
+#if (ESP_BT_CLASSIC_ENABLE_POWER_CTRL_VSC == TRUE)
+extern void BTA_DmReadAclRealRssi(BD_ADDR remote_addr, tBTA_CMPL_CB *cmpl_cb);
+extern void BTA_DmReadNewConnTxPwrLvl(tBTA_CMPL_CB *cmpl_cb);
+extern void BTA_DmWriteNewConnTxPwrLvl(INT8 pwr_lvl_min, INT8 pwr_lvl_max, tBTA_CMPL_CB *cmpl_cb);
+#endif // #if (ESP_BT_CLASSIC_ENABLE_POWER_CTRL_VSC == TRUE)
+#if (CLASSIC_BT_INCLUDED == TRUE)
+extern void BTA_DmReadBredrTxPwrLvl(tBTM_TX_PWR_LVL_TYPE type, tBTA_CMPL_CB *cmpl_cb);
+extern void BTA_DmWriteBredrTxPwrLvl(tBTM_TX_PWR_LVL_TYPE type, INT8 tx_power, tBTA_CMPL_CB *cmpl_cb);
+#endif // #if (CLASSIC_BT_INCLUDED == TRUE)
+
+extern void BTA_DmBleReadChannelMap(BD_ADDR remote_device);
 
 /*******************************************************************************
 **
@@ -1627,7 +2122,7 @@ extern void BTA_DmDiscoverUUID(BD_ADDR bd_addr, tSDP_UUID *uuid,
 **
 ** Function         BTA_DmGetCachedRemoteName
 **
-** Description      Retieve cached remote name if available
+** Description      Retrieve cached remote name if available
 **
 ** Returns          BTA_SUCCESS if cached name was retrieved
 **                  BTA_FAILURE if cached name is not available
@@ -1724,7 +2219,7 @@ extern void BTA_DmLocalOob(void);
 ** Function         BTA_DmOobReply
 **
 **                  This function is called to provide the OOB data for
-**                  SMP in response to BTM_LE_OOB_REQ_EVT
+**                  SMP in response to BTA_LE_OOB_REQ_EVT
 **
 ** Parameters:      bd_addr     - Address of the peer device
 **                  len         - length of simple pairing Randomizer  C
@@ -1734,6 +2229,33 @@ extern void BTA_DmLocalOob(void);
 **
 *******************************************************************************/
 extern void BTA_DmOobReply(BD_ADDR bd_addr, UINT8 len, UINT8 *p_value);
+
+/*******************************************************************************
+**
+** Function         BTA_DmSecureConnectionOobReply
+**
+**                  This function is called to provide the OOB data for
+**                  SMP in response to BTA_LE_OOB_REQ_EVT when secure connection
+**
+** Parameters:      bd_addr     - Address of the peer device
+**                  p_c         - Pointer to Confirmation
+**                  p_r         - Pointer to Randomizer
+**
+** Returns          void
+**
+*******************************************************************************/
+extern void BTA_DmSecureConnectionOobReply(BD_ADDR bd_addr, UINT8 *p_c, UINT8 *p_r);
+/*******************************************************************************
+**
+** Function         BTA_DmSecureConnectionCreateOobData
+**
+**                  This function is called to create the OOB data for
+**                  SMP when secure connection
+**
+** Returns          void
+**
+*******************************************************************************/
+extern void BTA_DmSecureConnectionCreateOobData(void);
 #endif /* BTM_OOB_INCLUDED */
 
 /*******************************************************************************
@@ -1831,6 +2353,17 @@ extern UINT16 BTA_DmGetConnectionState( BD_ADDR bd_addr );
 *******************************************************************************/
 extern tBTA_STATUS BTA_DmSetLocalDiRecord( tBTA_DI_RECORD *p_device_info,
         UINT32 *p_handle );
+
+/*******************************************************************************
+**
+** Function         BTA_DmRemoveLocalDiRecord
+**
+** Description      This function removes a DI record from the local SDP database.
+**
+** Returns          BTA_SUCCESS if record is removed successfully, otherwise error code.
+**
+*******************************************************************************/
+extern tBTA_STATUS BTA_DmRemoveLocalDiRecord(UINT32 handle);
 #endif  ///SDP_INCLUDED == TRUE
 /*******************************************************************************
 **
@@ -1875,10 +2408,10 @@ extern void bta_dmexecutecallback (tBTA_DM_EXEC_CBACK *p_callback, void *p_param
 **                  bits: number of bits per pcm sample (16)
 **                  n_channels: number of channels (i.e. mono(1), stereo(2)...)
 **
-** Returns          none
+** Returns          tBTA_STATUS
 **
 *******************************************************************************/
-extern void BTA_DmPcmInitSamples (UINT32 src_sps, UINT32 bits, UINT32 n_channels);
+extern tBTA_STATUS BTA_DmPcmInitSamples (UINT32 src_sps, UINT32 bits, UINT32 n_channels);
 
 /*******************************************************************************
 **
@@ -1951,7 +2484,7 @@ extern void BTA_DmBleSetBgConnType(tBTA_DM_BLE_CONN_TYPE bg_conn_type, tBTA_DM_B
 ** Description      Send BLE SMP passkey reply.
 **
 ** Parameters:      bd_addr          - BD address of the peer
-**                  accept           - passkey entry sucessful or declined.
+**                  accept           - passkey entry successful or declined.
 **                  passkey          - passkey value, must be a 6 digit number,
 **                                     can be lead by 0.
 **
@@ -2002,12 +2535,19 @@ extern void BTA_DmBleConfirmReply(BD_ADDR bd_addr, BOOLEAN accept);
 **                  dev_type         - Remote device's device type.
 **                  auth_mode        - auth mode
 **                  addr_type        - LE device address type.
+**                  is_pseudo_bond   - (pseudo bond only) TRUE when NVS section is
+**                                     keyed by a Host pseudo; tagged on BTU thread.
 **
 ** Returns          void
 **
 *******************************************************************************/
+#if (BLE_INCLUDED == TRUE && SMP_INCLUDED == TRUE && BLE_PERIPH_PSEUDO_ADDR_BOND == TRUE)
+extern void BTA_DmAddBleDevice(BD_ADDR bd_addr, tBLE_ADDR_TYPE addr_type, int auth_mode,
+                               tBT_DEVICE_TYPE dev_type, BOOLEAN is_pseudo_bond);
+#else
 extern void BTA_DmAddBleDevice(BD_ADDR bd_addr, tBLE_ADDR_TYPE addr_type, int auth_mode,
                                tBT_DEVICE_TYPE dev_type);
+#endif
 
 
 /*******************************************************************************
@@ -2068,26 +2608,6 @@ extern void BTA_DmSetBleConnScanParams(UINT32 scan_interval,
 
 /*******************************************************************************
 **
-** Function         BTA_DmSetBleScanParams
-**
-** Description      This function is called to set scan parameters
-**
-** Parameters:      client_if - Client IF
-**                  scan_interval - scan interval
-**                  scan_window - scan window
-**                  scan_mode - scan mode
-**                  scan_param_setup_status_cback - Set scan param status callback
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_DmSetBleScanParams(tGATT_IF client_if, UINT32 scan_interval,
-                                   UINT32 scan_window, tBLE_SCAN_MODE scan_mode,
-                                   tBLE_SCAN_PARAM_SETUP_CBACK scan_param_setup_status_cback);
-
-
-/*******************************************************************************
-**
 ** Function         BTA_DmSetBleScanFilterParams
 **
 ** Description      This function is called to set scan parameters
@@ -2104,31 +2624,13 @@ extern void BTA_DmSetBleScanParams(tGATT_IF client_if, UINT32 scan_interval,
 *******************************************************************************/
 extern void BTA_DmSetBleScanFilterParams(tGATT_IF client_if, UINT32 scan_interval,
         UINT32 scan_window, tBLE_SCAN_MODE scan_mode, UINT8 scan_fil_poilcy,
-        UINT8 addr_type_own, UINT8 scan_duplicate_filter, tBLE_SCAN_PARAM_SETUP_CBACK scan_param_setup_cback);
+        UINT8 addr_type_own, UINT8 scan_duplicate_filter);
 
 
-/*******************************************************************************
-**
-** Function         BTA_DmSetBleAdvParams
-**
-** Description      This function sets the advertising parameters BLE functionality.
-**                  It is to be called when device act in peripheral or broadcaster
-**                  role.
-**
-** Parameters:      adv_int_min    - adv interval minimum
-**                  adv_int_max    - adv interval max
-**                  p_dir_bda      - directed adv initator address
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_DmSetBleAdvParams (UINT16 adv_int_min, UINT16 adv_int_max,
-                                   tBLE_BD_ADDR *p_dir_bda);
-
-extern void BTA_DmSetBleAdvParamsAll (UINT16 adv_int_min, UINT16 adv_int_max,
+extern void BTA_DmAdvStartWithParams (UINT16 adv_int_min, UINT16 adv_int_max,
                                       UINT8 adv_type, tBLE_ADDR_TYPE addr_type_own,
                                       tBTM_BLE_ADV_CHNL_MAP chnl_map, tBTM_BLE_AFP adv_fil_pol,
-                                      tBLE_BD_ADDR *p_dir_bda, tBTA_START_ADV_CMPL_CBACK p_start_adv_cb);
+                                      tBLE_BD_ADDR *p_dir_bda);
 
 
 /*******************************************************************************
@@ -2143,7 +2645,7 @@ extern void BTA_DmSetBleAdvParamsAll (UINT16 adv_int_min, UINT16 adv_int_max,
 **                  services: if service is not empty, service discovery will be done.
 **                            for all GATT based service condition, put num_uuid, and
 **                            p_uuid is the pointer to the list of UUID values.
-**                  p_cback: callback functino when search is completed.
+**                  p_cback: callback function when search is completed.
 **
 **
 **
@@ -2202,7 +2704,7 @@ extern void BTA_DmDiscoverByTransport(BD_ADDR bd_addr, tBTA_SERVICE_MASK_EXT *p_
 **
 ** Parameters:      bd_addr       - Address of the peer device
 **                  transport     - transport of the link to be encruypted
-**                  p_callback    - Pointer to callback function to indicat the
+**                  p_callback    - Pointer to callback function to indicate the
 **                                  link encryption status
 **                  sec_act       - This is the security action to indicate
 **                                  what knid of BLE security level is required for
@@ -2217,25 +2719,6 @@ extern void BTA_DmDiscoverByTransport(BD_ADDR bd_addr, tBTA_SERVICE_MASK_EXT *p_
 extern void BTA_DmSetEncryption(BD_ADDR bd_addr, tBTA_TRANSPORT transport,
                                 tBTA_DM_ENCRYPT_CBACK *p_callback,
                                 tBTA_DM_BLE_SEC_ACT sec_act);
-
-
-/*******************************************************************************
-**
-** Function         BTA_DmBleObserve
-**
-** Description      This procedure keep the device listening for advertising
-**                  events from a broadcast device.
-**
-** Parameters       start: start or stop observe.
-**                  duration : Duration of the scan. Continuous scan if 0 is passed
-**                  p_results_cb: Callback to be called with scan results
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_DmBleObserve(BOOLEAN start, UINT32 duration,
-                             tBTA_DM_SEARCH_CBACK *p_results_cb,
-                             tBTA_START_STOP_SCAN_CMPL_CBACK *p_start_stop_scan_cb);
 
 /*******************************************************************************
 **
@@ -2252,14 +2735,15 @@ extern void BTA_DmBleObserve(BOOLEAN start, UINT32 duration,
 **
 *******************************************************************************/
 extern void BTA_DmBleScan(BOOLEAN start, UINT32 duration,
-                             tBTA_DM_SEARCH_CBACK *p_results_cb,
-                             tBTA_START_STOP_SCAN_CMPL_CBACK *p_start_stop_scan_cb);
+                             tBTA_DM_SEARCH_CBACK *p_results_cb);
 
-extern void BTA_DmBleStopAdvertising(void);
 
-extern void BTA_DmSetRandAddress(BD_ADDR rand_addr, tBTA_SET_RAND_ADDR_CBACK *p_set_rand_addr_cback);
+extern void BTA_DmSetRandAddress(BD_ADDR rand_addr);
 extern void BTA_DmClearRandAddress(void);
-
+extern void BTA_DmBleSetRpaTimeout(uint16_t rpa_timeout);
+extern void BTA_DmBleAddDevToResolvingList(BD_ADDR addr,
+                                    uint8_t addr_type,
+                                    PEER_IRK irk);
 #endif
 
 #if BLE_INCLUDED == TRUE
@@ -2270,12 +2754,12 @@ extern void BTA_DmClearRandAddress(void);
 **
 ** Description      Enable/disable privacy on the local device
 **
-** Parameters:      privacy_enable   - enable/disabe privacy on remote device.
-**                  set_local_privacy_cback -callback to be called with result
+** Parameters:      privacy_enable   - enable/disable privacy on remote device.
+**
 ** Returns          void
 **
 *******************************************************************************/
-extern void BTA_DmBleConfigLocalPrivacy(BOOLEAN privacy_enable, tBTA_SET_LOCAL_PRIVACY_CBACK *set_local_privacy_cback);
+extern void BTA_DmBleConfigLocalPrivacy(BOOLEAN privacy_enable);
 
 /*******************************************************************************
 **
@@ -2290,6 +2774,22 @@ extern void BTA_DmBleConfigLocalPrivacy(BOOLEAN privacy_enable, tBTA_SET_LOCAL_P
 *******************************************************************************/
 extern void BTA_DmBleConfigLocalIcon(uint16_t icon);
 
+#if (BT_GATTS_KEY_MATERIAL_CHAR == TRUE)
+/*******************************************************************************
+**
+** Function         BTA_DmBleSetKeyMaterial
+**
+** Description      Set the Encrypted Data Key Material in GAP service
+**
+** Parameters:      session_key - 16-byte session key
+**                  iv          - 8-byte initialization vector
+**
+** Returns          void
+**
+*******************************************************************************/
+extern void BTA_DmBleSetKeyMaterial(const uint8_t *session_key, const uint8_t *iv);
+#endif
+
 /*******************************************************************************
 **
 ** Function         BTA_DmBleEnableRemotePrivacy
@@ -2297,7 +2797,7 @@ extern void BTA_DmBleConfigLocalIcon(uint16_t icon);
 ** Description      Enable/disable privacy on a remote device
 **
 ** Parameters:      bd_addr          - BD address of the peer
-**                  privacy_enable   - enable/disabe privacy on remote device.
+**                  privacy_enable   - enable/disable privacy on remote device.
 **
 ** Returns          void
 **
@@ -2317,8 +2817,7 @@ extern void BTA_DmBleEnableRemotePrivacy(BD_ADDR bd_addr, BOOLEAN privacy_enable
 **
 *******************************************************************************/
 extern void BTA_DmBleSetAdvConfig (tBTA_BLE_AD_MASK data_mask,
-                                   tBTA_BLE_ADV_DATA *p_adv_cfg,
-                                   tBTA_SET_ADV_DATA_CMPL_CBACK *p_adv_data_cback);
+                                   tBTA_BLE_ADV_DATA *p_adv_cfg);
 
 /*******************************************************************************
 **
@@ -2333,24 +2832,21 @@ extern void BTA_DmBleSetAdvConfig (tBTA_BLE_AD_MASK data_mask,
 ** Returns          None
 **
 *******************************************************************************/
-extern void BTA_DmBleSetAdvConfigRaw (UINT8 *p_raw_adv, UINT32 raw_adv_len,
-                            tBTA_SET_ADV_DATA_CMPL_CBACK *p_adv_data_cback);
+extern void BTA_DmBleSetAdvConfigRaw (UINT8 *p_raw_adv, UINT32 raw_adv_len);
+
 
 /*******************************************************************************
 **
-** Function         BTA_DmBleSetLongAdv
+** Function         BTA_DmBleClearAdv
 **
-** Description      This function is called to set long Advertising data
+** Description      This function is called to clear Advertising
 **
-** Parameters       adv_data : long advertising data.
-**                  adv_data_len : long advertising data length.
-**                  p_adv_data_cback : set long adv data complete callback.
+** Parameters       p_adv_data_cback : clear adv complete callback.
 **
 ** Returns          None
 **
 *******************************************************************************/
-void BTA_DmBleSetLongAdv (UINT8 *adv_data, UINT32 adv_data_len,
-                            tBTA_SET_ADV_DATA_CMPL_CBACK *p_adv_data_cback);
+void BTA_DmBleClearAdv (void);
 
 /*******************************************************************************
 **
@@ -2364,8 +2860,7 @@ void BTA_DmBleSetLongAdv (UINT8 *adv_data, UINT32 adv_data_len,
 **
 *******************************************************************************/
 extern void BTA_DmBleSetScanRsp (tBTA_BLE_AD_MASK data_mask,
-                                 tBTA_BLE_ADV_DATA *p_adv_cfg,
-                                 tBTA_SET_ADV_DATA_CMPL_CBACK *p_adv_data_cback);
+                                 tBTA_BLE_ADV_DATA *p_adv_cfg);
 
 /*******************************************************************************
 **
@@ -2375,13 +2870,12 @@ extern void BTA_DmBleSetScanRsp (tBTA_BLE_AD_MASK data_mask,
 **
 ** Parameters       p_raw_scan_rsp : raw scan_rspertising data.
 **                  raw_scan_rsp_len : raw scan_rspertising data length.
-**                  p_scan_rsp_data_cback : set scan_rsp data complete callback.
+**
 **
 ** Returns          None
 **
 *******************************************************************************/
-extern void BTA_DmBleSetScanRspRaw (UINT8 *p_raw_scan_rsp, UINT32 raw_scan_rsp_len,
-                                    tBTA_SET_ADV_DATA_CMPL_CBACK *p_scan_rsp_data_cback);
+extern void BTA_DmBleSetScanRspRaw (UINT8 *p_raw_scan_rsp, UINT32 raw_scan_rsp_len);
 
 /*******************************************************************************
 **
@@ -2398,82 +2892,21 @@ extern void BTA_DmBleSetScanRspRaw (UINT8 *p_raw_scan_rsp, UINT32 raw_scan_rsp_l
 **
 *******************************************************************************/
 extern void BTA_DmUpdateDuplicateExceptionalList(UINT8 subcode, UINT32 type,
-                                                BD_ADDR device_info,
-                                                tBTA_UPDATE_DUPLICATE_EXCEPTIONAL_LIST_CMPL_CBACK p_update_duplicate_exceptional_list_cback);
+                                                BD_ADDR device_info);
 
 /*******************************************************************************
 **
-** Function         BTA_DmBleBroadcast
+** Function         BTA_DmBleAdvStop
 **
 ** Description      This function starts or stops LE broadcasting.
 **
 ** Parameters       start: start or stop broadcast.
-**                  p_start_stop_adv_cb: stop broadcast completed event
+**
 **
 ** Returns          None
 **
 *******************************************************************************/
-extern void BTA_DmBleBroadcast (BOOLEAN start, tBTA_START_STOP_ADV_CMPL_CBACK *p_start_stop_adv_cb);
-
-
-/*******************************************************************************
-**
-** Function         BTA_BleEnableAdvInstance
-**
-** Description      This function enables the Multi ADV instance feature
-**
-** Parameters       p_params Pointer to ADV param user defined structure
-**                  p_cback  Pointer to Multi ADV callback structure
-**                  p_ref - Reference pointer
-**
-** Returns          None
-**
-*******************************************************************************/
-extern void BTA_BleEnableAdvInstance (tBTA_BLE_ADV_PARAMS *p_params,
-                                      tBTA_BLE_MULTI_ADV_CBACK *p_cback, void *p_ref);
-
-/*******************************************************************************
-**
-** Function         BTA_BleUpdateAdvInstParam
-**
-** Description      This function updates the Multi ADV instance params
-**
-** Parameters       inst_id Instance ID
-**                  p_params Pointer to ADV param user defined structure
-**
-** Returns          None
-**
-*******************************************************************************/
-extern void BTA_BleUpdateAdvInstParam (UINT8 inst_id,
-                                       tBTA_BLE_ADV_PARAMS *p_params);
-
-/*******************************************************************************
-**
-** Function         BTA_BleCfgAdvInstData
-**
-** Description      This function is called to configure the ADV instance data
-**
-** Parameters       inst_id - Instance ID
-**                  is_scan_rsp - Boolean value Scan response
-**                  Pointer to User defined ADV data structure
-** Returns          None
-**
-*******************************************************************************/
-extern void BTA_BleCfgAdvInstData (UINT8 inst_id, BOOLEAN is_scan_rsp,
-                                   tBTA_BLE_AD_MASK data_mask, tBTA_BLE_ADV_DATA *p_data);
-
-/*******************************************************************************
-**
-** Function         BTA_BleDisableAdvInstance
-**
-** Description      This function is called to disable the ADV instance
-**
-** Parameters       inst_id - Instance ID to be disabled
-**
-** Returns          None
-**
-*******************************************************************************/
-extern void BTA_BleDisableAdvInstance(UINT8 inst_id);
+extern void BTA_DmBleAdvStop (void);
 
 /*******************************************************************************
 **
@@ -2513,176 +2946,64 @@ extern void BTA_DmBleDisconnect(BD_ADDR bd_addr);
 ** Returns          void
 **
 *******************************************************************************/
-extern void BTA_DmBleSetDataLength(BD_ADDR remote_device, UINT16 tx_data_length, tBTA_SET_PKT_DATA_LENGTH_CBACK *p_set_pkt_data_cback);
+extern void BTA_DmBleSetDataLength(BD_ADDR remote_device, UINT16 tx_data_length);
+#if (BLE_42_DTM_TEST_EN == TRUE)
+extern void BTA_DmBleDtmTxStart(uint8_t tx_channel, uint8_t len_of_data, uint8_t pkt_payload, tBTA_DTM_CMD_CMPL_CBACK *p_dtm_cmpl_cback);
+extern void BTA_DmBleDtmRxStart(uint8_t rx_channel, tBTA_DTM_CMD_CMPL_CBACK *p_dtm_cmpl_cback);
+#endif // #if (BLE_42_DTM_TEST_EN == TRUE)
 
-/*******************************************************************************
-**
-** Function         BTA_DmBleSetStorageParams
-**
-** Description      This function is called to set the storage parameters
-**
-** Parameters       batch_scan_full_max -Max storage space (in %) allocated to full scanning
-**                  batch_scan_trunc_max -Max storage space (in %) allocated to truncated scanning
-**                  batch_scan_notify_threshold - Setup notification level based on total space
-**                  consumed by both pools. Setting it to 0 will disable threshold notification
-**                  p_setup_cback - Setup callback
-**                  p_thres_cback - Threshold callback
-**                  p_rep_cback - Reports callback
-**                  ref_value - Reference value
-**
-** Returns           None
-**
-*******************************************************************************/
-extern void BTA_DmBleSetStorageParams(UINT8 batch_scan_full_max,
-                                      UINT8 batch_scan_trunc_max,
-                                      UINT8 batch_scan_notify_threshold,
-                                      tBTA_BLE_SCAN_SETUP_CBACK *p_setup_cback,
-                                      tBTA_BLE_SCAN_THRESHOLD_CBACK *p_thres_cback,
-                                      tBTA_BLE_SCAN_REP_CBACK *p_rep_cback,
-                                      tBTA_DM_BLE_REF_VALUE ref_value);
+extern void BTA_DmBleDtmStop(tBTA_DTM_CMD_CMPL_CBACK *p_dtm_cmpl_cback);
 
-/*******************************************************************************
-**
-** Function         BTA_DmBleEnableBatchScan
-**
-** Description      This function is called to enable the batch scan
-**
-** Parameters       scan_mode -Batch scan mode
-**                  scan_interval - Scan interval
-**                  scan_window - Scan window
-**                  discard_rule -Discard rules
-**                  addr_type - Address type
-**                  ref_value - Reference value
-**
-** Returns           None
-**
-*******************************************************************************/
-extern void BTA_DmBleEnableBatchScan(tBTA_BLE_BATCH_SCAN_MODE scan_mode,
-                                     UINT32 scan_interval, UINT32 scan_window,
-                                     tBTA_BLE_DISCARD_RULE discard_rule,
-                                     tBLE_ADDR_TYPE        addr_type,
-                                     tBTA_DM_BLE_REF_VALUE ref_value);
+extern void BTA_DmBleSetPrivacyMode(uint8_t addr_type, BD_ADDR addr, uint8_t privacy_mode);
 
-/*******************************************************************************
-**
-** Function         BTA_DmBleReadScanReports
-**
-** Description      This function is called to read the batch scan reports
-**
-** Parameters       scan_mode -Batch scan mode
-**                  ref_value - Reference value
-**
-** Returns          None
-**
-*******************************************************************************/
-extern void BTA_DmBleReadScanReports(tBTA_BLE_BATCH_SCAN_MODE scan_type,
-                                     tBTA_DM_BLE_REF_VALUE ref_value);
+extern void BTA_DmBleGapSetCsaSupport(uint8_t csa_select);
 
-/*******************************************************************************
-**
-** Function         BTA_DmBleDisableBatchScan
-**
-** Description      This function is called to disable the batch scanning
-**
-** Parameters       ref_value - Reference value
-**
-** Returns          None
-**
-*******************************************************************************/
-extern void BTA_DmBleDisableBatchScan(tBTA_DM_BLE_REF_VALUE ref_value);
+extern void BTA_DmBleGapSetVendorEventMask(uint32_t evt_mask);
 
-/*******************************************************************************
-**
-** Function         BTA_DmEnableScanFilter
-**
-** Description      This function is called to enable the adv data payload filter
-**
-** Parameters       action - enable or disable the APCF feature
-**                  p_cmpl_cback - Command completed callback
-**                  ref_value - Reference value
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_DmEnableScanFilter(UINT8 action,
-                                   tBTA_DM_BLE_PF_STATUS_CBACK *p_cmpl_cback,
-                                   tBTA_DM_BLE_REF_VALUE ref_value);
+#if (BLE_FEAT_POWER_CONTROL_EN == TRUE)
+void BTA_DmBleGapEnhReadTransPwrLevel(uint16_t conn_handle, uint8_t phy);
+void BTA_DmBleGapReadRemoteTransPwrLevel(uint16_t conn_handle, uint8_t phy);
+void BTA_DmBleGapSetPathLossRptParams(uint16_t conn_handle, uint8_t high_threshold, uint8_t high_hysteresis,
+                                        uint8_t low_threshold, uint8_t low_hysteresis, uint16_t min_time_spent);
+void BTA_DmBleGapSetPathLossRptEnable(uint16_t conn_handle, uint8_t enable);
+void BTA_DmBleGapSetTransPwrRptEnable(uint16_t conn_handle, uint8_t local_enable, uint8_t remote_enable);
+#endif // #if (BLE_FEAT_POWER_CONTROL_EN == TRUE)
+#if (BLE_FEAT_CONN_SUBRATING == TRUE)
+void BTA_DmBleGapSetDefaultSubrate(uint16_t subrate_min, uint16_t subrate_max, uint16_t max_latency,
+                                    uint16_t continuation_number, uint16_t supervision_timeout);
+void BTA_DmBleGapSubrateReqest(uint16_t conn_handle, uint16_t subrate_min, uint16_t subrate_max,
+                                uint16_t max_latency, uint16_t continuation_number, uint16_t supervision_timeout);
+#endif // #if (BLE_FEAT_CONN_SUBRATING == TRUE)
 
-/*******************************************************************************
-**
-** Function         BTA_DmBleScanFilterSetup
-**
-** Description      This function is called to setup the filter params
-**
-** Parameters       p_target: enable the filter condition on a target device; if NULL
-**                  filt_index - Filter index
-**                  p_filt_params -Filter parameters
-**                  ref_value - Reference value
-**                  action - Add, delete or clear
-**                  p_cmpl_back - Command completed callback
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_DmBleScanFilterSetup(UINT8 action,
-                                     tBTA_DM_BLE_PF_FILT_INDEX filt_index,
-                                     tBTA_DM_BLE_PF_FILT_PARAMS *p_filt_params,
-                                     tBLE_BD_ADDR *p_target,
-                                     tBTA_DM_BLE_PF_PARAM_CBACK *p_cmpl_cback,
-                                     tBTA_DM_BLE_REF_VALUE ref_value);
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+extern void BTA_DmBleGapSetHostFeature(uint16_t bit_num, uint8_t bit_val);
+#endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
 
-/*******************************************************************************
-**
-** Function         BTA_DmBleCfgFilterCondition
-**
-** Description      This function is called to configure the adv data payload filter
-**                  condition.
-**
-** Parameters       action: to read/write/clear
-**                  cond_type: filter condition type
-**                  filt_index - Filter index
-**                  p_cond: filter condition parameter
-**                  p_cmpl_back - Command completed callback
-**                  ref_value - Reference value
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_DmBleCfgFilterCondition(tBTA_DM_BLE_SCAN_COND_OP action,
-                                        tBTA_DM_BLE_PF_COND_TYPE cond_type,
-                                        tBTA_DM_BLE_PF_FILT_INDEX filt_index,
-                                        tBTA_DM_BLE_PF_COND_PARAM *p_cond,
-                                        tBTA_DM_BLE_PF_CFG_CBACK *p_cmpl_cback,
-                                        tBTA_DM_BLE_REF_VALUE ref_value);
+#if (BT_BLE_FEAT_PAWR_EN == TRUE)
+void BTA_DmBleGapSetPASubevtData(uint8_t adv_handle, uint8_t num_subevents_with_data, uint8_t *subevent_params);
+void BTA_DmBleGapSetPeriodicAdvRspData(uint16_t sync_handle, uint16_t request_event, uint8_t request_subevent,
+                                        uint8_t rsp_subevent, uint8_t rsp_slot, uint8_t rsp_data_len, uint8_t *rsp_data);
+void BTA_DmBleGapSetPeriodicSyncSubevt(uint16_t sync_handle, uint16_t periodic_adv_properties, uint8_t num_subevents_to_sync, uint8_t *subevent);
+#endif// (BT_BLE_FEAT_PAWR_EN == TRUE)
 
-
-/*******************************************************************************
-**
-** Function         BTA_DmBleTrackAdvertiser
-**
-** Description      This function is called to track the advertiser
-**
-** Parameters    ref_value - Reference value
-**               p_track_adv_cback - ADV callback
-**
-** Returns          None
-**
-*******************************************************************************/
-extern void BTA_DmBleTrackAdvertiser(tBTA_DM_BLE_REF_VALUE ref_value,
-                                     tBTA_BLE_TRACK_ADV_CBACK *p_track_adv_cback);
-
-/*******************************************************************************
-**
-** Function         BTA_DmBleGetEnergyInfo
-**
-** Description      This function is called to obtain the energy info
-**
-** Parameters       p_cmpl_cback - Command complete callback
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_DmBleGetEnergyInfo(tBTA_BLE_ENERGY_INFO_CBACK *p_cmpl_cback);
+#if (BT_BLE_FEAT_CHANNEL_SOUNDING == TRUE)
+void BTA_DmBleGapReadLocalSupportedCaps(void);
+void BTA_DmBleGapReadRemoteSupportedCaps(uint16_t conn_handle);
+void BTA_DmBleGapWriteCachedRemoteSupportedCaps(tBTA_DM_CS_WRITE_CACHED_REMOTE_SUPP_CAPS *write_cachedremote_supp_caps);
+void BTA_DmBleGapCsSecurityEnable(uint16_t conn_handle);
+void BTA_DmBleGapCsSetDefaultSetting(uint16_t conn_handle, uint8_t role_enable, uint8_t cs_sync_ant_selection, int8_t max_tx_power);
+void BTA_DmBleGapCsReadRemoteFaeTable(uint16_t conn_handle);
+void BTA_DmBleGapWriteCachedRemoteFaeTable(uint16_t conn_handle, uint8_t *remote_fae_table, uint8_t table_len);
+void BTA_DmBleGapCsCreateConfig(tBTA_DM_CS_CREATE_CONFIG_PARAMS *create_config_params);
+void BTA_DmBleGapCsRemoveConfig(uint16_t conn_handle, uint8_t config_id);
+void BTA_DmBleGapCsSetChannelClass(uint8_t *channel_class, uint8_t channl_len);
+void BTA_DmBleGapCsSetProcPatams(tBTA_DM_CS_SET_PROC_PARAMS *set_proc_params);
+void BTA_DmBleGapCsProcEnable(uint16_t conn_handle, uint8_t config_id, uint8_t enable);
+#endif // (BT_BLE_FEAT_CHANNEL_SOUNDING == TRUE)
+#if (BT_BLE_FEAT_CS_SECURITY_REQUIREMENTS == TRUE)
+void BTA_DmBleGapCsSetSecurityRequirements(uint16_t conn_handle, uint64_t cs_security_requirements);
+void BTA_DmBleGapCsSetDefaultSecurityRequirements(uint64_t cs_security_requirements);
+#endif // (BT_BLE_FEAT_CS_SECURITY_REQUIREMENTS == TRUE)
 
 /*******************************************************************************
 **
@@ -2695,16 +3016,183 @@ extern void BTA_DmBleGetEnergyInfo(tBTA_BLE_ENERGY_INFO_CBACK *p_cmpl_cback);
 *******************************************************************************/
 extern void BTA_VendorInit  (void);
 
-/*******************************************************************************
-**
-** Function         BTA_BrcmCleanup
-**
-** Description      This function frees up Broadcom specific VS specific dynamic memory
-**
-** Returns          void
-**
-*******************************************************************************/
-extern void BTA_VendorCleanup (void);
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+extern void BTA_DmBleGapReadPHY(BD_ADDR addr);
+
+extern void BTA_DmBleGapSetPreferedDefaultPHY(tBTA_DM_BLE_GAP_PHY_MASK tx_phy_mask,
+                                                          tBTA_DM_BLE_GAP_PHY_MASK rx_phy_mask);
+
+extern void BTA_DmBleGapSetPreferedPHY(BD_ADDR addr,
+                                               UINT8 all_phys,
+                                               tBTA_DM_BLE_GAP_PHY_MASK tx_phy_mask,
+                                               tBTA_DM_BLE_GAP_PHY_MASK rx_phy_mask,
+                                               UINT16 phy_options);
+
+extern void BTA_DmBleGapExtAdvSetRandaddr(UINT16 instance, BD_ADDR addr);
+
+extern void BTA_DmBleGapExtAdvSetParams(UINT16 instance,
+                                                 const tBTA_DM_BLE_GAP_EXT_ADV_PARAMS *params);
+
+extern void BTA_DmBleGapConfigExtAdvDataRaw(BOOLEAN is_scan_rsp, UINT8 instance, UINT16 length,
+                                                        const UINT8 *data);
+
+extern void BTA_DmBleGapStartExtAdv(UINT8 num, tBTA_DM_BLE_EXT_ADV *ext_adv);
+
+extern void BTA_DmBleGapExtAdvEnable(BOOLEAN enable, UINT8 num, tBTA_DM_BLE_EXT_ADV *ext_adv);
+
+extern void BTA_DmBleGapExtAdvSetRemove(UINT8 instance);
+
+extern void BTA_DmBleGapExtAdvSetClear(void);
+
+extern void BTA_DmBleGapPeriodicAdvSetParams(UINT8 instance,
+                                                         tBTA_DM_BLE_Periodic_Adv_Params *params);
+
+extern void BTA_DmBleGapPeriodicAdvCfgDataRaw(UINT8 instance, UINT16 length,
+                                                           const UINT8 *data,BOOLEAN only_update_did);
+
+extern void BTA_DmBleGapPeriodicAdvEnable(UINT8 enable, UINT8 instance);
+
+extern void BTA_DmBleGapPeriodicAdvCreateSync(tBTA_DM_BLE_Periodic_Sync_Params *params);
+
+extern void BTA_DmBleGapPeriodicAdvSyncCancel(void);
+
+extern void BTA_DmBleGapPeriodicAdvSyncTerm(UINT16 sync_handle);
+
+extern void BTA_DmBleGapPeriodicAdvAddDevToList(tBLE_ADDR_TYPE addr_type,
+                                                              BD_ADDR addr,
+                                                              UINT16 sid);
+
+extern void BTA_DmBleGapPeriodicAdvRemoveDevFromList(tBLE_ADDR_TYPE addr_type,
+                                                              BD_ADDR addr,
+                                                              UINT16 sid);
+
+extern void BTA_DmBleGapPeriodicAdvClearDev(void);
+
+extern void BTA_DmBleGapSetExtScanParams(tBTA_DM_BLE_EXT_SCAN_PARAMS *params);
+
+extern void BTA_DmBleGapExtScan(BOOLEAN start, UINT32 duration, UINT16 period);
+
+extern void BTA_DmBleGapPreferExtConnectParamsSet(BD_ADDR bd_addr,
+                                                  UINT8 phy_mask,
+                                                  const tBTA_DM_BLE_CONN_PARAMS *phy_1m_conn_params,
+                                                  const tBTA_DM_BLE_CONN_PARAMS *phy_2m_conn_params,
+                                                  const tBTA_DM_BLE_CONN_PARAMS *phy_coded_conn_params);
+
+extern void BTA_DmBleGapExtConnect(tBLE_ADDR_TYPE own_addr_type, const BD_ADDR peer_addr);
+#endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
+
+#if (BLE_50_DTM_TEST_EN == TRUE)
+extern void BTA_DmBleDtmEnhTxStart(uint8_t tx_channel, uint8_t len_of_data, uint8_t pkt_payload, uint8_t phy, tBTA_DTM_CMD_CMPL_CBACK *p_dtm_cmpl_cback);
+
+extern void BTA_DmBleDtmEnhRxStart(uint8_t rx_channel, uint8_t phy, uint8_t modulation_index, tBTA_DTM_CMD_CMPL_CBACK *p_dtm_cmpl_cback);
+#endif // #if (BLE_50_DTM_TEST_EN == TRUE)
+
+#if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+extern void BTA_DmBleGapPeriodicAdvRecvEnable(UINT16 sync_handle, UINT8 enable);
+
+extern void BTA_DmBleGapPeriodicAdvSyncTrans(BD_ADDR peer_addr, UINT16 service_data, UINT16 sync_handle);
+
+extern void BTA_DmBleGapPeriodicAdvSetInfoTrans(BD_ADDR peer_addr, UINT16 service_data, UINT8 adv_handle);
+
+extern void BTA_DmBleGapSetPeriodicAdvSyncTransParams(BD_ADDR peer_addr, tBTA_DM_BLE_PAST_PARAMS *params);
+#endif // #if (BLE_FEAT_PERIODIC_ADV_SYNC_TRANSFER == TRUE)
+
+#if (BLE_FEAT_ADV_MONITOR == TRUE)
+extern void BTA_DmBleGapAddMonitorAdvList(UINT8 addr_type, BD_ADDR addr, INT8 rssi_low, INT8 rssi_high, UINT8 timeout);
+extern void BTA_DmBleGapRemoveMonitorAdvList(UINT8 addr_type, BD_ADDR addr);
+extern void BTA_DmBleGapClearMonitorAdvList(void);
+extern void BTA_DmBleGapReadMonitorAdvListSize(void);
+extern void BTA_DmBleGapEnableMonitorAdv(UINT8 enable);
+#endif // #if (BLE_FEAT_ADV_MONITOR == TRUE)
+
+#if (BLE_FEAT_DBAF == TRUE)
+extern void BTA_DmBleGapSetDecisionData(UINT8 adv_handle, UINT8 decision_type_flags,
+                                        UINT8 data_len, const UINT8 *p_data);
+extern void BTA_DmBleGapSetDecisionInstructions(UINT8 num_tests, const UINT8 *test_flags,
+                                                const UINT8 *test_fields, const UINT8 *test_params);
+#endif // #if (BLE_FEAT_DBAF == TRUE)
+
+#if (BLE_FEAT_FRAME_SPACE_UPDATE == TRUE)
+extern void BTA_DmBleGapFrameSpaceUpdate(UINT16 conn_handle, UINT16 frame_space_min,
+                                         UINT16 frame_space_max, UINT8 phys, UINT16 spacing_types);
+#endif // #if (BLE_FEAT_FRAME_SPACE_UPDATE == TRUE)
+
+#if (BLE_FEAT_LL_EXT_FEAT == TRUE)
+extern void BTA_DmBleGapReadAllLocalSuppFeatures(void);
+extern void BTA_DmBleGapReadAllRemoteFeatures(UINT16 conn_handle, UINT8 page_requested);
+#endif // #if (BLE_FEAT_LL_EXT_FEAT == TRUE)
+
+#if (BLE_FEAT_SHORTER_CONN_INTERVALS == TRUE)
+extern void BTA_DmBleGapConnectionRateRequest(UINT16 conn_handle, UINT16 conn_interval_min,
+                                              UINT16 conn_interval_max, UINT16 subrate_min,
+                                              UINT16 subrate_max, UINT16 max_latency,
+                                              UINT16 continuation_number, UINT16 supervision_timeout,
+                                              UINT16 min_ce_len, UINT16 max_ce_len);
+extern void BTA_DmBleGapSetDefaultRateParameters(UINT16 conn_interval_min, UINT16 conn_interval_max,
+                                                 UINT16 subrate_min, UINT16 subrate_max,
+                                                 UINT16 max_latency, UINT16 continuation_number,
+                                                 UINT16 supervision_timeout, UINT16 min_ce_len,
+                                                 UINT16 max_ce_len);
+extern void BTA_DmBleGapReadMinSuppConnInterval(void);
+#endif // #if (BLE_FEAT_SHORTER_CONN_INTERVALS == TRUE)
+
+#if (BLE_FEAT_LE_UTP == TRUE)
+extern void BTA_DmBleGapEnableUtpOtaMode(UINT8 enable);
+extern void BTA_DmBleGapUtpSend(UINT8 data_len, const UINT8 *p_data);
+#endif // #if (BLE_FEAT_LE_UTP == TRUE)
+
+#if (BLE_FEAT_ISO_EN == TRUE)
+#if (BLE_FEAT_ISO_BIG_BROADCASTER_EN == TRUE)
+extern void BTA_DmBleGapIsoBigCreate(tBTA_DM_BLE_BIG_CREATE_PARAMS *p_big_creat_param);
+extern void BTA_DmBleGapIsoBigCreateTest(tBTA_DM_BLE_BIG_CREATE_TEST_PARAMS *p_big_creat_test_param);
+extern void BTA_DmBleGapIsoBigTerminate(tBTA_DM_BLE_BIG_TERMINATE_PARAMS *p_big_terminate_param);
+#endif// #if (BLE_FEAT_ISO_BIG_BROADCASTER_EN == TRUE)
+#if (BLE_FEAT_ISO_BIG_SYNCER_EN == TRUE)
+extern void BTA_DmBleGapIsoBigSyncCreate(tBTA_DM_BLE_BIG_SYNC_CREATE_PARAMS *p_big_sync_param);
+extern void BTA_DmBleGapIsoBigSyncTerminate(tBTA_DM_BLE_BIG_SYNC_TERMINATE_PARAMS *p_big_sync_terminate_param);
+#endif // #if (BLE_FEAT_ISO_BIG_SYNCER_EN == TRUE)
+extern void BTA_DmBleGapIsoDataPathSet(tBTA_DM_BLE_ISO_SET_DATA_PATH_PARAMS *p_iso_data_path_param);
+extern void BTA_DmBleGapIsoDataPathRemove(tBTA_DM_BLE_ISO_REMOVE_DATA_PATH_PARAMS *p_iso_data_path_param);
+extern void BTA_DmBleGapIsoReadTxSync(uint16_t iso_handle);
+extern void BTA_DmBleGapIsoReadLinkQuality(uint16_t iso_handle);
+#if (BLE_FEAT_ISO_CIG_CENTRAL_EN == TRUE)
+extern void BTA_DmBleIsoSetCigParams(uint8_t cig_id, uint32_t sdu_int_c_to_p, uint32_t sdu_int_p_to_c, uint8_t worse_case_SCA, uint8_t packing,
+                                    uint8_t framing, uint16_t mtl_c_to_p, uint16_t mtl_p_to_c, uint8_t cis_cnt, uint8_t *cis_params);
+void BTA_DmBleIsoSetCigParamsTest(uint8_t cig_id, uint32_t sdu_int_c_to_p, uint32_t sdu_int_p_to_c, uint8_t ft_c_to_p, uint8_t ft_p_to_c,
+                                 uint16_t iso_interval, uint8_t worse_case_SCA, uint8_t packing, uint8_t framing, uint8_t cis_cnt, uint8_t *cis_params_test);
+extern void BTA_DmBleIsoCreateCis(uint8_t cig_count, uint8_t *cis_hdl_info);
+extern void BTA_DmBleIsoRemoveCig(uint8_t cig_id);
+#endif // #if (BLE_FEAT_ISO_CIG_CENTRAL_EN == TRUE)
+#if (BLE_FEAT_ISO_CIG_PERIPHERAL_EN == TRUE)
+extern void BTA_DmBleIsoAcceptCisReq(uint16_t cis_handle);
+extern void BTA_DmBleIsoRejectCisReq(uint16_t cis_handle, uint8_t reason);
+#endif // BLE_FEAT_ISO_CIG_PERIPHERAL_EN
+#if (BLE_FEAT_ISO_CIG_EN == TRUE)
+extern void BTA_DmBleIsoDisconCis(uint16_t cis_handle, uint8_t reason);
+#endif // #if (BLE_FEAT_ISO_CIG_EN == TRUE)
+#endif // if (BLE_FEAT_ISO_EN == TRUE)
+
+#if (BLE_FEAT_CTE_EN == TRUE)
+#if (BLE_FEAT_CTE_CONNECTIONLESS_EN == TRUE)
+void BTA_DmBleCteSetConnectionlessTransParams(uint8_t adv_handle, uint8_t cte_len, uint8_t cte_type,
+                                                uint8_t cte_count, uint8_t switching_pattern_len, uint8_t *antenna_ids);
+void BTA_DmBleCteSetConnectionlessTransEnable(uint8_t adv_handle, uint8_t cte_en);
+void BTA_DmBleCteSetConnectionlessIqSamplingEnable(uint16_t sync_handle, uint8_t sampling_en, uint8_t slot_dur,
+                                                    uint8_t max_sampled_ctes, uint8_t switching_pattern_len, uint8_t *ant_ids);
+#endif // #if (BLE_FEAT_CTE_CONNECTIONLESS_EN == TRUE)
+
+#if (BLE_FEAT_CTE_CONNECTION_EN == TRUE)
+void BTA_DmBleCteSetConnectionReceiveParams(uint16_t conn_handle, uint8_t sampling_en, uint8_t slot_dur,
+                                            uint8_t switching_pattern_len, uint8_t *ant_ids);
+
+void BTA_DmBleCteSetConnectionTransParams(uint16_t conn_handle, uint8_t cte_types, uint8_t switching_pattern_len, uint8_t *ant_ids);
+void BTA_DmBleCteSetConnectionRequestEnable(uint16_t conn_handle, uint8_t enable, uint16_t cte_req_interval,
+                                            uint8_t req_cte_len, uint8_t req_cte_Type);
+void BTA_DmBleCteSetConnectionRspEnable(uint16_t conn_handle, uint8_t enable);
+#endif // #if (BLE_FEAT_CTE_CONNECTION_EN == TRUE)
+void BTA_DmBleCteReadAntInfor(void);
+#endif // if (BLE_FEAT_CTE_EN == TRUE)
+
 #endif
 
 enum {

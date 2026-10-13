@@ -1,37 +1,34 @@
-// Copyright 2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+/*
+ * SPDX-FileCopyrightText: 2018-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-// This module implements pthread API on top of FreeRTOS. API is implemented to the level allowing
-// libstdcxx threading framework to operate correctly. So not all original pthread routines are supported.
-//
-
+#include "sdkconfig.h"
 #include <time.h>
 #include <errno.h>
 #include <pthread.h>
 #include <string.h>
+#include <sys/lock.h>
 #include "esp_err.h"
 #include "esp_attr.h"
+#include "esp_cpu.h"
 #include "sys/queue.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_private/startup_internal.h"
+#if CONFIG_SPIRAM
+#include "esp_private/freertos_idf_additions_priv.h"
+#endif
+#include "esp_heap_caps.h"
 #include "soc/soc_memory_layout.h"
 
 #include "pthread_internal.h"
 #include "esp_pthread.h"
+#include "esp_compiler.h"
+#include "esp_check.h"
 
-#define LOG_LOCAL_LEVEL CONFIG_LOG_DEFAULT_LEVEL
 #include "esp_log.h"
 const static char *TAG = "pthread";
 
@@ -65,31 +62,36 @@ typedef struct {
     int                 type;       ///< Mutex type. Currently supported PTHREAD_MUTEX_NORMAL and PTHREAD_MUTEX_RECURSIVE
 } esp_pthread_mutex_t;
 
-
-static SemaphoreHandle_t s_threads_mux  = NULL;
-static portMUX_TYPE s_mutex_init_lock   = portMUX_INITIALIZER_UNLOCKED;
+static _lock_t s_threads_lock;
+portMUX_TYPE pthread_lazy_init_lock  = portMUX_INITIALIZER_UNLOCKED; // Used for mutexes and cond vars and rwlocks
 static SLIST_HEAD(esp_thread_list_head, esp_pthread_entry) s_threads_list
-                                        = SLIST_HEAD_INITIALIZER(s_threads_list);
+    = SLIST_HEAD_INITIALIZER(s_threads_list);
 static pthread_key_t s_pthread_cfg_key;
 
-
-static int IRAM_ATTR pthread_mutex_lock_internal(esp_pthread_mutex_t *mux, TickType_t tmo);
+static int pthread_mutex_lock_internal(esp_pthread_mutex_t *mux, TickType_t tmo);
 
 static void esp_pthread_cfg_key_destructor(void *value)
 {
     free(value);
 }
 
-esp_err_t esp_pthread_init(void)
+static esp_err_t lazy_init_pthread_cfg_key(void)
 {
+    if (s_pthread_cfg_key != 0) {
+        return ESP_OK;
+    }
+
     if (pthread_key_create(&s_pthread_cfg_key, esp_pthread_cfg_key_destructor) != 0) {
         return ESP_ERR_NO_MEM;
     }
-    s_threads_mux = xSemaphoreCreateMutex();
-    if (s_threads_mux == NULL) {
-        pthread_key_delete(s_pthread_cfg_key);
-        return ESP_ERR_NO_MEM;
-    }
+
+    return ESP_OK;
+}
+
+esp_err_t esp_pthread_init(void)
+{
+    lazy_init_pthread_cfg_key();
+
     return ESP_OK;
 }
 
@@ -138,11 +140,31 @@ static void pthread_delete(esp_pthread_t *pthread)
 }
 
 /* Call this function to configure pthread stacks in Pthreads */
+ESP_COMPILER_DIAGNOSTIC_PUSH_IGNORE("-Wanalyzer-malloc-leak") // ignore leak of 'p'
 esp_err_t esp_pthread_set_cfg(const esp_pthread_cfg_t *cfg)
 {
+    if (cfg == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
     if (cfg->stack_size < PTHREAD_STACK_MIN) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    // 0 is treated as default value, hence change caps to MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL in that case
+    int heap_caps;
+    if (cfg->stack_alloc_caps == 0) {
+        heap_caps = MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL;
+    } else {
+        // Check that memory is 8-bit capable
+        if (!(cfg->stack_alloc_caps & MALLOC_CAP_8BIT)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        heap_caps = cfg->stack_alloc_caps;
+    }
+
+    ESP_RETURN_ON_ERROR(lazy_init_pthread_cfg_key(), TAG, "Failed to initialize pthread key");
 
     /* If a value is already set, update that value */
     esp_pthread_cfg_t *p = pthread_getspecific(s_pthread_cfg_key);
@@ -153,12 +175,21 @@ esp_err_t esp_pthread_set_cfg(const esp_pthread_cfg_t *cfg)
         }
     }
     *p = *cfg;
+    p->stack_alloc_caps = heap_caps;
     pthread_setspecific(s_pthread_cfg_key, p);
-    return 0;
+
+    return ESP_OK;
 }
+ESP_COMPILER_DIAGNOSTIC_POP("-Wanalyzer-malloc-leak")
 
 esp_err_t esp_pthread_get_cfg(esp_pthread_cfg_t *p)
 {
+    if (p == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_RETURN_ON_ERROR(lazy_init_pthread_cfg_key(), TAG, "Failed to initialize pthread key");
+
     esp_pthread_cfg_t *cfg = pthread_getspecific(s_pthread_cfg_key);
     if (cfg) {
         *p = *cfg;
@@ -180,7 +211,8 @@ esp_pthread_cfg_t esp_pthread_get_default_config(void)
         .prio = CONFIG_PTHREAD_TASK_PRIO_DEFAULT,
         .inherit_cfg = false,
         .thread_name = NULL,
-        .pin_to_core = get_default_pthread_core()
+        .pin_to_core = get_default_pthread_core(),
+        .stack_alloc_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT,
     };
 
     return cfg;
@@ -214,12 +246,69 @@ static void pthread_task_func(void *arg)
     ESP_LOGV(TAG, "%s EXIT", __FUNCTION__);
 }
 
+#if CONFIG_SPIRAM && CONFIG_FREERTOS_SMP
+static UBaseType_t coreID_to_AffinityMask(BaseType_t core_id)
+{
+    UBaseType_t affinity_mask = tskNO_AFFINITY;
+    if (core_id != tskNO_AFFINITY) {
+        affinity_mask = 1 << core_id;
+    }
+    return affinity_mask;
+}
+#endif
+
+static BaseType_t pthread_create_freertos_task_with_caps(TaskFunction_t pxTaskCode,
+                                                         const char * const pcName,
+                                                         const configSTACK_DEPTH_TYPE usStackDepth,
+                                                         void * const pvParameters,
+                                                         UBaseType_t uxPriority,
+                                                         BaseType_t core_id,
+                                                         UBaseType_t uxStackMemoryCaps,
+                                                         TaskHandle_t * const pxCreatedTask)
+{
+#if CONFIG_SPIRAM
+#if CONFIG_FREERTOS_SMP
+    return prvTaskCreateDynamicAffinitySetWithCaps(pxTaskCode,
+                                                   pcName,
+                                                   usStackDepth,
+                                                   pvParameters,
+                                                   uxPriority,
+                                                   coreID_to_AffinityMask(core_id),
+                                                   uxStackMemoryCaps,
+                                                   pxCreatedTask);
+#else
+    return prvTaskCreateDynamicPinnedToCoreWithCaps(pxTaskCode,
+                                                    pcName,
+                                                    usStackDepth,
+                                                    pvParameters,
+                                                    uxPriority,
+                                                    core_id,
+                                                    uxStackMemoryCaps,
+                                                    pxCreatedTask);
+#endif
+#else
+    return xTaskCreatePinnedToCore(pxTaskCode,
+                                   pcName,
+                                   usStackDepth,
+                                   pvParameters,
+                                   uxPriority,
+                                   pxCreatedTask,
+                                   core_id);
+#endif
+}
+
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
-                   void *(*start_routine) (void *), void *arg)
+                   void *(*start_routine)(void *), void *arg)
 {
     TaskHandle_t xHandle = NULL;
 
     ESP_LOGV(TAG, "%s", __FUNCTION__);
+
+    if (lazy_init_pthread_cfg_key() != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to allocate pthread cfg key!");
+        return ENOMEM;
+    }
+
     esp_pthread_task_arg_t *task_arg = calloc(1, sizeof(esp_pthread_task_arg_t));
     if (task_arg == NULL) {
         ESP_LOGE(TAG, "Failed to allocate task args!");
@@ -237,6 +326,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
     BaseType_t prio = CONFIG_PTHREAD_TASK_PRIO_DEFAULT;
     BaseType_t core_id = get_default_pthread_core();
     const char *task_name = CONFIG_PTHREAD_TASK_NAME_DEFAULT;
+    uint32_t stack_alloc_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
 
     esp_pthread_cfg_t *pthread_cfg = pthread_getspecific(s_pthread_cfg_key);
     if (pthread_cfg) {
@@ -250,7 +340,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
         if (pthread_cfg->inherit_cfg) {
             if (pthread_cfg->thread_name == NULL) {
                 // Inherit task name from current task.
-                task_name = pcTaskGetTaskName(NULL);
+                task_name = pcTaskGetName(NULL);
             } else {
                 // Inheriting, but new task name.
                 task_name = pthread_cfg->thread_name;
@@ -261,9 +351,12 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
             task_name = pthread_cfg->thread_name;
         }
 
-        if (pthread_cfg->pin_to_core >= 0 && pthread_cfg->pin_to_core < portNUM_PROCESSORS) {
+        if (pthread_cfg->pin_to_core >= 0 && pthread_cfg->pin_to_core < CONFIG_FREERTOS_NUMBER_OF_CORES) {
             core_id = pthread_cfg->pin_to_core;
         }
+
+        // Note: validity has been checked during esp_pthread_set_cfg()
+        stack_alloc_caps = pthread_cfg->stack_alloc_caps;
 
         task_arg->cfg = *pthread_cfg;
     }
@@ -282,20 +375,23 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
         }
     }
 
+    // stack_size is in bytes. This transformation ensures that the units are
+    // transformed to the units used in FreeRTOS.
+    // Note: float division of ceil(m / n) ==
+    //       integer division of (m + n - 1) / n
+    stack_size = (stack_size + sizeof(StackType_t) - 1) / sizeof(StackType_t);
     task_arg->func = start_routine;
     task_arg->arg = arg;
     pthread->task_arg = task_arg;
-    BaseType_t res = xTaskCreatePinnedToCore(&pthread_task_func,
-                                             task_name,
-                                             // stack_size is in bytes. This transformation ensures that the units are
-                                             // transformed to the units used in FreeRTOS.
-                                             // Note: float division of ceil(m / n) ==
-                                             //       integer division of (m + n - 1) / n
-                                             (stack_size + sizeof(StackType_t) - 1) / sizeof(StackType_t),
-                                             task_arg,
-                                             prio,
-                                             &xHandle,
-                                             core_id);
+
+    BaseType_t res = pthread_create_freertos_task_with_caps(&pthread_task_func,
+                                                            task_name,
+                                                            stack_size,
+                                                            task_arg,
+                                                            prio,
+                                                            core_id,
+                                                            stack_alloc_caps,
+                                                            &xHandle);
 
     if (res != pdPASS) {
         ESP_LOGE(TAG, "Failed to create task!");
@@ -309,18 +405,17 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
     }
     pthread->handle = xHandle;
 
-    if (xSemaphoreTake(s_threads_mux, portMAX_DELAY) != pdTRUE) {
-        assert(false && "Failed to lock threads list!");
-    }
+    _lock_acquire(&s_threads_lock);
+
     SLIST_INSERT_HEAD(&s_threads_list, pthread, list_node);
-    xSemaphoreGive(s_threads_mux);
+    _lock_release(&s_threads_lock);
 
     // start task
     xTaskNotify(xHandle, 0, eNoAction);
 
     *thread = (pthread_t)pthread; // pointer value fit into pthread_t (uint32_t)
 
-    ESP_LOGV(TAG, "Created task %x", (uint32_t)xHandle);
+    ESP_LOGV(TAG, "Created task %"PRIx32, (uint32_t)xHandle);
 
     return 0;
 }
@@ -335,9 +430,8 @@ int pthread_join(pthread_t thread, void **retval)
     ESP_LOGV(TAG, "%s %p", __FUNCTION__, pthread);
 
     // find task
-    if (xSemaphoreTake(s_threads_mux, portMAX_DELAY) != pdTRUE) {
-        assert(false && "Failed to lock threads list!");
-    }
+    _lock_acquire(&s_threads_lock);
+
     TaskHandle_t handle = pthread_find_handle(thread);
     if (!handle) {
         // not found
@@ -360,24 +454,30 @@ int pthread_join(pthread_t thread, void **retval)
             if (pthread->state == PTHREAD_TASK_STATE_RUN) {
                 pthread->join_task = xTaskGetCurrentTaskHandle();
                 wait = true;
-            } else {
+            } else { // thread has exited and task is already suspended, or about to be suspended
                 child_task_retval = pthread->retval;
                 pthread_delete(pthread);
             }
         }
     }
-    xSemaphoreGive(s_threads_mux);
+    _lock_release(&s_threads_lock);
 
     if (ret == 0) {
         if (wait) {
-            xTaskNotifyWait(0, 0, NULL, portMAX_DELAY);
-            if (xSemaphoreTake(s_threads_mux, portMAX_DELAY) != pdTRUE) {
-                assert(false && "Failed to lock threads list!");
+            for (;;) {
+                xTaskNotifyWait(0, 0, NULL, portMAX_DELAY);
+                _lock_acquire(&s_threads_lock);
+                if (pthread->state == PTHREAD_TASK_STATE_EXIT) {
+                    break;
+                }
+                _lock_release(&s_threads_lock);
             }
             child_task_retval = pthread->retval;
             pthread_delete(pthread);
-            xSemaphoreGive(s_threads_mux);
+            _lock_release(&s_threads_lock);
         }
+        /* clean up thread local storage before task deletion */
+        pthread_internal_local_storage_destructor_callback(handle);
         vTaskDelete(handle);
     }
 
@@ -394,9 +494,8 @@ int pthread_detach(pthread_t thread)
     esp_pthread_t *pthread = (esp_pthread_t *)thread;
     int ret = 0;
 
-    if (xSemaphoreTake(s_threads_mux, portMAX_DELAY) != pdTRUE) {
-        assert(false && "Failed to lock threads list!");
-    }
+    _lock_acquire(&s_threads_lock);
+
     TaskHandle_t handle = pthread_find_handle(thread);
     if (!handle) {
         ret = ESRCH;
@@ -412,9 +511,11 @@ int pthread_detach(pthread_t thread)
     } else {
         // pthread already stopped
         pthread_delete(pthread);
+        /* clean up thread local storage before task deletion */
+        pthread_internal_local_storage_destructor_callback(handle);
         vTaskDelete(handle);
     }
-    xSemaphoreGive(s_threads_mux);
+    _lock_release(&s_threads_lock);
     ESP_LOGV(TAG, "%s %p EXIT %d", __FUNCTION__, pthread, ret);
     return ret;
 }
@@ -422,13 +523,11 @@ int pthread_detach(pthread_t thread)
 void pthread_exit(void *value_ptr)
 {
     bool detached = false;
-    /* preemptively clean up thread local storage, rather than
-       waiting for the idle task to clean up the thread */
-    pthread_internal_local_storage_destructor_callback();
+    /* clean up thread local storage before task deletion */
+    pthread_internal_local_storage_destructor_callback(NULL);
 
-    if (xSemaphoreTake(s_threads_mux, portMAX_DELAY) != pdTRUE) {
-        assert(false && "Failed to lock threads list!");
-    }
+    _lock_acquire(&s_threads_lock);
+
     esp_pthread_t *pthread = pthread_find(xTaskGetCurrentTaskHandle());
     if (!pthread) {
         assert(false && "Failed to find pthread for current task!");
@@ -443,17 +542,20 @@ void pthread_exit(void *value_ptr)
     } else {
         // Set return value
         pthread->retval = value_ptr;
-        // Remove from list, it indicates that task has exited
+        // Publish completion under the same lock checked by pthread_join.
+        pthread->state = PTHREAD_TASK_STATE_EXIT;
         if (pthread->join_task) {
             // notify join
             xTaskNotify(pthread->join_task, 0, eNoAction);
-        } else {
-            pthread->state = PTHREAD_TASK_STATE_EXIT;
         }
     }
-    xSemaphoreGive(s_threads_mux);
 
-    ESP_LOGD(TAG, "Task stk_wm = %d", uxTaskGetStackHighWaterMark(NULL));
+    ESP_LOGD(TAG, "Task stk_wm = %d", (int)uxTaskGetStackHighWaterMark(NULL));
+
+    _lock_release(&s_threads_lock);
+    // note: if this thread is joinable then after giving back s_threads_mux
+    // this task could be deleted at any time, so don't take another lock or
+    // do anything that might lock (such as printing to stdout)
 
     if (detached) {
         vTaskDelete(NULL);
@@ -471,7 +573,7 @@ int pthread_cancel(pthread_t thread)
     return ENOSYS;
 }
 
-int sched_yield( void )
+int sched_yield(void)
 {
     vTaskDelay(0);
     return 0;
@@ -479,14 +581,13 @@ int sched_yield( void )
 
 pthread_t pthread_self(void)
 {
-    if (xSemaphoreTake(s_threads_mux, portMAX_DELAY) != pdTRUE) {
-        assert(false && "Failed to lock threads list!");
-    }
+    _lock_acquire(&s_threads_lock);
+
     esp_pthread_t *pthread = pthread_find(xTaskGetCurrentTaskHandle());
     if (!pthread) {
         assert(false && "Failed to find current thread ID!");
     }
-    xSemaphoreGive(s_threads_mux);
+    _lock_release(&s_threads_lock);
     return (pthread_t)pthread;
 }
 
@@ -503,18 +604,8 @@ int pthread_once(pthread_once_t *once_control, void (*init_routine)(void))
         return EINVAL;
     }
 
-    uint32_t res = 1;
-#if defined(CONFIG_SPIRAM)
-    if (esp_ptr_external_ram(once_control)) {
-        uxPortCompareSetExtram((uint32_t *) &once_control->init_executed, 0, &res);
-    } else {
-#endif
-        uxPortCompareSet((uint32_t *) &once_control->init_executed, 0, &res);
-#if defined(CONFIG_SPIRAM)
-    }
-#endif
     // Check if compare and set was successful
-    if (res == 0) {
+    if (esp_cpu_compare_and_set((volatile uint32_t *)&once_control->init_executed, 0, 1)) {
         ESP_LOGV(TAG, "%s: call init_routine %p", __FUNCTION__, once_control);
         init_routine();
     }
@@ -526,8 +617,8 @@ int pthread_once(pthread_once_t *once_control, void (*init_routine)(void))
 static int mutexattr_check(const pthread_mutexattr_t *attr)
 {
     if (attr->type != PTHREAD_MUTEX_NORMAL &&
-        attr->type != PTHREAD_MUTEX_RECURSIVE &&
-        attr->type != PTHREAD_MUTEX_ERRORCHECK) {
+            attr->type != PTHREAD_MUTEX_RECURSIVE &&
+            attr->type != PTHREAD_MUTEX_ERRORCHECK) {
         return EINVAL;
     }
     return 0;
@@ -582,6 +673,10 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex)
     if (!mutex) {
         return EINVAL;
     }
+    if ((intptr_t) *mutex == PTHREAD_MUTEX_INITIALIZER) {
+        return 0; // Static mutex was never initialized
+    }
+
     mux = (esp_pthread_mutex_t *)*mutex;
     if (!mux) {
         return EINVAL;
@@ -593,20 +688,28 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex)
         return EBUSY;
     }
 
+    if (mux->type == PTHREAD_MUTEX_RECURSIVE) {
+        res = xSemaphoreGiveRecursive(mux->sem);
+    } else {
+        res = xSemaphoreGive(mux->sem);
+    }
+    if (res != pdTRUE) {
+        assert(false && "Failed to release mutex!");
+    }
     vSemaphoreDelete(mux->sem);
     free(mux);
 
     return 0;
 }
 
-static int IRAM_ATTR pthread_mutex_lock_internal(esp_pthread_mutex_t *mux, TickType_t tmo)
+static int pthread_mutex_lock_internal(esp_pthread_mutex_t *mux, TickType_t tmo)
 {
     if (!mux) {
         return EINVAL;
     }
 
     if ((mux->type == PTHREAD_MUTEX_ERRORCHECK) &&
-        (xSemaphoreGetMutexHolder(mux->sem) == xTaskGetCurrentTaskHandle())) {
+            (xSemaphoreGetMutexHolder(mux->sem) == xTaskGetCurrentTaskHandle())) {
         return EDEADLK;
     }
 
@@ -627,16 +730,16 @@ static int pthread_mutex_init_if_static(pthread_mutex_t *mutex)
 {
     int res = 0;
     if ((intptr_t) *mutex == PTHREAD_MUTEX_INITIALIZER) {
-        portENTER_CRITICAL(&s_mutex_init_lock);
+        portENTER_CRITICAL(&pthread_lazy_init_lock);
         if ((intptr_t) *mutex == PTHREAD_MUTEX_INITIALIZER) {
             res = pthread_mutex_init(mutex, NULL);
         }
-        portEXIT_CRITICAL(&s_mutex_init_lock);
+        portEXIT_CRITICAL(&pthread_lazy_init_lock);
     }
     return res;
 }
 
-int IRAM_ATTR pthread_mutex_lock(pthread_mutex_t *mutex)
+int pthread_mutex_lock(pthread_mutex_t *mutex)
 {
     if (!mutex) {
         return EINVAL;
@@ -648,7 +751,7 @@ int IRAM_ATTR pthread_mutex_lock(pthread_mutex_t *mutex)
     return pthread_mutex_lock_internal((esp_pthread_mutex_t *)*mutex, portMAX_DELAY);
 }
 
-int IRAM_ATTR pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct timespec *timeout)
+int pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct timespec *timeout)
 {
     if (!mutex) {
         return EINVAL;
@@ -660,8 +763,8 @@ int IRAM_ATTR pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct times
 
     struct timespec currtime;
     clock_gettime(CLOCK_REALTIME, &currtime);
-    TickType_t tmo = ((timeout->tv_sec - currtime.tv_sec)*1000 +
-                     (timeout->tv_nsec - currtime.tv_nsec)/1000000)/portTICK_PERIOD_MS;
+    TickType_t tmo = ((timeout->tv_sec - currtime.tv_sec) * 1000 +
+                      (timeout->tv_nsec - currtime.tv_nsec) / 1000000) / portTICK_PERIOD_MS;
 
     res = pthread_mutex_lock_internal((esp_pthread_mutex_t *)*mutex, tmo);
     if (res == EBUSY) {
@@ -670,7 +773,7 @@ int IRAM_ATTR pthread_mutex_timedlock(pthread_mutex_t *mutex, const struct times
     return res;
 }
 
-int IRAM_ATTR pthread_mutex_trylock(pthread_mutex_t *mutex)
+int pthread_mutex_trylock(pthread_mutex_t *mutex)
 {
     if (!mutex) {
         return EINVAL;
@@ -682,7 +785,7 @@ int IRAM_ATTR pthread_mutex_trylock(pthread_mutex_t *mutex)
     return pthread_mutex_lock_internal((esp_pthread_mutex_t *)*mutex, 0);
 }
 
-int IRAM_ATTR pthread_mutex_unlock(pthread_mutex_t *mutex)
+int pthread_mutex_unlock(pthread_mutex_t *mutex)
 {
     esp_pthread_mutex_t *mux;
 
@@ -695,8 +798,8 @@ int IRAM_ATTR pthread_mutex_unlock(pthread_mutex_t *mutex)
     }
 
     if (((mux->type == PTHREAD_MUTEX_RECURSIVE) ||
-        (mux->type == PTHREAD_MUTEX_ERRORCHECK)) &&
-        (xSemaphoreGetMutexHolder(mux->sem) != xTaskGetCurrentTaskHandle())) {
+            (mux->type == PTHREAD_MUTEX_ERRORCHECK)) &&
+            (xSemaphoreGetMutexHolder(mux->sem) != xTaskGetCurrentTaskHandle())) {
         return EPERM;
     }
 
@@ -717,6 +820,7 @@ int pthread_mutexattr_init(pthread_mutexattr_t *attr)
     if (!attr) {
         return EINVAL;
     }
+    memset(attr, 0, sizeof(*attr));
     attr->type = PTHREAD_MUTEX_NORMAL;
     attr->is_initialized = 1;
     return 0;
@@ -758,6 +862,7 @@ int pthread_attr_init(pthread_attr_t *attr)
 {
     if (attr) {
         /* Nothing to allocate. Set everything to default */
+        memset(attr, 0, sizeof(*attr));
         attr->stacksize   = CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT;
         attr->detachstate = PTHREAD_CREATE_JOINABLE;
         return 0;
@@ -767,13 +872,8 @@ int pthread_attr_init(pthread_attr_t *attr)
 
 int pthread_attr_destroy(pthread_attr_t *attr)
 {
-    if (attr) {
-        /* Nothing to deallocate. Reset everything to default */
-        attr->stacksize   = CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT;
-        attr->detachstate = PTHREAD_CREATE_JOINABLE;
-        return 0;
-    }
-    return EINVAL;
+    /* Nothing to deallocate. Reset everything to default */
+    return pthread_attr_init(attr);
 }
 
 int pthread_attr_getstacksize(const pthread_attr_t *attr, size_t *stacksize)
@@ -819,6 +919,81 @@ int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate)
         return 0;
     }
     return EINVAL;
+}
+
+int pthread_getschedparam(pthread_t thread, int *policy, struct sched_param *param)
+{
+    int ret;
+    if (!policy || !param) {
+        return EINVAL;
+    }
+
+    _lock_acquire(&s_threads_lock);
+    TaskHandle_t handle = pthread_find_handle(thread);
+    if (!handle) {
+        ret = ESRCH;
+    } else {
+        *policy = SCHED_OTHER;
+        param->sched_priority = uxTaskPriorityGet(handle);
+        ret = 0;
+    }
+    _lock_release(&s_threads_lock);
+
+    return ret;
+}
+
+static int set_prio(pthread_t thread, int policy, int prio)
+{
+    int ret;
+    if (prio < sched_get_priority_min(policy) || sched_get_priority_max(policy) < prio) {
+        return EINVAL;
+    }
+
+    _lock_acquire(&s_threads_lock);
+    TaskHandle_t handle = pthread_find_handle(thread);
+    if (!handle) {
+        ret = ESRCH;
+    } else {
+        vTaskPrioritySet(handle, prio);
+        ret = 0;
+    }
+    _lock_release(&s_threads_lock);
+
+    return ret;
+}
+
+int pthread_setschedparam(pthread_t thread, int policy, const struct sched_param *param)
+{
+    // the policy does not change anything for the FreeRTOS kernel, ignore it.
+    int ret;
+    if (!param) {
+        return EINVAL;
+    }
+
+    ret = set_prio(thread, policy, param->sched_priority);
+
+    return ret;
+}
+
+int pthread_setschedprio(pthread_t thread, int prio)
+{
+    // the policy does not change anything for the FreeRTOS kernel, ignore it.
+    int policy = SCHED_OTHER;
+    return set_prio(thread, policy, prio);
+}
+
+int sched_get_priority_min(int policy)
+{
+    // the policy does not change anything for the FreeRTOS kernel, ignore it.
+    (void) policy;
+    return tskIDLE_PRIORITY;
+}
+
+int sched_get_priority_max(int policy)
+{
+    // the policy does not change anything for the FreeRTOS kernel, ignore it.
+    (void) policy;
+    return configMAX_PRIORITIES - 1;
 }
 
 /* Hook function to force linking this file */

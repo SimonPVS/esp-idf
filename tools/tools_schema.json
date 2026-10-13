@@ -23,6 +23,7 @@
     "toolInfo": {
       "type": "object",
       "description": "Information about one tool",
+      "additionalProperties": false,
       "properties": {
         "name" : {
           "description": "Tool name (used as a directory name)",
@@ -47,6 +48,10 @@
           "$ref": "#/definitions/installRequirementInfo",
           "description": "If 'always', the tool will be installed by default. If 'on_request', tool will be installed when specifically requested. If 'never', tool will not be considered for installation."
         },
+        "is_executable": {
+          "description": "If false - tool does not contain executables. The version will not be checked but export_vars applied.",
+          "type": "boolean"
+        },
         "license": {
           "description": "License name. Use SPDX license identifier if it exists, short name of the license otherwise.",
           "type": "string"
@@ -55,12 +60,20 @@
           "$ref": "#/definitions/arrayOfStrings",
           "description": "Command to be executed (along with any extra arguments). The executable be present in one of the export_paths."
         },
+        "supported_targets": {
+          "$ref": "#/definitions/arrayOfStrings",
+          "description": "Array of esp_targets that this tool is needed for."
+        },
         "version_regex": {
           "description": "Regex which is to be applied to version_cmd output to extract the version. By default, the version will be the first capture group of the expression. If version_regex_replace is specified, version will be obtained by doing a substitution using version_regex_replace instead.",
           "$ref": "#/definitions/regex"
         },
         "version_regex_replace": {
           "description": "If given, this will be used as substitute expression for the regex defined in version_regex, to obtain the version string. Not specifying this is equivalent to setting it to '\\1' (i.e. return the first capture group).",
+          "type": "string"
+        },
+        "tool_info_file": {
+          "description": "Tools info file path. Relative to tool install folder. If present tool version will be read from it instead of invoking the binary.",
           "type": "string"
         },
         "strip_container_dirs": {
@@ -123,6 +136,7 @@
     },
     "versionInfo": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "name" : {
           "description": "Version name (used as a directory name)",
@@ -145,13 +159,22 @@
         "linux-arm64": {
           "$ref": "#/definitions/platformDownloadInfo"
         },
+        "linux-armhf": {
+          "$ref": "#/definitions/platformDownloadInfo"
+        },
         "macos": {
+          "$ref": "#/definitions/platformDownloadInfo"
+        },
+        "macos-arm64": {
           "$ref": "#/definitions/platformDownloadInfo"
         },
         "win32": {
           "$ref": "#/definitions/platformDownloadInfo"
         },
         "win64": {
+          "$ref": "#/definitions/platformDownloadInfo"
+        },
+        "win-arm64": {
           "$ref": "#/definitions/platformDownloadInfo"
         },
         "any": {
@@ -162,6 +185,7 @@
     "platformDownloadInfo": {
       "description": "Information about download artifact for one platform",
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "sha256": {
           "type": "string",
@@ -174,6 +198,10 @@
         "url": {
           "type": "string",
           "description": "Download URL"
+        },
+        "rename_dist": {
+          "type": "string",
+          "description": "Filename under which the archive should be downloaded"
         }
       },
       "required": [
@@ -190,13 +218,14 @@
     "platformOverrideInfo": {
       "description": "Platform-specific values which override the defaults",
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "platforms": {
           "description": "List of platforms to which this override applies",
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["linux-i686", "linux-amd64", "linux-armel", "linux-arm64", "macos", "win32", "win64"]
+            "enum": ["linux-i686", "linux-amd64", "linux-armel", "linux-armhf", "linux-arm64", "macos", "macos-arm64", "win32", "win64", "win-arm64"]
           }
         },
         "export_paths": {
@@ -215,6 +244,10 @@
           "description": "Platform-specific replacement for toolInfo/version_cmd",
           "$ref": "#/definitions/arrayOfStrings"
         },
+        "supported_targets": {
+          "description": "Platform-specific replacement for toolInfo/supported_targets",
+          "$ref": "#/definitions/arrayOfStrings"
+        },
         "version_regex": {
           "description": "Platform-specific replacement for toolInfo/version_regex",
           "$ref": "#/definitions/regex"
@@ -229,6 +262,57 @@
         }
       },
       "required": ["platforms"]
+    }
+  },
+  "$comment": "Condition verifying that version 1 of tools.json must not contain 'rename_dist' keyword in any of #/definitions/versionInfo properties.",
+  "if": {
+    "properties": {
+      "version": {
+        "const": 1
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "tools": {
+        "items": {
+          "properties": {
+            "versions": {
+              "items": {
+                "additionalProperties": {
+                  "not": {
+                    "type": "object",
+                    "required": [
+                      "rename_dist"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$comment": "Condition verifying that version <=2 of tools.json must not contain 'tool_info_file' keyword in any of #/definitions/toolInfo properties.",
+  "if": {
+    "properties": {
+      "version": {
+        "maximum": 2
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "tools": {
+        "items": {
+          "not": {
+            "required": [
+              "tool_info_file"
+            ]
+          }
+        }
+      }
     }
   }
 }

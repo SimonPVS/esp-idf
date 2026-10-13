@@ -1,33 +1,35 @@
-// Copyright 2016-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-#ifndef __ESP_COMPILER_H
-#define __ESP_COMPILER_H
+/*
+ * SPDX-FileCopyrightText: 2016-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#pragma once
+
+#include "sdkconfig.h"
 
 /*
  * The likely and unlikely macro pairs:
- * These macros are useful to place when application  
- * knows the majority ocurrence of a decision paths,
+ * These macros are useful to place when application
+ * knows the majority occurrence of a decision paths,
  * placing one of these macros can hint the compiler
- * to reorder instructions producing more optimized 
+ * to reorder instructions producing more optimized
  * code.
- */ 
+ */
 #if (CONFIG_COMPILER_OPTIMIZATION_PERF)
-#define likely(x)      __builtin_expect(!!(x), 1) 
-#define unlikely(x)    __builtin_expect(!!(x), 0) 
+#ifndef likely
+#define likely(x)      __builtin_expect(!!(x), 1)
+#endif
+#ifndef unlikely
+#define unlikely(x)    __builtin_expect(!!(x), 0)
+#endif
 #else
+#ifndef likely
 #define likely(x)      (x)
-#define unlikely(x)    (x) 
+#endif
+#ifndef unlikely
+#define unlikely(x)    (x)
+#endif
 #endif
 
 /*
@@ -40,7 +42,10 @@
  *              ESP_COMPILER_DESIGNATED_INIT_AGGREGATE_TYPE_STR(arr, "Value")
  *          };
  */
-#ifdef __cplusplus
+#if defined(__cplusplus) && __cplusplus >= 202002L
+#define ESP_COMPILER_DESIGNATED_INIT_AGGREGATE_TYPE_STR(member, value)  .member = value,
+#define ESP_COMPILER_DESIGNATED_INIT_AGGREGATE_TYPE_EMPTY(member) .member = { },
+#elif defined(__cplusplus) && __cplusplus < 202002L
 #define ESP_COMPILER_DESIGNATED_INIT_AGGREGATE_TYPE_STR(member, value)  { .member = value },
 #define ESP_COMPILER_DESIGNATED_INIT_AGGREGATE_TYPE_EMPTY(member) .member = { },
 #else
@@ -48,4 +53,30 @@
 #define ESP_COMPILER_DESIGNATED_INIT_AGGREGATE_TYPE_EMPTY(member)
 #endif
 
+#define __COMPILER_PRAGMA__(string) _Pragma(#string)
+#define _COMPILER_PRAGMA_(string) __COMPILER_PRAGMA__(string)
+
+#if __clang__
+#define ESP_COMPILER_DIAGNOSTIC_PUSH_IGNORE(warning) \
+    __COMPILER_PRAGMA__(clang diagnostic push) \
+    __COMPILER_PRAGMA__(clang diagnostic ignored "-Wunknown-warning-option") \
+    __COMPILER_PRAGMA__(clang diagnostic ignored warning)
+#define ESP_COMPILER_DIAGNOSTIC_POP(warning) \
+    __COMPILER_PRAGMA__(clang diagnostic pop)
+#elif __GNUC__
+#define ESP_COMPILER_DIAGNOSTIC_PUSH_IGNORE(warning) \
+    __COMPILER_PRAGMA__(GCC diagnostic push) \
+    __COMPILER_PRAGMA__(GCC diagnostic ignored "-Wpragmas") \
+    __COMPILER_PRAGMA__(GCC diagnostic ignored warning)
+#define ESP_COMPILER_DIAGNOSTIC_POP(warning) \
+    __COMPILER_PRAGMA__(GCC diagnostic pop)
+#else
+#define ESP_COMPILER_DIAGNOSTIC_PUSH_IGNORE(warning)
+#define ESP_COMPILER_DIAGNOSTIC_POP(warning)
+#endif
+
+#if __clang_analyzer__ || CONFIG_COMPILER_STATIC_ANALYZER
+#define ESP_STATIC_ANALYZER_CHECK(_expr_, _ret_) do { if ((_expr_)) { return (_ret_); } } while(0)
+#else
+#define ESP_STATIC_ANALYZER_CHECK(_expr_, _ret_)
 #endif

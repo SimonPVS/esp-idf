@@ -1,16 +1,8 @@
-// Copyright 2017-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
@@ -23,21 +15,30 @@ extern "C" {
 #include "esp_err.h"
 #include "esp_efuse.h"
 #include "sdkconfig.h"
-#if CONFIG_IDF_TARGET_ESP32
-#include "esp32/esp_efuse_utility.h"
-#elif CONFIG_IDF_TARGET_ESP32S2
-#include "esp32s2/esp_efuse_utility.h"
-#elif CONFIG_IDF_TARGET_ESP32S3
-#include "esp32s3/esp_efuse_utility.h"
-#endif
+#include_next "esp_efuse_utility.h"
+
+#define ESP_EFUSE_CHK(ret)       \
+    do                           \
+    {                            \
+        if( ( err = (ret) ) != ESP_OK ) \
+            goto err_exit;        \
+    } while( 0 )
+
 
 /**
  * @brief Structure range address by blocks
  */
 typedef struct {
-    uint32_t start;
-    uint32_t end;
+    uintptr_t start;
+    uintptr_t end;
 } esp_efuse_range_addr_t;
+
+/**
+ * @brief Current nesting level of eFuse batch write mode.
+ *
+ * This state is shared between the public eFuse API implementation.
+ */
+extern int s_batch_writing_mode;
 
 /**
  * @brief This is type of function that will handle the efuse field register.
@@ -99,8 +100,43 @@ esp_err_t esp_efuse_utility_fill_buff(unsigned int num_reg, esp_efuse_block_t ef
  *
  * If CONFIG_EFUSE_VIRTUAL is set, writing will not be performed.
  * After the function is completed, the writing registers are cleared.
+ *
+ * @return
+ *      - ESP_OK: The operation was successfully completed.
+ *      - ESP_FAIL: The operation was not successfully completed.
  */
-void esp_efuse_utility_burn_efuses(void);
+esp_err_t esp_efuse_utility_burn_efuses(void);
+
+/**
+ * @brief Chip specific operations to perform the burn of values written to the efuse write registers.
+ *
+ * @note Use esp_efuse_utility_burn_efuses() to burn efuses.
+ *
+ * If CONFIG_EFUSE_VIRTUAL is set, writing will not be performed.
+ * After the function is completed, the writing registers are cleared.
+ *
+ * @return
+ *      - ESP_OK: The operation was successfully completed.
+ *      - ESP_FAIL: The operation was not successfully completed.
+ */
+esp_err_t esp_efuse_utility_burn_chip(void);
+
+/**
+ * @brief Chip specific operations to perform the burn of values written to the efuse write registers.
+ *
+ * If CONFIG_EFUSE_VIRTUAL is set, writing will not be performed.
+ * After the function is completed, the writing registers are cleared.
+ *
+ * @param[in] ignore_coding_errors If this is true and any coding errors occur,
+ *                                 they will be ignored and no further attempts
+ *                                 will be made to correct them.
+ * @param[in] verify_written_data  If this is true, then after burning it will check that all data is set correctly.
+ *
+ * @return
+ *      - ESP_OK: The operation was successfully completed.
+ *      - ESP_FAIL: The operation was not successfully completed.
+ */
+esp_err_t esp_efuse_utility_burn_chip_opt(bool ignore_coding_errors, bool verify_written_data);
 
 /**
  * @brief Returns the number of array elements for placing these "bits" in an array with the length of each element equal to "size_of_base".
@@ -115,7 +151,7 @@ uint32_t esp_efuse_utility_read_reg(esp_efuse_block_t blk, unsigned int num_reg)
 /**
  * @brief Writing efuse register with checking of repeated programming of programmed bits.
  */
-esp_err_t esp_efuse_utility_write_reg(unsigned int num_reg, esp_efuse_block_t efuse_block, uint32_t reg_to_write);
+esp_err_t esp_efuse_utility_write_reg(esp_efuse_block_t efuse_block, unsigned int num_reg, uint32_t reg_to_write);
 
 /* @brief Reset efuse write registers
  *
@@ -135,6 +171,15 @@ void esp_efuse_utility_update_virt_blocks(void);
 void esp_efuse_utility_debug_dump_blocks(void);
 
 /**
+ * @brief   Prints efuse values for a single block.
+ * @param[in] num_block Index of efuse block.
+ * @param[in] from_read Take data from:
+ *                      true - read area (already burned efuses),
+ *                      false - write area (not yet burned efuses, prepared for burn).
+ */
+void esp_efuse_utility_debug_dump_single_block(int num_block, bool from_read);
+
+/**
  * @brief   Erase the virt_blocks array.
  */
 void esp_efuse_utility_erase_virt_blocks(void);
@@ -149,9 +194,68 @@ void esp_efuse_utility_erase_virt_blocks(void);
 esp_err_t esp_efuse_utility_apply_new_coding_scheme(void);
 
 /**
+ * @brief   Checks eFuse errors in BLOCK0.
+ *
+ * @note Refers to ESP32-C3 only.
+ *
+ * It does a BLOCK0 check if eFuse EFUSE_ERR_RST_ENABLE is set.
+ * If BLOCK0 has an error, it prints the error and returns ESP_FAIL, which should be treated as esp_restart.
+ *
+ * @return
+ *         - ESP_OK: No errors in BLOCK0.
+ *         - ESP_FAIL: Error in BLOCK0 requiring reboot.
+ */
+esp_err_t esp_efuse_utility_check_errors(void);
+
+/**
  * @brief   Efuse read operation: copies data from physical efuses to efuse read registers.
  */
 void esp_efuse_utility_clear_program_registers(void);
+
+#ifdef CONFIG_EFUSE_VIRTUAL_KEEP_IN_FLASH
+/**
+ * @brief   Writes eFuses to the efuse flash partition.
+ *
+ * Used only when CONFIG_EFUSE_VIRTUAL_KEEP_IN_FLASH is set.
+ */
+void esp_efuse_utility_write_efuses_to_flash(void);
+
+/**
+ * @brief   Loads efuses from efuse flash partition.
+ *
+ * Used only when CONFIG_EFUSE_VIRTUAL_KEEP_IN_FLASH is set.
+ */
+bool esp_efuse_utility_load_efuses_from_flash(void);
+
+/**
+ * @brief   Erase efuse flash partition.
+ *
+ * Used only when CONFIG_EFUSE_VIRTUAL_KEEP_IN_FLASH is set.
+ */
+void esp_efuse_utility_erase_efuses_in_flash(void);
+#endif
+
+/**
+ * @brief Return the address of a particular efuse block's first read register
+ *
+ * @param[in] block Index of efuse block to look up
+ *
+ * @return a numeric read register address of the first word in the block.
+ */
+uintptr_t esp_efuse_utility_get_read_register_address(esp_efuse_block_t block);
+
+/**
+ * @brief Checks the correctness of burned data in the given block.
+ *
+ * @note Internal use. Do not call it.
+ *
+ * @param[in] block Index of efuse block.
+ * @param[in] r_data_len Block length for reading data in bytes (multiple of 4).
+ *
+ * @return True  - written data are correct.
+ *         False - written data are incorrect.
+ */
+bool esp_efuse_utility_is_correct_written_data(esp_efuse_block_t block, unsigned r_data_len);
 
 #ifdef __cplusplus
 }

@@ -1,49 +1,18 @@
-// Copyright 2015-2018 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #pragma once
 
 #include "esp_netif.h"
 #include "esp_netif_ppp.h"
-#include "esp_netif_slip.h"
 #include "lwip/netif.h"
-
-#ifdef CONFIG_ESP_NETIF_TCPIP_LWIP
-
-struct esp_netif_netstack_lwip_vanilla_config {
-    err_t (*init_fn)(struct netif*);
-    void (*input_fn)(void *netif, void *buffer, size_t len, void *eb);
-};
-
-struct esp_netif_netstack_lwip_ppp_config {
-    void (*input_fn)(void *netif, void *buffer, size_t len, void *eb);
-    esp_netif_ppp_config_t ppp_events;
-};
-
-struct esp_netif_netstack_lwip_slip_config {
-    err_t (*init_fn)(struct netif*);
-    void (*input_fn)(void *netif, void *buffer, size_t len, void *eb);
-    esp_netif_slip_config_t slip_config;
-};
-
-// LWIP netif specific network stack configuration
-struct esp_netif_netstack_config {
-    union {
-        struct esp_netif_netstack_lwip_vanilla_config lwip;
-        struct esp_netif_netstack_lwip_ppp_config lwip_ppp;
-    };
-};
+#include "lwip/esp_netif_net_stack.h"
+#ifdef CONFIG_LWIP_DHCPS
+#include "dhcpserver/dhcpserver.h"
+#endif
 
 struct esp_netif_api_msg_s;
 
@@ -53,7 +22,11 @@ typedef struct esp_netif_api_msg_s {
     int type;  /**< The first field MUST be int */
     int ret;
     esp_netif_api_fn api_fn;
-    esp_netif_t *esp_netif;
+    union {
+        esp_netif_t *esp_netif;         /* esp_netif as input param */
+        esp_netif_t **p_esp_netif;      /* esp_netif as output */
+        esp_netif_callback_fn user_fn;  /* user callback */
+    };              /* Commonly used parameters what calling api_fn */
     void    *data;
 } esp_netif_api_msg_t;
 
@@ -70,7 +43,11 @@ typedef struct esp_netif_ip_lost_timer_s {
 /**
  * @brief Check the netif if of a specific P2P type
  */
-#define _IS_NETIF_POINT2POINT_TYPE(netif, type) (netif->related_data && netif->related_data->is_point2point && netif->related_data->netif_type == type)
+#if CONFIG_PPP_SUPPORT
+#define ESP_NETIF_IS_POINT2POINT_TYPE(netif, type) (netif->related_data && netif->related_data->is_point2point && netif->related_data->netif_type == type)
+#else
+#define ESP_NETIF_IS_POINT2POINT_TYPE(netif, type) false
+#endif
 
 /**
  * @brief Additional netif types when related data are needed
@@ -78,12 +55,11 @@ typedef struct esp_netif_ip_lost_timer_s {
 enum netif_types {
     COMMON_LWIP_NETIF,
     PPP_LWIP_NETIF,
-    SLIP_LWIP_NETIF
 };
 
 /**
  * @brief Related data to esp-netif (additional data for some special types of netif
- * (typically for point-point network types, such as PPP or SLIP)
+ * (typically for point-point network types, such as PPP)
  */
 typedef struct netif_related_data {
     bool is_point2point;
@@ -102,15 +78,18 @@ struct esp_netif_obj {
     // lwip netif related
     struct netif *lwip_netif;
     err_t (*lwip_init_fn)(struct netif*);
-    void (*lwip_input_fn)(void *input_netif_handle, void *buffer, size_t len, void *eb);
+    esp_err_t (*lwip_input_fn)(void *input_netif_handle, void *buffer, size_t len, void *eb);
     void * netif_handle;    // netif impl context (either vanilla lwip-netif or ppp_pcb)
     netif_related_data_t *related_data; // holds additional data for specific netifs
-
+#if ESP_DHCPS
+    dhcps_t *dhcps;
+#endif
     // io driver related
     void* driver_handle;
     esp_err_t (*driver_transmit)(void *h, void *buffer, size_t len);
     esp_err_t (*driver_transmit_wrap)(void *h, void *buffer, size_t len, void *pbuf);
     void (*driver_free_rx_buffer)(void *h, void* buffer);
+    esp_err_t (*driver_set_mac_filter)(void *h, const uint8_t *mac, size_t mac_len, bool add);
 
     // dhcp related
     esp_netif_dhcp_status_t dhcpc_status;
@@ -120,6 +99,10 @@ struct esp_netif_obj {
     // event translation
     ip_event_t get_ip_event;
     ip_event_t lost_ip_event;
+    bool last_status_up;   // last effective up/down state for unified status event
+#ifdef CONFIG_ESP_NETIF_REPORT_DATA_TRAFFIC
+    bool tx_rx_events_enabled;
+#endif
 
     // misc flags, types, keys, priority
     esp_netif_flags_t flags;
@@ -127,6 +110,30 @@ struct esp_netif_obj {
     char * if_key;
     char * if_desc;
     int route_prio;
+
+#if CONFIG_ESP_NETIF_BRIDGE_EN
+    // bridge configuration
+    uint16_t max_fdb_dyn_entries;
+    uint16_t max_fdb_sta_entries;
+    uint8_t max_ports;
+#endif // CONFIG_ESP_NETIF_BRIDGE_EN
+    // mldv6 timer
+    bool mldv6_report_timer_started;
+
+#ifdef CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF
+    ip_addr_t dns[DNS_MAX_SERVERS];
+#endif
+    // initial MTU preference to apply after netif_add(); 0 means use stack default
+    uint16_t configured_mtu;
 };
 
-#endif /* CONFIG_ESP_NETIF_TCPIP_LWIP */
+typedef enum esp_netif_set_default_state {
+    ESP_NETIF_UNDEF,
+    ESP_NETIF_STARTED,
+    ESP_NETIF_GOT_IP,
+    ESP_NETIF_STOPPED,
+    ESP_NETIF_LOST_IP,
+    ESP_NETIF_SET_DEFAULT,
+} esp_netif_route_prio_action_t;
+
+esp_err_t esp_netif_update_default_netif(esp_netif_t *esp_netif, esp_netif_route_prio_action_t action);

@@ -48,7 +48,9 @@ typedef struct controller_t {
     bool (*supports_secure_connections)(void);
     bool (*supports_simultaneous_le_bredr)(void);
     bool (*supports_reading_remote_extended_features)(void);
+    bool (*supports_set_min_enc_key_size)(void);
     bool (*supports_interlaced_inquiry_scan)(void);
+    bool (*supports_interlaced_page_scan)(void);
     bool (*supports_rssi_with_inquiry_results)(void);
     bool (*supports_extended_inquiry_response)(void);
     bool (*supports_master_slave_role_switch)(void);
@@ -78,7 +80,17 @@ typedef struct controller_t {
     uint8_t (*get_ble_white_list_size)(void);
 
     uint8_t (*get_ble_resolving_list_max_size)(void);
-    void (*set_ble_resolving_list_max_size)(int resolving_list_max_size);
+    void (*set_ble_resolving_list_max_size)(uint8_t resolving_list_max_size);
+
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+#if (BLE_50_EXTEND_ADV_EN == TRUE)
+    uint16_t (*ble_get_ext_adv_data_max_len)(void);
+#endif // #if (BLE_50_EXTEND_ADV_EN == TRUE)
+#if (BLE_50_EXTEND_SYNC_EN == TRUE)
+    uint8_t (*get_ble_periodic_adv_list_size)(void);
+#endif // #if (BLE_50_EXTEND_SYNC_EN == TRUE)
+#endif // BLE_50_FEATURE_SUPPORT
+
 #if (BTM_SCO_HCI_INCLUDED == TRUE)
     // Get the number of sco packets the controller can buffer
     uint8_t (*get_sco_data_size)(void);

@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef __BTC_CONFIG_H__
 #define __BTC_CONFIG_H__
@@ -36,6 +28,7 @@ bool btc_config_get_bin(const char *section, const char *key, uint8_t *value, si
 bool btc_config_set_bin(const char *section, const char *key, const uint8_t *value, size_t length);
 bool btc_config_remove(const char *section, const char *key);
 bool btc_config_remove_section(const char *section);
+bool btc_config_update_newest_section(const char *section);
 
 size_t btc_config_get_bin_length(const char *section, const char *key);
 
@@ -55,4 +48,7 @@ bool btc_get_device_type(const BD_ADDR bd_addr, int *p_device_type);
 void btc_config_lock(void);
 void btc_config_unlock(void);
 
+int btc_config_file_path_update(const char *file_path);
+
+int btc_config_file_path_get(char *file_path);
 #endif

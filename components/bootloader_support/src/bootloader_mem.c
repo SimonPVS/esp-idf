@@ -1,48 +1,65 @@
-// Copyright 2020 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdbool.h>
 
-#include "xtensa/config/core.h"
-#include "hal/cpu_hal.h"
 #include "hal/mpu_hal.h"
 #include "hal/mpu_types.h"
-#include "soc/mpu_caps.h"
+#include "soc/soc_caps.h"
 #include "bootloader_mem.h"
-#include "xt_instr_macros.h"
-#include "xtensa/config/specreg.h"
+#include "esp_cpu.h"
 
-static inline void cpu_configure_region_protection(void)
-{
-    /* Currently, the only supported chips esp32 and esp32s2
-     * have the same configuration. Move this to the port layer once
-     * more chips with different configurations are supported.
-     * 
-     * Both chips have the address space divided into 8 regions, 512MB each.
-     */
-    const int illegal_regions[] = {0, 4, 5, 6, 7}; // 0x00000000, 0x80000000, 0xa0000000, 0xc0000000, 0xe0000000
-    for (int i = 0; i < sizeof(illegal_regions) / sizeof(illegal_regions[0]); ++i) {
-        mpu_hal_set_region_access(illegal_regions[i], MPU_REGION_ILLEGAL);
-    }
-
-    mpu_hal_set_region_access(1, MPU_REGION_RW); // 0x20000000
-}
+#include "hal/apm_hal.h"
+#if CONFIG_IDF_TARGET_ESP32S31
+#include "soc/hp_peri0_pms_reg.h"
+#include "soc/hp_peri1_pms_reg.h"
+#include "soc/lp_peri_pms_reg.h"
+#endif
 
 void bootloader_init_mem(void)
 {
-    cpu_hal_init_hwloop();
 
+#if !defined(BOOTLOADER_BUILD)
+    /* By default, these access path filters are enable and allow the
+     * access to masters only if they are in TEE mode. Since all masters
+     * except HP CPU boots in REE mode, default setting of these filters
+     * will deny the access to all masters except HP CPU.
+     * So, at boot disabling these filters. They will enable as per the
+     * use case by TEE initialization code.
+     */
+#if SOC_APM_CTRL_FILTER_SUPPORTED
+    apm_hal_enable_ctrl_filter_all(false);
+    /* [APM] On power-up, only the HP CPU starts in TEE mode; others
+     * default to REE2. APM blocks REE0–REE2 access by default.
+     * Thus, all masters are set to TEE mode.
+     */
+#if SOC_APM_SUPPORT_TEE_PERI_ACCESS_CTRL
+    apm_hal_set_master_sec_mode_all(APM_SEC_MODE_TEE);
+#endif // SOC_APM_SUPPORT_TEE_PERI_ACCESS_CTRL
+#endif // SOC_APM_CTRL_FILTER_SUPPORTED
+#endif
+
+#if CONFIG_IDF_TARGET_ESP32S31
+    /* TODO: [ESP32S31] IDF-14620
+       As a temp. fix to allow ULP access to all peripherals during bringup.
+       Open all LP/HP peripheral PMS control registers for all security modes.
+    */
+    for (uint32_t reg = LP_PERI_PMS_LP_SYSREG_CTRL_REG; reg <= LP_PERI_PMS_LP_DAC_CTRL_REG; reg += 4) {
+        REG_WRITE(reg, 0xFF);
+    }
+    for (uint32_t reg = HP_PERI0_PMS_TRACE0_CTRL_REG; reg <= HP_PERI0_PMS_AXI_PERF_MON_CTRL_REG; reg += 4) {
+        REG_WRITE(reg, 0xFF);
+    }
+    for (uint32_t reg = HP_PERI1_PMS_HP_USBOTG_PHY_CTRL_REG; reg <= HP_PERI1_PMS_HP_PERI1_PMS_CTRL_REG; reg += 4) {
+        REG_WRITE(reg, 0xFF);
+    }
+#endif
+
+#if !BOOTLOADER_BUILD || CONFIG_BOOTLOADER_REGION_PROTECTION_ENABLE
     // protect memory region
-    cpu_configure_region_protection();
+    esp_cpu_configure_region_protection();
+#endif
 }

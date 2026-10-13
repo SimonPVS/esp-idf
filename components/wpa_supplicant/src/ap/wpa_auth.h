@@ -12,6 +12,7 @@
 #include "common/defs.h"
 #include "common/eapol_common.h"
 #include "common/wpa_common.h"
+#include "ap/hostapd.h"
 
 #ifdef _MSC_VER
 #pragma pack(push, 1)
@@ -127,6 +128,9 @@ struct ft_remote_r1kh {
 struct wpa_auth_config {
 	int wpa;
 	int wpa_key_mgmt;
+#ifdef CONFIG_WPA3_COMPAT
+	int rsn_override_key_mgmt;
+#endif
 	int wpa_pairwise;
 	int wpa_group;
 	int wpa_group_rekey;
@@ -134,9 +138,11 @@ struct wpa_auth_config {
 	int wpa_gmk_rekey;
 	int wpa_ptk_rekey;
 	int rsn_pairwise;
+#ifdef CONFIG_WPA3_COMPAT
+	int rsn_override_pairwise;
+#endif
 	int rsn_preauth;
 	int eapol_version;
-	int peerkey;
 	int wmm_enabled;
 	int wmm_uapsd;
 	int disable_pmksa_caching;
@@ -144,7 +150,14 @@ struct wpa_auth_config {
 	int tx_status;
 #ifdef CONFIG_IEEE80211W
 	enum mfp_options ieee80211w;
+#ifdef CONFIG_WPA3_COMPAT
+	enum mfp_options rsn_override_mfp;
+#endif
 #endif /* CONFIG_IEEE80211W */
+	int group_mgmt_cipher;
+#ifdef CONFIG_SAE
+	int sae_require_mfp;
+#endif /* CONFIG_SAE */
 #ifdef CONFIG_IEEE80211R
 #define SSID_LEN 32
 	u8 ssid[SSID_LEN];
@@ -162,6 +175,12 @@ struct wpa_auth_config {
 #endif /* CONFIG_IEEE80211R */
 	int disable_gtk;
 	int ap_mlme;
+	enum sae_pwe sae_pwe;
+	struct rsn_sppamsdu_sup spp_sup;
+	u8 transition_disable;
+#ifdef CONFIG_WPA3_COMPAT
+	int rsn_override_omit_rsnxe;
+#endif
 };
 
 typedef enum {
@@ -213,16 +232,19 @@ void wpa_deinit(struct wpa_authenticator *wpa_auth);
 int wpa_reconfig(struct wpa_authenticator *wpa_auth,
 		 struct wpa_auth_config *conf);
 
-enum {
+enum wpa_validate_result{
 	WPA_IE_OK, WPA_INVALID_IE, WPA_INVALID_GROUP, WPA_INVALID_PAIRWISE,
 	WPA_INVALID_AKMP, WPA_NOT_ENABLED, WPA_ALLOC_FAIL,
 	WPA_MGMT_FRAME_PROTECTION_VIOLATION, WPA_INVALID_MGMT_GROUP_CIPHER,
-	WPA_INVALID_MDIE, WPA_INVALID_PROTO
+	WPA_INVALID_MDIE, WPA_INVALID_PROTO, WPA_INVALID_PMKID,
+	WPA_DENIED_OTHER_REASON
 };
-	
-int wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
+
+enum wpa_validate_result
+wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
 			struct wpa_state_machine *sm,
-			const u8 *wpa_ie, size_t wpa_ie_len/*,
+			const u8 *wpa_ie, size_t wpa_ie_len,
+			const u8 *rsnxe, size_t rsnxe_len/*,
 			const u8 *mdie, size_t mdie_len*/);
 int wpa_auth_uses_mfp(struct wpa_state_machine *sm);
 struct wpa_state_machine *
@@ -290,5 +312,23 @@ int wpa_wnmsleep_gtk_subelem(struct wpa_state_machine *sm, u8 *pos);
 int wpa_wnmsleep_igtk_subelem(struct wpa_state_machine *sm, u8 *pos);
 
 int wpa_auth_uses_sae(struct wpa_state_machine *sm);
+int wpa_auth_pmksa_add_sae(struct wpa_authenticator *wpa_auth, const u8 *addr,
+			    const u8 *pmk, size_t pmk_len, const u8 *pmkid,bool cache_pmksa, int akmp);
+void wpa_auth_add_sae_pmkid(struct wpa_state_machine *sm, const u8 *pmkid);
+void wpa_auth_pmksa_remove(struct wpa_authenticator *wpa_auth,
+			    const u8 *sta_addr);
+void wpa_auth_set_rsn_selection(struct wpa_state_machine *sm, const u8 *ie,
+                               size_t len);
+static inline bool wpa_auth_pmf_enabled(struct wpa_auth_config *conf)
+{
+#ifdef CONFIG_WPA3_COMPAT
+       return conf->ieee80211w != NO_MGMT_FRAME_PROTECTION ||
+               conf->rsn_override_mfp != NO_MGMT_FRAME_PROTECTION;
+#else
+       return conf->ieee80211w != NO_MGMT_FRAME_PROTECTION;
+#endif
+}
+uint8_t *wpa_auth_write_assoc_resp_owe(struct hostapd_data *hapd, struct wpa_state_machine *sm,
+		            u8 *pos, size_t max_len);
 
 #endif /* WPA_AUTH_H */

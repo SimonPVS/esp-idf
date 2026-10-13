@@ -1,23 +1,19 @@
-// Copyright 2015-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2024 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <stdbool.h>
+#include "sdkconfig.h"
 #include "esp_log.h"
+#include "esp_rom_sys.h"
+#include "esp_rom_caps.h"
 #include "bootloader_init.h"
 #include "bootloader_utility.h"
 #include "bootloader_common.h"
+#include "bootloader_hooks.h"
 
-static const char *TAG = "boot";
+ESP_LOG_ATTR_TAG(TAG, "boot");
 
 static int select_partition_number(bootloader_state_t *bs);
 static int selected_boot_partition(const bootloader_state_t *bs);
@@ -29,9 +25,19 @@ static int selected_boot_partition(const bootloader_state_t *bs);
  */
 void __attribute__((noreturn)) call_start_cpu0(void)
 {
+    // (0. Call the before-init hook, if available)
+    if (bootloader_before_init) {
+        bootloader_before_init();
+    }
+
     // 1. Hardware initialization
     if (bootloader_init() != ESP_OK) {
         bootloader_reset();
+    }
+
+    // (1.1 Call the after-init hook, if available)
+    if (bootloader_after_init) {
+        bootloader_after_init();
     }
 
 #ifdef CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP
@@ -48,6 +54,11 @@ void __attribute__((noreturn)) call_start_cpu0(void)
     if (boot_index == INVALID_INDEX) {
         bootloader_reset();
     }
+
+    // 2.1 Load the TEE image
+#if CONFIG_SECURE_ENABLE_TEE
+    bootloader_utility_load_tee_image(&bs);
+#endif
 
     // 3. Load the app image for booting
     bootloader_utility_load_boot_image(&bs, boot_index);
@@ -76,10 +87,14 @@ static int selected_boot_partition(const bootloader_state_t *bs)
     if (boot_index == INVALID_INDEX) {
         return boot_index; // Unrecoverable failure (not due to corrupt ota data or bad partition contents)
     }
-    if (bootloader_common_get_reset_reason(0) != DEEPSLEEP_RESET) {
+    if (esp_rom_get_reset_reason(0) != RESET_REASON_CORE_DEEP_SLEEP) {
         // Factory firmware.
 #ifdef CONFIG_BOOTLOADER_FACTORY_RESET
-        if (bootloader_common_check_long_hold_gpio(CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET, CONFIG_BOOTLOADER_HOLD_TIME_GPIO) == 1) {
+        bool reset_level = false;
+#if CONFIG_BOOTLOADER_FACTORY_RESET_PIN_HIGH
+        reset_level = true;
+#endif
+        if (bootloader_common_check_long_hold_gpio_level(CONFIG_BOOTLOADER_NUM_PIN_FACTORY_RESET, CONFIG_BOOTLOADER_HOLD_TIME_GPIO, reset_level) == GPIO_LONG_HOLD) {
             ESP_LOGI(TAG, "Detect a condition of the factory reset");
             bool ota_data_erase = false;
 #ifdef CONFIG_BOOTLOADER_OTA_DATA_ERASE
@@ -90,12 +105,19 @@ static int selected_boot_partition(const bootloader_state_t *bs)
             if (bootloader_common_erase_part_type_data(list_erase, ota_data_erase) == false) {
                 ESP_LOGE(TAG, "Not all partitions were erased");
             }
+#ifdef CONFIG_BOOTLOADER_RESERVE_RTC_MEM
+            bootloader_common_set_rtc_retain_mem_factory_reset_state();
+#endif
             return bootloader_utility_get_selected_boot_partition(bs);
         }
-#endif
+#endif // CONFIG_BOOTLOADER_FACTORY_RESET
         // TEST firmware.
 #ifdef CONFIG_BOOTLOADER_APP_TEST
-        if (bootloader_common_check_long_hold_gpio(CONFIG_BOOTLOADER_NUM_PIN_APP_TEST, CONFIG_BOOTLOADER_HOLD_TIME_GPIO) == 1) {
+        bool app_test_level = false;
+#if CONFIG_BOOTLOADER_APP_TEST_PIN_HIGH
+        app_test_level = true;
+#endif
+        if (bootloader_common_check_long_hold_gpio_level(CONFIG_BOOTLOADER_NUM_PIN_APP_TEST, CONFIG_BOOTLOADER_HOLD_TIME_GPIO, app_test_level) == GPIO_LONG_HOLD) {
             ESP_LOGI(TAG, "Detect a boot condition of the test firmware");
             if (bs->test.offset != 0) {
                 boot_index = TEST_APP_INDEX;
@@ -105,7 +127,7 @@ static int selected_boot_partition(const bootloader_state_t *bs)
                 return INVALID_INDEX;
             }
         }
-#endif
+#endif // CONFIG_BOOTLOADER_APP_TEST
         // Customer implementation.
         // if (gpio_pin_1 == true && ...){
         //     boot_index = required_boot_partition;
@@ -114,8 +136,10 @@ static int selected_boot_partition(const bootloader_state_t *bs)
     return boot_index;
 }
 
+#if CONFIG_LIBC_NEWLIB
 // Return global reent struct if any newlib functions are linked to bootloader
 struct _reent *__getreent(void)
 {
     return _GLOBAL_REENT;
 }
+#endif

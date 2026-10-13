@@ -12,6 +12,8 @@
    set a router or a AP using the same SSID&PASSWORD as configuration of this example.
    start esp32 and when it connected to AP it will enter power save mode
 */
+#include <string.h>
+#include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "esp_wifi.h"
@@ -19,12 +21,10 @@
 #include "esp_event.h"
 #include "esp_pm.h"
 #include "nvs_flash.h"
-
-/*set the ssid and password via "idf.py menuconfig"*/
-#define DEFAULT_SSID CONFIG_EXAMPLE_WIFI_SSID
-#define DEFAULT_PWD CONFIG_EXAMPLE_WIFI_PASSWORD
+#include "get_ap_info.h"
 
 #define DEFAULT_LISTEN_INTERVAL CONFIG_EXAMPLE_WIFI_LISTEN_INTERVAL
+#define DEFAULT_BEACON_TIMEOUT  CONFIG_EXAMPLE_WIFI_BEACON_TIMEOUT
 
 #if CONFIG_EXAMPLE_POWER_SAVE_MIN_MODEM
 #define DEFAULT_PS_MODE WIFI_PS_MIN_MODEM
@@ -36,6 +36,15 @@
 #define DEFAULT_PS_MODE WIFI_PS_NONE
 #endif /*CONFIG_POWER_SAVE_MODEM*/
 
+#if CONFIG_SOC_WIFI_SUPPORT_5G
+#if CONFIG_EXAMPLE_WIFI_BAND_MODE_2G
+#define DEFAULT_WIFI_BAND_MODE  WIFI_BAND_MODE_2G_ONLY
+#elif CONFIG_EXAMPLE_WIFI_BAND_MODE_5G
+#define DEFAULT_WIFI_BAND_MODE  WIFI_BAND_MODE_5G_ONLY
+#else
+#define DEFAULT_WIFI_BAND_MODE  WIFI_BAND_MODE_AUTO
+#endif
+#endif
 
 static const char *TAG = "power_save";
 
@@ -49,6 +58,12 @@ static void event_handler(void* arg, esp_event_base_t event_base,
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "got ip: " IPSTR, IP2STR(&event->ip_info.ip));
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_BEACON_OFFSET_UNSTABLE) {
+        wifi_event_sta_beacon_offset_unstable_t* event = (wifi_event_sta_beacon_offset_unstable_t*)event_data;
+        ESP_LOGI(TAG, "unstable sample, beacon success rate: %.4f", event->beacon_success_rate);
+#if CONFIG_EXAMPLE_POWER_SAVE_RESAMPLE
+        esp_wifi_beacon_offset_sample_beacon();
+#endif
     }
 }
 
@@ -68,14 +83,22 @@ static void wifi_power_save(void)
 
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = DEFAULT_SSID,
-            .password = DEFAULT_PWD,
             .listen_interval = DEFAULT_LISTEN_INTERVAL,
         },
     };
+
+    strcpy((char *)wifi_config.sta.ssid, get_ap_ssid());
+    strcpy((char *)wifi_config.sta.password, get_ap_password());
+
+    ESP_LOGI(TAG, "Connecting AP: %s with password: %s", wifi_config.sta.ssid, wifi_config.sta.password);
+
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+#if CONFIG_SOC_WIFI_SUPPORT_5G
+    ESP_ERROR_CHECK(esp_wifi_set_band_mode(DEFAULT_WIFI_BAND_MODE));
+#endif
+    ESP_ERROR_CHECK(esp_wifi_set_inactive_time(WIFI_IF_STA, DEFAULT_BEACON_TIMEOUT));
 
     ESP_LOGI(TAG, "esp_wifi_set_ps().");
     esp_wifi_set_ps(DEFAULT_PS_MODE);
@@ -91,15 +114,15 @@ void app_main(void)
     }
     ESP_ERROR_CHECK( ret );
 
+#if CONFIG_EXAMPLE_GET_AP_INFO_FROM_STDIN
+    get_ap_info_from_stdin();
+#endif
+
 #if CONFIG_PM_ENABLE
     // Configure dynamic frequency scaling:
     // maximum and minimum frequencies are set in sdkconfig,
     // automatic light sleep is enabled if tickless idle support is enabled.
-#if CONFIG_IDF_TARGET_ESP32
-    esp_pm_config_esp32_t pm_config = {
-#elif CONFIG_IDF_TARGET_ESP32S2
-    esp_pm_config_esp32s2_t pm_config = {
-#endif
+    esp_pm_config_t pm_config = {
             .max_freq_mhz = CONFIG_EXAMPLE_MAX_CPU_FREQ_MHZ,
             .min_freq_mhz = CONFIG_EXAMPLE_MIN_CPU_FREQ_MHZ,
 #if CONFIG_FREERTOS_USE_TICKLESS_IDLE

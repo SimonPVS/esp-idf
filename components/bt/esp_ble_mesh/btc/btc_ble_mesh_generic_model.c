@@ -1,23 +1,18 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <string.h>
 #include <errno.h>
 
+#include "btc_ble_mesh_model_common.h"
 #include "btc_ble_mesh_generic_model.h"
-#include "generic_client.h"
 #include "esp_ble_mesh_generic_model_api.h"
+
+#if CONFIG_BLE_MESH_GENERIC_CLIENT
+#include "mesh/generic_client.h"
 
 /* Generic Client Models related functions */
 
@@ -35,7 +30,7 @@ void btc_ble_mesh_generic_client_arg_deep_copy(btc_msg_t *msg, void *p_dest, voi
 {
     btc_ble_mesh_generic_client_args_t *dst = (btc_ble_mesh_generic_client_args_t *)p_dest;
     btc_ble_mesh_generic_client_args_t *src = (btc_ble_mesh_generic_client_args_t *)p_src;
-    u16_t length = 0U;
+    uint16_t length = 0U;
 
     if (!msg || !dst || !src) {
         BT_ERR("%s, Invalid parameter", __func__);
@@ -44,7 +39,10 @@ void btc_ble_mesh_generic_client_arg_deep_copy(btc_msg_t *msg, void *p_dest, voi
 
     switch (msg->act) {
     case BTC_BLE_MESH_ACT_GENERIC_CLIENT_GET_STATE: {
-        dst->generic_client_get_state.params = (esp_ble_mesh_client_common_param_t *)bt_mesh_malloc(sizeof(esp_ble_mesh_client_common_param_t));
+        dst->generic_client_get_state.params = NULL;
+        dst->generic_client_get_state.get_state = NULL;
+
+        dst->generic_client_get_state.params = (esp_ble_mesh_client_common_param_t *)bt_mesh_calloc(sizeof(esp_ble_mesh_client_common_param_t));
         if (dst->generic_client_get_state.params) {
             memcpy(dst->generic_client_get_state.params, src->generic_client_get_state.params,
                    sizeof(esp_ble_mesh_client_common_param_t));
@@ -53,57 +51,82 @@ void btc_ble_mesh_generic_client_arg_deep_copy(btc_msg_t *msg, void *p_dest, voi
             break;
         }
         if (src->generic_client_get_state.get_state) {
-            dst->generic_client_get_state.get_state = (esp_ble_mesh_generic_client_get_state_t *)bt_mesh_malloc(sizeof(esp_ble_mesh_generic_client_get_state_t));
+            dst->generic_client_get_state.get_state = (esp_ble_mesh_generic_client_get_state_t *)bt_mesh_calloc(sizeof(esp_ble_mesh_generic_client_get_state_t));
             if (dst->generic_client_get_state.get_state) {
                 memcpy(dst->generic_client_get_state.get_state, src->generic_client_get_state.get_state,
-                    sizeof(esp_ble_mesh_generic_client_get_state_t));
+                       sizeof(esp_ble_mesh_generic_client_get_state_t));
             } else {
                 BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                /* Free the previously allocated resources */
+                bt_mesh_free(dst->generic_client_get_state.params);
+                dst->generic_client_get_state.params = NULL;
             }
         }
         break;
     }
     case BTC_BLE_MESH_ACT_GENERIC_CLIENT_SET_STATE: {
-        dst->generic_client_set_state.params = (esp_ble_mesh_client_common_param_t *)bt_mesh_malloc(sizeof(esp_ble_mesh_client_common_param_t));
-        dst->generic_client_set_state.set_state = (esp_ble_mesh_generic_client_set_state_t *)bt_mesh_malloc(sizeof(esp_ble_mesh_generic_client_set_state_t));
-        if (dst->generic_client_set_state.params && dst->generic_client_set_state.set_state) {
-            memcpy(dst->generic_client_set_state.params, src->generic_client_set_state.params,
-                   sizeof(esp_ble_mesh_client_common_param_t));
-            memcpy(dst->generic_client_set_state.set_state, src->generic_client_set_state.set_state,
-                   sizeof(esp_ble_mesh_generic_client_set_state_t));
+        dst->generic_client_set_state.params = NULL;
+        dst->generic_client_set_state.set_state = NULL;
 
-            switch (src->generic_client_set_state.params->opcode) {
-            case ESP_BLE_MESH_MODEL_OP_GEN_USER_PROPERTY_SET:
-                if (src->generic_client_set_state.set_state->user_property_set.property_value) {
-                    length = src->generic_client_set_state.set_state->user_property_set.property_value->len;
-                    dst->generic_client_set_state.set_state->user_property_set.property_value = bt_mesh_alloc_buf(length);
-                    if (!dst->generic_client_set_state.set_state->user_property_set.property_value) {
-                        BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
-                        return;
-                    }
-                    net_buf_simple_add_mem(dst->generic_client_set_state.set_state->user_property_set.property_value,
-                                           src->generic_client_set_state.set_state->user_property_set.property_value->data,
-                                           src->generic_client_set_state.set_state->user_property_set.property_value->len);
-                }
-                break;
-            case ESP_BLE_MESH_MODEL_OP_GEN_ADMIN_PROPERTY_SET:
-                if (src->generic_client_set_state.set_state->admin_property_set.property_value) {
-                    length = src->generic_client_set_state.set_state->admin_property_set.property_value->len;
-                    dst->generic_client_set_state.set_state->admin_property_set.property_value = bt_mesh_alloc_buf(length);
-                    if (!dst->generic_client_set_state.set_state->admin_property_set.property_value) {
-                        BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
-                        return;
-                    }
-                    net_buf_simple_add_mem(dst->generic_client_set_state.set_state->admin_property_set.property_value,
-                                           src->generic_client_set_state.set_state->admin_property_set.property_value->data,
-                                           src->generic_client_set_state.set_state->admin_property_set.property_value->len);
-                }
-                break;
-            default:
-                break;
-            }
-        } else {
+        dst->generic_client_set_state.params = (esp_ble_mesh_client_common_param_t *)bt_mesh_calloc(sizeof(esp_ble_mesh_client_common_param_t));
+        if (!dst->generic_client_set_state.params) {
             BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+            break;
+        }
+
+        dst->generic_client_set_state.set_state = (esp_ble_mesh_generic_client_set_state_t *)bt_mesh_calloc(sizeof(esp_ble_mesh_generic_client_set_state_t));
+        if (!dst->generic_client_set_state.set_state) {
+            BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+            /* Free the previously allocated resources */
+            bt_mesh_free(dst->generic_client_set_state.params);
+            dst->generic_client_set_state.params = NULL;
+            break;
+        }
+
+        memcpy(dst->generic_client_set_state.params, src->generic_client_set_state.params,
+               sizeof(esp_ble_mesh_client_common_param_t));
+        memcpy(dst->generic_client_set_state.set_state, src->generic_client_set_state.set_state,
+               sizeof(esp_ble_mesh_generic_client_set_state_t));
+
+        switch (src->generic_client_set_state.params->opcode) {
+        case ESP_BLE_MESH_MODEL_OP_GEN_USER_PROPERTY_SET:
+            if (src->generic_client_set_state.set_state->user_property_set.property_value) {
+                length = src->generic_client_set_state.set_state->user_property_set.property_value->len;
+                dst->generic_client_set_state.set_state->user_property_set.property_value = bt_mesh_alloc_buf(length);
+                if (!dst->generic_client_set_state.set_state->user_property_set.property_value) {
+                    BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                    /* Free the previously allocated resources */
+                    bt_mesh_free(dst->generic_client_set_state.params);
+                    dst->generic_client_set_state.params = NULL;
+                    bt_mesh_free(dst->generic_client_set_state.set_state);
+                    dst->generic_client_set_state.set_state = NULL;
+                    return;
+                }
+                net_buf_simple_add_mem(dst->generic_client_set_state.set_state->user_property_set.property_value,
+                                       src->generic_client_set_state.set_state->user_property_set.property_value->data,
+                                       src->generic_client_set_state.set_state->user_property_set.property_value->len);
+            }
+            break;
+        case ESP_BLE_MESH_MODEL_OP_GEN_ADMIN_PROPERTY_SET:
+            if (src->generic_client_set_state.set_state->admin_property_set.property_value) {
+                length = src->generic_client_set_state.set_state->admin_property_set.property_value->len;
+                dst->generic_client_set_state.set_state->admin_property_set.property_value = bt_mesh_alloc_buf(length);
+                if (!dst->generic_client_set_state.set_state->admin_property_set.property_value) {
+                    BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                    /* Free the previously allocated resources */
+                    bt_mesh_free(dst->generic_client_set_state.params);
+                    dst->generic_client_set_state.params = NULL;
+                    bt_mesh_free(dst->generic_client_set_state.set_state);
+                    dst->generic_client_set_state.set_state = NULL;
+                    return;
+                }
+                net_buf_simple_add_mem(dst->generic_client_set_state.set_state->admin_property_set.property_value,
+                                       src->generic_client_set_state.set_state->admin_property_set.property_value->data,
+                                       src->generic_client_set_state.set_state->admin_property_set.property_value->len);
+            }
+            break;
+        default:
+            break;
         }
         break;
     }
@@ -113,16 +136,21 @@ void btc_ble_mesh_generic_client_arg_deep_copy(btc_msg_t *msg, void *p_dest, voi
     }
 }
 
-static void btc_ble_mesh_generic_client_arg_deep_free(btc_msg_t *msg)
+void btc_ble_mesh_generic_client_arg_deep_free(btc_msg_t *msg)
 {
     btc_ble_mesh_generic_client_args_t *arg = NULL;
 
-    if (!msg || !msg->arg) {
+    if (!msg) {
         BT_ERR("%s, Invalid parameter", __func__);
         return;
     }
 
     arg = (btc_ble_mesh_generic_client_args_t *)(msg->arg);
+    /**
+     * msg->arg is guaranteed to be non-NULL by btc_transfer_context
+    */
+    ESP_ASSUME_NONNULL(arg);
+
 
     switch (msg->act) {
     case BTC_BLE_MESH_ACT_GENERIC_CLIENT_GET_STATE:
@@ -162,7 +190,7 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
 {
     esp_ble_mesh_generic_client_cb_param_t *p_dest_data = (esp_ble_mesh_generic_client_cb_param_t *)p_dest;
     esp_ble_mesh_generic_client_cb_param_t *p_src_data = (esp_ble_mesh_generic_client_cb_param_t *)p_src;
-    u16_t length = 0U;
+    uint16_t length = 0U;
 
     if (!msg || !p_src_data || !p_dest_data) {
         BT_ERR("%s, Invalid parameter", __func__);
@@ -170,7 +198,7 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
     }
 
     if (p_src_data->params) {
-        p_dest_data->params = bt_mesh_malloc(sizeof(esp_ble_mesh_client_common_param_t));
+        p_dest_data->params = bt_mesh_calloc(sizeof(esp_ble_mesh_client_common_param_t));
         if (!p_dest_data->params) {
             BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
             return;
@@ -192,6 +220,9 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
                     p_dest_data->status_cb.user_properties_status.property_ids = bt_mesh_alloc_buf(length);
                     if (!p_dest_data->status_cb.user_properties_status.property_ids) {
                         BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                        /* Free the previously allocated resources */
+                        bt_mesh_free(p_dest_data->params);
+                        p_dest_data->params = NULL;
                         return;
                     }
                     net_buf_simple_add_mem(p_dest_data->status_cb.user_properties_status.property_ids,
@@ -207,6 +238,9 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
                     p_dest_data->status_cb.user_property_status.property_value = bt_mesh_alloc_buf(length);
                     if (!p_dest_data->status_cb.user_property_status.property_value) {
                         BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                        /* Free the previously allocated resources */
+                        bt_mesh_free(p_dest_data->params);
+                        p_dest_data->params = NULL;
                         return;
                     }
                     net_buf_simple_add_mem(p_dest_data->status_cb.user_property_status.property_value,
@@ -221,6 +255,9 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
                     p_dest_data->status_cb.admin_properties_status.property_ids = bt_mesh_alloc_buf(length);
                     if (!p_dest_data->status_cb.admin_properties_status.property_ids) {
                         BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                        /* Free the previously allocated resources */
+                        bt_mesh_free(p_dest_data->params);
+                        p_dest_data->params = NULL;
                         return;
                     }
                     net_buf_simple_add_mem(p_dest_data->status_cb.admin_properties_status.property_ids,
@@ -236,6 +273,9 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
                     p_dest_data->status_cb.admin_property_status.property_value = bt_mesh_alloc_buf(length);
                     if (!p_dest_data->status_cb.admin_property_status.property_value) {
                         BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                        /* Free the previously allocated resources */
+                        bt_mesh_free(p_dest_data->params);
+                        p_dest_data->params = NULL;
                         return;
                     }
                     net_buf_simple_add_mem(p_dest_data->status_cb.admin_property_status.property_value,
@@ -250,6 +290,9 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
                     p_dest_data->status_cb.manufacturer_properties_status.property_ids = bt_mesh_alloc_buf(length);
                     if (!p_dest_data->status_cb.manufacturer_properties_status.property_ids) {
                         BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                        /* Free the previously allocated resources */
+                        bt_mesh_free(p_dest_data->params);
+                        p_dest_data->params = NULL;
                         return;
                     }
                     net_buf_simple_add_mem(p_dest_data->status_cb.manufacturer_properties_status.property_ids,
@@ -265,6 +308,9 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
                     p_dest_data->status_cb.manufacturer_property_status.property_value = bt_mesh_alloc_buf(length);
                     if (!p_dest_data->status_cb.manufacturer_property_status.property_value) {
                         BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                        /* Free the previously allocated resources */
+                        bt_mesh_free(p_dest_data->params);
+                        p_dest_data->params = NULL;
                         return;
                     }
                     net_buf_simple_add_mem(p_dest_data->status_cb.manufacturer_property_status.property_value,
@@ -279,6 +325,9 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
                     p_dest_data->status_cb.client_properties_status.property_ids = bt_mesh_alloc_buf(length);
                     if (!p_dest_data->status_cb.client_properties_status.property_ids) {
                         BT_ERR("%s, Out of memory, act %d", __func__, msg->act);
+                        /* Free the previously allocated resources */
+                        bt_mesh_free(p_dest_data->params);
+                        p_dest_data->params = NULL;
                         return;
                     }
                     net_buf_simple_add_mem(p_dest_data->status_cb.client_properties_status.property_ids,
@@ -290,6 +339,7 @@ static void btc_ble_mesh_generic_client_copy_req_data(btc_msg_t *msg, void *p_de
                 break;
             }
         }
+        __attribute__((fallthrough));
     case ESP_BLE_MESH_GENERIC_CLIENT_TIMEOUT_EVT:
         break;
     default:
@@ -301,7 +351,7 @@ static void btc_ble_mesh_generic_client_free_req_data(btc_msg_t *msg)
 {
     esp_ble_mesh_generic_client_cb_param_t *arg = NULL;
 
-    if (!msg || !msg->arg) {
+    if (!msg) {
         BT_ERR("%s, Invalid parameter", __func__);
         return;
     }
@@ -349,6 +399,7 @@ static void btc_ble_mesh_generic_client_free_req_data(btc_msg_t *msg)
                 break;
             }
         }
+        __attribute__((fallthrough));
     case ESP_BLE_MESH_GENERIC_CLIENT_TIMEOUT_EVT:
         if (arg->params) {
             bt_mesh_free(arg->params);
@@ -363,8 +414,6 @@ static void btc_ble_mesh_generic_client_callback(esp_ble_mesh_generic_client_cb_
 {
     btc_msg_t msg = {0};
 
-    BT_DBG("%s", __func__);
-
     /* If corresponding callback is not registered, event will not be posted. */
     if (!btc_profile_cb_get(BTC_PID_GENERIC_CLIENT)) {
         return;
@@ -374,20 +423,20 @@ static void btc_ble_mesh_generic_client_callback(esp_ble_mesh_generic_client_cb_
     msg.pid = BTC_PID_GENERIC_CLIENT;
     msg.act = act;
 
-    btc_transfer_context(&msg, cb_params, sizeof(esp_ble_mesh_generic_client_cb_param_t),
-                         btc_ble_mesh_generic_client_copy_req_data);
+    btc_transfer_context(&msg, cb_params, cb_params == NULL ? 0 : sizeof(esp_ble_mesh_generic_client_cb_param_t),
+                         btc_ble_mesh_generic_client_copy_req_data, btc_ble_mesh_generic_client_free_req_data);
 }
 
-void bt_mesh_generic_client_cb_evt_to_btc(u32_t opcode, u8_t evt_type,
+void bt_mesh_generic_client_cb_evt_to_btc(uint32_t opcode, uint8_t evt_type,
                                           struct bt_mesh_model *model,
                                           struct bt_mesh_msg_ctx *ctx,
-                                          const u8_t *val, size_t len)
+                                          const uint8_t *val, size_t len)
 {
     esp_ble_mesh_generic_client_cb_param_t cb_params = {0};
     esp_ble_mesh_client_common_param_t params = {0};
     uint8_t act = 0U;
 
-    if (!model || !ctx) {
+    if (!model || !ctx || len > sizeof(cb_params.status_cb)) {
         BT_ERR("%s, Invalid parameter", __func__);
         return;
     }
@@ -425,14 +474,14 @@ void bt_mesh_generic_client_cb_evt_to_btc(u32_t opcode, u8_t evt_type,
     cb_params.params = &params;
 
     if (val && len) {
-        memcpy(&cb_params.status_cb, val, MIN(len, sizeof(cb_params.status_cb)));
+        memcpy(&cb_params.status_cb, val, len);
     }
 
     btc_ble_mesh_generic_client_callback(&cb_params, act);
-    return;
 }
 
-void btc_ble_mesh_generic_client_publish_callback(u32_t opcode, struct bt_mesh_model *model,
+void btc_ble_mesh_generic_client_publish_callback(uint32_t opcode,
+                                                  struct bt_mesh_model *model,
                                                   struct bt_mesh_msg_ctx *ctx,
                                                   struct net_buf_simple *buf)
 {
@@ -443,17 +492,15 @@ void btc_ble_mesh_generic_client_publish_callback(u32_t opcode, struct bt_mesh_m
 
     bt_mesh_generic_client_cb_evt_to_btc(opcode, BTC_BLE_MESH_EVT_GENERIC_CLIENT_PUBLISH,
                                          model, ctx, buf->data, buf->len);
-    return;
 }
 
 void btc_ble_mesh_generic_client_call_handler(btc_msg_t *msg)
 {
-    esp_ble_mesh_client_common_param_t *params = NULL;
-    btc_ble_mesh_generic_client_args_t *arg = NULL;
     esp_ble_mesh_generic_client_cb_param_t cb = {0};
-    bt_mesh_client_common_param_t common = {0};
+    btc_ble_mesh_generic_client_args_t *arg = NULL;
+    bt_mesh_client_common_param_t param = {0};
 
-    if (!msg || !msg->arg) {
+    if (!msg) {
         BT_ERR("%s, Invalid parameter", __func__);
         return;
     }
@@ -461,59 +508,38 @@ void btc_ble_mesh_generic_client_call_handler(btc_msg_t *msg)
     arg = (btc_ble_mesh_generic_client_args_t *)(msg->arg);
 
     switch (msg->act) {
-    case BTC_BLE_MESH_ACT_GENERIC_CLIENT_GET_STATE: {
-        params = arg->generic_client_get_state.params;
-        common.opcode = params->opcode;
-        common.model = (struct bt_mesh_model *)params->model;
-        common.ctx.net_idx = params->ctx.net_idx;
-        common.ctx.app_idx = params->ctx.app_idx;
-        common.ctx.addr = params->ctx.addr;
-        common.ctx.send_rel = params->ctx.send_rel;
-        common.ctx.send_ttl = params->ctx.send_ttl;
-        common.msg_timeout = params->msg_timeout;
-        common.msg_role = params->msg_role;
+    case BTC_BLE_MESH_ACT_GENERIC_CLIENT_GET_STATE:
+        btc_ble_mesh_set_client_common_param(arg->generic_client_get_state.params, &param, false);
 
         cb.params = arg->generic_client_get_state.params;
-        cb.error_code = bt_mesh_generic_client_get_state(&common, arg->generic_client_get_state.get_state);
+        cb.error_code = bt_mesh_generic_client_get_state(&param, arg->generic_client_get_state.get_state);
         if (cb.error_code) {
             /* If send failed, callback error_code to app layer immediately */
             btc_ble_mesh_generic_client_callback(&cb, ESP_BLE_MESH_GENERIC_CLIENT_GET_STATE_EVT);
         }
         break;
-    }
-    case BTC_BLE_MESH_ACT_GENERIC_CLIENT_SET_STATE: {
-        params = arg->generic_client_set_state.params;
-        common.opcode = params->opcode;
-        common.model = (struct bt_mesh_model *)params->model;
-        common.ctx.net_idx = params->ctx.net_idx;
-        common.ctx.app_idx = params->ctx.app_idx;
-        common.ctx.addr = params->ctx.addr;
-        common.ctx.send_rel = params->ctx.send_rel;
-        common.ctx.send_ttl = params->ctx.send_ttl;
-        common.msg_timeout = params->msg_timeout;
-        common.msg_role = params->msg_role;
+    case BTC_BLE_MESH_ACT_GENERIC_CLIENT_SET_STATE:
+        btc_ble_mesh_set_client_common_param(arg->generic_client_set_state.params, &param, false);
 
         cb.params = arg->generic_client_set_state.params;
-        cb.error_code = bt_mesh_generic_client_set_state(&common, arg->generic_client_set_state.set_state);
+        cb.error_code = bt_mesh_generic_client_set_state(&param, arg->generic_client_set_state.set_state);
         if (cb.error_code) {
             /* If send failed, callback error_code to app layer immediately */
             btc_ble_mesh_generic_client_callback(&cb, ESP_BLE_MESH_GENERIC_CLIENT_SET_STATE_EVT);
         }
         break;
-    }
     default:
         break;
     }
 
     btc_ble_mesh_generic_client_arg_deep_free(msg);
-    return;
 }
 
 void btc_ble_mesh_generic_client_cb_handler(btc_msg_t *msg)
 {
     esp_ble_mesh_generic_client_cb_param_t *param = NULL;
 
-    if (!msg || !msg->arg) {
+    if (!msg) {
         BT_ERR("%s, Invalid parameter", __func__);
         return;
     }
@@ -527,8 +553,11 @@ void btc_ble_mesh_generic_client_cb_handler(btc_msg_t *msg)
     }
 
     btc_ble_mesh_generic_client_free_req_data(msg);
-    return;
 }
+
+#endif /* CONFIG_BLE_MESH_GENERIC_CLIENT */
+
+#if CONFIG_BLE_MESH_GENERIC_SERVER
 
 /* Generic Server Models related functions */
 
@@ -546,7 +575,7 @@ static void btc_ble_mesh_generic_server_copy_req_data(btc_msg_t *msg, void *p_de
 {
     esp_ble_mesh_generic_server_cb_param_t *p_dest_data = (esp_ble_mesh_generic_server_cb_param_t *)p_dest;
     esp_ble_mesh_generic_server_cb_param_t *p_src_data = (esp_ble_mesh_generic_server_cb_param_t *)p_src;
-    u16_t length = 0U;
+    uint16_t length = 0U;
 
     if (!msg || !p_src_data || !p_dest_data) {
         BT_ERR("%s, Invalid parameter", __func__);
@@ -631,7 +660,7 @@ static void btc_ble_mesh_generic_server_free_req_data(btc_msg_t *msg)
 {
     esp_ble_mesh_generic_server_cb_param_t *arg = NULL;
 
-    if (!msg || !msg->arg) {
+    if (!msg) {
         BT_ERR("%s, Invalid parameter", __func__);
         return;
     }
@@ -676,8 +705,6 @@ static void btc_ble_mesh_generic_server_callback(esp_ble_mesh_generic_server_cb_
 {
     btc_msg_t msg = {0};
 
-    BT_DBG("%s", __func__);
-
     /* If corresponding callback is not registered, event will not be posted. */
     if (!btc_profile_cb_get(BTC_PID_GENERIC_SERVER)) {
         return;
@@ -687,18 +714,19 @@ static void btc_ble_mesh_generic_server_callback(esp_ble_mesh_generic_server_cb_
     msg.pid = BTC_PID_GENERIC_SERVER;
     msg.act = act;
 
-    btc_transfer_context(&msg, cb_params, sizeof(esp_ble_mesh_generic_server_cb_param_t),
-                         btc_ble_mesh_generic_server_copy_req_data);
+    btc_transfer_context(&msg, cb_params, cb_params == NULL ? 0 : sizeof(esp_ble_mesh_generic_server_cb_param_t),
+                         btc_ble_mesh_generic_server_copy_req_data, btc_ble_mesh_generic_server_free_req_data);
 }
 
-void bt_mesh_generic_server_cb_evt_to_btc(u8_t evt_type, struct bt_mesh_model *model,
+void bt_mesh_generic_server_cb_evt_to_btc(uint8_t evt_type,
+                                          struct bt_mesh_model *model,
                                           struct bt_mesh_msg_ctx *ctx,
-                                          const u8_t *val, size_t len)
+                                          const uint8_t *val, size_t len)
 {
     esp_ble_mesh_generic_server_cb_param_t cb_params = {0};
     uint8_t act = 0U;
 
-    if (model == NULL || ctx == NULL) {
+    if (model == NULL || ctx == NULL || len > sizeof(cb_params.value)) {
         BT_ERR("%s, Invalid parameter", __func__);
         return;
     }
@@ -727,20 +755,20 @@ void bt_mesh_generic_server_cb_evt_to_btc(u8_t evt_type, struct bt_mesh_model *m
     cb_params.ctx.recv_dst = ctx->recv_dst;
     cb_params.ctx.recv_rssi = ctx->recv_rssi;
     cb_params.ctx.send_ttl = ctx->send_ttl;
+    cb_params.ctx.recv_cred = ctx->recv_cred;
 
     if (val && len) {
-        memcpy(&cb_params.value, val, MIN(len, sizeof(cb_params.value)));
+        memcpy(&cb_params.value, val, len);
     }
 
     btc_ble_mesh_generic_server_callback(&cb_params, act);
-    return;
 }
 
 void btc_ble_mesh_generic_server_cb_handler(btc_msg_t *msg)
 {
     esp_ble_mesh_generic_server_cb_param_t *param = NULL;
 
-    if (!msg || !msg->arg) {
+    if (!msg) {
         BT_ERR("%s, Invalid parameter", __func__);
         return;
     }
@@ -754,5 +782,6 @@ void btc_ble_mesh_generic_server_cb_handler(btc_msg_t *msg)
     }
 
     btc_ble_mesh_generic_server_free_req_data(msg);
-    return;
 }
+
+#endif /* CONFIG_BLE_MESH_GENERIC_SERVER */

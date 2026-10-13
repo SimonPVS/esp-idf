@@ -1,23 +1,15 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-#ifndef NVS_HANDLE_SIMPLE_HPP_
-#define NVS_HANDLE_SIMPLE_HPP_
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#pragma once
 
 #include "intrusive_list.h"
 #include "nvs_storage.hpp"
 #include "nvs_platform.hpp"
 
+#include "nvs_memory_management.hpp"
 #include "nvs_handle.hpp"
 
 namespace nvs {
@@ -30,13 +22,16 @@ namespace nvs {
  *
  * For more details about the general member functions, see nvs_handle.hpp.
  */
-class NVSHandleSimple : public intrusive_list_node<NVSHandleSimple>, public NVSHandle {
+class NVSHandleSimple : public intrusive_list_node<NVSHandleSimple>,
+        public NVSHandle,
+        public ExceptionlessAllocatable {
     friend class NVSPartitionManager;
 public:
-    NVSHandleSimple(bool readOnly, uint8_t nsIndex, Storage *StoragePtr) :
+    NVSHandleSimple(bool readOnly, uint8_t nsIndex, Storage *StoragePtr, bool purgeAfterErase) :
         mStoragePtr(StoragePtr),
         mNsIndex(nsIndex),
         mReadOnly(readOnly),
+        mPurgeAfterErase(purgeAfterErase),
         valid(1)
     { }
 
@@ -56,9 +51,13 @@ public:
 
     esp_err_t get_item_size(ItemType datatype, const char *key, size_t &size) override;
 
+    esp_err_t find_key(const char *key, nvs_type_t &nvstype) override;
+
     esp_err_t erase_item(const char *key) override;
 
     esp_err_t erase_all() override;
+
+    esp_err_t purge_all() override;
 
     esp_err_t commit() override;
 
@@ -74,7 +73,13 @@ public:
 
     bool findEntry(nvs_opaque_iterator_t *it, const char *name);
 
+    bool findEntryNs(nvs_opaque_iterator_t *it);
+
     bool nextEntry(nvs_opaque_iterator_t *it);
+
+    const char *get_partition_name() const;
+
+    Storage *get_storage() const;
 
 private:
     /**
@@ -89,11 +94,16 @@ private:
 
     /**
      * Whether this handle is marked as read-only or read-write.
-     * 0 indicates read-only, any other value read-write.
+     * 1 indicates read-only, 0 indicates read-write.
      */
     uint8_t mReadOnly;
 
     /**
+     * Whether this handle purges the erased or updated items right after erasing or updating them.
+     * 0 indicates no purge, any other value indicates purge.
+     */
+
+     uint8_t mPurgeAfterErase;     /**
      * Indicates the validity of this handle.
      * Upon opening, a handle is valid. It becomes invalid if the underlying storage is de-initialized.
      */
@@ -101,6 +111,3 @@ private:
 };
 
 } // nvs
-
-#endif // NVS_HANDLE_SIMPLE_HPP_
-

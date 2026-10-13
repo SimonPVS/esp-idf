@@ -1,16 +1,14 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 
 
 /****************************************************************************
 *
-* This file is for iBeacon APIs. It supports both iBeacon encode and decode. 
+* This file is for iBeacon APIs. It supports both iBeacon encode and decode.
 *
 * iBeacon is a trademark of Apple Inc. Before building devices which use iBeacon technology,
 * visit https://developer.apple.com/ibeacon/ to obtain a license.
@@ -31,9 +29,9 @@ const uint8_t uuid_zeros[ESP_UUID_LEN_128] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 /* For iBeacon packet format, please refer to Apple "Proximity Beacon Specification" doc */
 /* Constant part of iBeacon data */
 esp_ble_ibeacon_head_t ibeacon_common_head = {
-    .flags = {0x02, 0x01, 0x06},
+    .flags = {0x02, ESP_BLE_AD_TYPE_FLAG, ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT},
     .length = 0x1A,
-    .type = 0xFF,
+    .type = ESP_BLE_AD_MANUFACTURER_SPECIFIC_TYPE,
     .company_id = 0x004C,
     .beacon_type = 0x1502
 };
@@ -68,5 +66,3 @@ esp_err_t esp_ble_config_ibeacon_data (esp_ble_ibeacon_vendor_t *vendor_config, 
 
     return ESP_OK;
 }
-
-

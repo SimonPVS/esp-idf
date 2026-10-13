@@ -1,6 +1,6 @@
 /*
  * TLSv1 common definitions
- * Copyright (c) 2006-2011, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2006-2014, Jouni Malinen <j@w1.fi>
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -170,6 +170,7 @@ enum {
 #define TLS_EXT_TRUNCATED_HMAC			4 /* RFC 4366 */
 #define TLS_EXT_STATUS_REQUEST			5 /* RFC 4366 */
 #define TLS_EXT_SIGNATURE_ALGORITHMS		13 /* RFC 5246 */
+#define TLS_EXT_STATUS_REQUEST_V2		17 /* RFC 6961 */
 #define TLS_EXT_SESSION_TICKET			35 /* RFC 4507 */
 
 #define TLS_EXT_PAC_OPAQUE TLS_EXT_SESSION_TICKET /* EAP-FAST terminology */
@@ -266,7 +267,8 @@ int tlsv12_key_x_server_params_hash(u16 tls_version, u8 hash_Alg,
 int tls_key_x_server_params_hash(u16 tls_version, const u8 *client_random,
 				 const u8 *server_random,
 				 const u8 *server_params,
-				 size_t server_params_len, u8 *hash);
+				 size_t server_params_len,
+				 u8 *hash, size_t hsz);
 int tls_verify_signature(u16 tls_version, struct crypto_public_key *pk,
 			 const u8 *data, size_t data_len,
 			 const u8 *pos, size_t len, u8 *alert);

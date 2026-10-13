@@ -8,7 +8,7 @@
 */
 #include <string.h>
 #include "esp_wifi.h"
-#include "esp_system.h"
+#include "esp_mac.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mesh.h"
@@ -136,7 +136,7 @@ void mesh_scan_done_handler(int num)
         esp_wifi_scan_stop();
         scan_config.show_hidden = 1;
         scan_config.scan_type = WIFI_SCAN_TYPE_PASSIVE;
-        ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_config, 0));
+        esp_wifi_scan_start(&scan_config, 0);
     }
 }
 
@@ -157,7 +157,7 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
         /* mesh softAP is hidden */
         scan_config.show_hidden = 1;
         scan_config.scan_type = WIFI_SCAN_TYPE_PASSIVE;
-        ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_config, 0));
+        esp_wifi_scan_start(&scan_config, 0);
     }
     break;
     case MESH_EVENT_STOPPED: {
@@ -213,6 +213,7 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
         last_layer = mesh_layer;
         mesh_connected_indicator(mesh_layer);
         if (esp_mesh_is_root()) {
+            esp_netif_dhcpc_stop(netif_sta);
             esp_netif_dhcpc_start(netif_sta);
         }
     }
@@ -228,7 +229,7 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
             esp_wifi_scan_stop();
             scan_config.show_hidden = 1;
             scan_config.scan_type = WIFI_SCAN_TYPE_PASSIVE;
-            ESP_ERROR_CHECK(esp_wifi_scan_start(&scan_config, 0));
+            esp_wifi_scan_start(&scan_config, 0);
         }
     }
     break;
@@ -268,7 +269,7 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
     }
     break;
     default:
-        ESP_LOGD(MESH_TAG, "event id:%d", event_id);
+        ESP_LOGD(MESH_TAG, "event id:%" PRId32 "", event_id);
         break;
     }
 }
@@ -300,17 +301,8 @@ void app_main(void)
     /* mesh initialization */
     ESP_ERROR_CHECK(esp_mesh_init());
     ESP_ERROR_CHECK(esp_event_handler_register(MESH_EVENT, ESP_EVENT_ANY_ID, &mesh_event_handler, NULL));
-    /* mesh enable IE crypto */
+    /* mesh config */
     mesh_cfg_t cfg = MESH_INIT_CONFIG_DEFAULT();
-#if CONFIG_MESH_IE_CRYPTO_FUNCS
-    /* modify IE crypto key */
-    ESP_ERROR_CHECK(esp_mesh_set_ie_crypto_funcs(&g_wifi_default_mesh_crypto_funcs));
-    ESP_ERROR_CHECK(esp_mesh_set_ie_crypto_key(CONFIG_MESH_IE_CRYPTO_KEY, strlen(CONFIG_MESH_IE_CRYPTO_KEY)));
-#else
-    /* disable IE crypto */
-    ESP_LOGI(MESH_TAG, "<Config>disable IE crypto");
-    ESP_ERROR_CHECK(esp_mesh_set_ie_crypto_funcs(NULL));
-#endif
     /* mesh ID */
     memcpy((uint8_t *) &cfg.mesh_id, MESH_ID, 6);
     /* router */
@@ -322,10 +314,21 @@ void app_main(void)
     /* mesh softAP */
     ESP_ERROR_CHECK(esp_mesh_set_ap_authmode(CONFIG_MESH_AP_AUTHMODE));
     cfg.mesh_ap.max_connection = CONFIG_MESH_AP_CONNECTIONS;
+    cfg.mesh_ap.nonmesh_max_connection = CONFIG_MESH_NON_MESH_AP_CONNECTIONS;
     memcpy((uint8_t *) &cfg.mesh_ap.password, CONFIG_MESH_AP_PASSWD,
            strlen(CONFIG_MESH_AP_PASSWD));
     ESP_ERROR_CHECK(esp_mesh_set_config(&cfg));
+    /* mesh enable IE crypto */
+#if CONFIG_MESH_IE_CRYPTO_FUNCS
+    /* modify IE crypto key */
+    ESP_ERROR_CHECK(esp_mesh_set_ie_crypto_funcs(&g_wifi_default_mesh_crypto_funcs));
+    ESP_ERROR_CHECK(esp_mesh_set_ie_crypto_key(CONFIG_MESH_IE_CRYPTO_KEY, strlen(CONFIG_MESH_IE_CRYPTO_KEY)));
+#else
+    /* disable IE crypto */
+    ESP_LOGI(MESH_TAG, "<Config>disable IE crypto");
+    ESP_ERROR_CHECK(esp_mesh_set_ie_crypto_funcs(NULL));
+#endif
     /* mesh start */
     ESP_ERROR_CHECK(esp_mesh_start());
-    ESP_LOGI(MESH_TAG, "mesh starts successfully, heap:%d\n",  esp_get_free_heap_size());
+    ESP_LOGI(MESH_TAG, "mesh starts successfully, heap:%" PRId32,  esp_get_free_heap_size());
 }

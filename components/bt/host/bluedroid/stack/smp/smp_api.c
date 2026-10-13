@@ -35,7 +35,9 @@
 #include "stack/hcimsgs.h"
 
 #include "stack/btu.h"
+#if (SMP_CRYPTO_STACK_NATIVE == TRUE)
 #include "p_256_ecc_pp.h"
+#endif
 #include "osi/allocator.h"
 
 /*******************************************************************************
@@ -51,12 +53,16 @@ void SMP_Init(void)
 {
 #if SMP_DYNAMIC_MEMORY
     smp_cb_ptr = (tSMP_CB *)osi_malloc(sizeof(tSMP_CB));
+#if (SMP_CRYPTO_STACK_NATIVE == TRUE)
     curve_ptr = (elliptic_curve_t *)osi_malloc(sizeof(elliptic_curve_t));
     curve_p256_ptr = (elliptic_curve_t *)osi_malloc(sizeof(elliptic_curve_t));
 #endif
+#endif
     memset(&smp_cb, 0, sizeof(tSMP_CB));
+#if (SMP_CRYPTO_STACK_NATIVE == TRUE)
     memset(&curve, 0, sizeof(elliptic_curve_t));
     memset(&curve_p256, 0, sizeof(elliptic_curve_t));
+#endif
 
 #if defined(SMP_INITIAL_TRACE_LEVEL)
     smp_cb.trace_level = SMP_INITIAL_TRACE_LEVEL;
@@ -66,8 +72,10 @@ void SMP_Init(void)
     SMP_TRACE_EVENT ("%s", __FUNCTION__);
 
     smp_l2cap_if_init();
+#if (SMP_CRYPTO_STACK_NATIVE == TRUE)
     /* initialization of P-256 parameters */
     p_256_init_curve(KEY_LENGTH_DWORDS_P256);
+#endif
 }
 
 void SMP_Free(void)
@@ -75,8 +83,10 @@ void SMP_Free(void)
     memset(&smp_cb, 0, sizeof(tSMP_CB));
 #if SMP_DYNAMIC_MEMORY
     FREE_AND_RESET(smp_cb_ptr);
+#if (SMP_CRYPTO_STACK_NATIVE == TRUE)
     FREE_AND_RESET(curve_ptr);
     FREE_AND_RESET(curve_p256_ptr);
+#endif
 #endif /* #if SMP_DYNAMIC_MEMORY */
 }
 
@@ -125,7 +135,7 @@ BOOLEAN SMP_Register (tSMP_CALLBACK *p_cback)
     SMP_TRACE_EVENT ("SMP_Register state=%d", smp_cb.state);
 
     if (smp_cb.p_callback != NULL) {
-        SMP_TRACE_ERROR ("SMP_Register: duplicate registration, overwrite it");
+        SMP_TRACE_WARNING ("SMP_Register: duplicate registration, overwrite it");
     }
     smp_cb.p_callback = p_cback;
 
@@ -161,7 +171,7 @@ tSMP_STATUS SMP_Pair (BD_ADDR bd_addr)
 
         memcpy (p_cb->pairing_bda, bd_addr, BD_ADDR_LEN);
 
-        if (!L2CA_ConnectFixedChnl (L2CAP_SMP_CID, bd_addr, BLE_ADDR_UNKNOWN_TYPE)) {
+        if (!L2CA_ConnectFixedChnl (L2CAP_SMP_CID, bd_addr, BLE_ADDR_UNKNOWN_TYPE, FALSE, FALSE, 0xFF, 0xFF)) {
             SMP_TRACE_ERROR("%s: L2C connect fixed channel failed.\n", __FUNCTION__);
             smp_sm_event(p_cb, SMP_AUTH_CMPL_EVT, &status);
             return status;
@@ -186,6 +196,11 @@ tSMP_STATUS SMP_Pair (BD_ADDR bd_addr)
 #if (CLASSIC_BT_INCLUDED == TRUE)
 tSMP_STATUS SMP_BR_PairWith (BD_ADDR bd_addr)
 {
+#if (SMP_CTKD_INCLUDED == FALSE)
+    UNUSED(bd_addr);
+    SMP_TRACE_WARNING("%s CTKD disabled", __func__);
+    return SMP_XTRANS_DERIVE_NOT_ALLOW;
+#else
     tSMP_CB   *p_cb = &smp_cb;
     UINT8     status = SMP_PAIR_INTERNAL_ERR;
 
@@ -205,13 +220,14 @@ tSMP_STATUS SMP_BR_PairWith (BD_ADDR bd_addr)
 
     memcpy (p_cb->pairing_bda, bd_addr, BD_ADDR_LEN);
 
-    if (!L2CA_ConnectFixedChnl (L2CAP_SMP_BR_CID, bd_addr, BLE_ADDR_UNKNOWN_TYPE)) {
+    if (!L2CA_ConnectFixedChnl (L2CAP_SMP_BR_CID, bd_addr, BLE_ADDR_UNKNOWN_TYPE, FALSE, FALSE, 0xFF, 0xFF)) {
         SMP_TRACE_ERROR("%s: L2C connect fixed channel failed.", __FUNCTION__);
-        smp_br_state_machine_event(p_cb, SMP_BR_AUTH_CMPL_EVT, &status);
+        smp_reset_control_value(p_cb);
         return status;
     }
 
     return SMP_STARTED;
+#endif  ///SMP_CTKD_INCLUDED
 }
 #endif  ///CLASSIC_BT_INCLUDED == TRUE
 
@@ -236,7 +252,7 @@ BOOLEAN SMP_PairCancel (BD_ADDR bd_addr)
     if ( (p_cb->state != SMP_STATE_IDLE)  &&
             (!memcmp (p_cb->pairing_bda, bd_addr, BD_ADDR_LEN)) ) {
         p_cb->is_pair_cancel = TRUE;
-        SMP_TRACE_DEBUG("Cancel Pairing: set fail reason Unknown");
+        SMP_TRACE_ERROR("%s Cancel Pairing: set fail reason Unknown", __func__);
         smp_sm_event(p_cb, SMP_AUTH_CMPL_EVT, &err_code);
         status = TRUE;
     }
@@ -433,7 +449,20 @@ void SMP_OobDataReply(BD_ADDR bd_addr, tSMP_STATUS res, UINT8 len, UINT8 *p_data
         return;
     }
 
+    /* Reject an OOB reply that does not match the device currently pairing. */
+    if (memcmp(bd_addr, p_cb->pairing_bda, BD_ADDR_LEN) != 0) {
+        SMP_TRACE_ERROR("%s() - Wrong BD Addr", __func__);
+        return;
+    }
+
+    if (btm_find_dev(bd_addr) == NULL) {
+        SMP_TRACE_ERROR("%s() - no dev CB", __func__);
+        return;
+    }
+
     if (res != SMP_SUCCESS || len == 0 || !p_data) {
+        SMP_TRACE_ERROR("%s pairing failed, res=0x%x len=%u p_data=%p",
+            __func__, res, len, p_data);
         smp_sm_event(p_cb, SMP_AUTH_CMPL_EVT, &failure);
     } else {
         if (len > BT_OCTET16_LEN) {
@@ -471,14 +500,17 @@ void SMP_SecureConnectionOobDataReply(UINT8 *p_data)
         return;
     }
 
+    if (p_cb->state != SMP_STATE_WAIT_APP_RSP || p_cb->cb_evt != SMP_SC_OOB_REQ_EVT) {
+        return;
+    }
+
+    /* Set local oob data when req_oob_type = SMP_OOB_BOTH */
+    memcpy(&p_oob->loc_oob_data, smp_get_local_oob_data(), sizeof(tSMP_LOC_OOB_DATA));
+
     SMP_TRACE_EVENT ("%s req_oob_type: %d, loc_oob_data.present: %d, "
                      "peer_oob_data.present: %d",
                      __FUNCTION__, p_cb->req_oob_type, p_oob->loc_oob_data.present,
                      p_oob->peer_oob_data.present);
-
-    if (p_cb->state != SMP_STATE_WAIT_APP_RSP || p_cb->cb_evt != SMP_SC_OOB_REQ_EVT) {
-        return;
-    }
 
     BOOLEAN  data_missing = FALSE;
     switch (p_cb->req_oob_type) {
@@ -504,6 +536,7 @@ void SMP_SecureConnectionOobDataReply(UINT8 *p_data)
     }
 
     if (data_missing) {
+        SMP_TRACE_ERROR("%s data missing", __func__);
         smp_sm_event(p_cb, SMP_AUTH_CMPL_EVT, &failure);
         return;
     }
@@ -520,10 +553,10 @@ void SMP_SecureConnectionOobDataReply(UINT8 *p_data)
 ** Description      This function is called to encrypt the data with the specified
 **                  key
 **
-** Parameters:      key                 - Pointer to key key[0] conatins the MSB
+** Parameters:      key                 - Pointer to key key[0] contains the MSB
 **                  key_len             - key length
 **                  plain_text          - Pointer to data to be encrypted
-**                                        plain_text[0] conatins the MSB
+**                                        plain_text[0] contains the MSB
 **                  pt_len              - plain text length
 **                  p_out                - output of the encrypted texts
 **
@@ -589,32 +622,13 @@ void SMP_KeypressNotification (BD_ADDR bd_addr, UINT8 value)
 ** Description      This function is called to start creation of local SC OOB
 **                  data set (tSMP_LOC_OOB_DATA).
 **
-** Parameters:      bd_addr      - Address of the device to send OOB data block to
-**
 **  Returns         Boolean - TRUE: creation of local SC OOB data set started.
 *******************************************************************************/
-BOOLEAN SMP_CreateLocalSecureConnectionsOobData (tBLE_BD_ADDR *addr_to_send_to)
+BOOLEAN SMP_CreateLocalSecureConnectionsOobData (void)
 {
     tSMP_CB *p_cb = &smp_cb;
-#if (!CONFIG_BT_STACK_NO_LOG)
-    UINT8   *bd_addr;
-#endif
 
-    if (addr_to_send_to == NULL) {
-        SMP_TRACE_ERROR ("%s addr_to_send_to is not provided", __FUNCTION__);
-        return FALSE;
-    }
-
-#if (!CONFIG_BT_STACK_NO_LOG)
-    bd_addr = addr_to_send_to->bda;
-#endif
-
-    SMP_TRACE_EVENT ("%s addr type: %u,  BDA: %08x%04x,  state: %u, br_state: %u",
-                     __FUNCTION__, addr_to_send_to->type,
-                     (bd_addr[0] << 24) + (bd_addr[1] << 16) + (bd_addr[2] << 8) + bd_addr[3],
-                     (bd_addr[4] << 8) + bd_addr[5],
-                     p_cb->state,
-                     p_cb->br_state);
+    SMP_TRACE_EVENT ("%s state: %u, br_state: %u", __FUNCTION__, p_cb->state, p_cb->br_state);
 
     if ((p_cb->state != SMP_STATE_IDLE) || (p_cb->smp_over_br)) {
         SMP_TRACE_WARNING ("%s creation of local OOB data set "\
@@ -622,7 +636,6 @@ BOOLEAN SMP_CreateLocalSecureConnectionsOobData (tBLE_BD_ADDR *addr_to_send_to)
         return FALSE;
     }
 
-    p_cb->sc_oob_data.loc_oob_data.addr_sent_to = *addr_to_send_to;
     smp_sm_event(p_cb, SMP_CR_LOC_SC_OOB_DATA_EVT, NULL);
 
     return TRUE;

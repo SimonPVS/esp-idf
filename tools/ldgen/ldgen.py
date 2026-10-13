@@ -1,142 +1,299 @@
 #!/usr/bin/env python
 #
-# Copyright 2018-2019 Espressif Systems (Shanghai) PTE LTD
+# SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+# SPDX-License-Identifier: Apache-2.0
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-
-import argparse
+import errno
+import hashlib
 import json
+import os
+import pickle
+import re
+import subprocess
 import sys
 import tempfile
-import subprocess
-import os
-import errno
-
-from fragments import FragmentFile
-from sdkconfig import SDKConfig
-from generation import GenerationModel, TemplateModel, SectionsInfo
-from ldgen_common import LdGenFailure
-from pyparsing import ParseException, ParseFatalException
 from io import StringIO
 
-try:
-    import confgen
-except Exception:
-    parent_dir_name = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    kconfig_new_dir = os.path.abspath(parent_dir_name + "/kconfig_new")
-    sys.path.insert(0, kconfig_new_dir)
-    import confgen
+import rich_click as click
+from esp_pylib.cli_options import MutuallyExclusiveOption
+from esp_pylib.cli_options import OptionEatAll
+from esp_pylib.excepthook import install_exception_reporting
+from esp_pylib.logger import Verbosity
+from esp_pylib.logger import log
+from ldgen.entity import EntityDB
+from ldgen.fragments import parse_fragment_file
+from ldgen.generation import Generation
+from ldgen.ldgen_common import LdGenFailure
+from ldgen.linker_script import LinkerScript
+from ldgen.sdkconfig import SDKConfig
+from pyparsing import ParseException
+from pyparsing import ParseFatalException
+
+install_exception_reporting()
 
 
-def _update_environment(args):
-    env = [(name, value) for (name,value) in (e.split("=",1) for e in args.env)]
-    for name, value in env:
-        value = " ".join(value.split())
+class MutuallyExclusiveEatAllOption(MutuallyExclusiveOption, OptionEatAll):
+    """Mutually exclusive option that accepts multiple values until the next flag."""
+
+    pass
+
+
+_RE_SECTION_NAME = re.compile(r'^\s*\d+\s+(\.\S+)', re.MULTILINE)
+
+
+def _compute_fingerprint(sections_infos, fragment_files, config_file, kconfig_file, input_file):
+    """Compute a fingerprint from section names and mtimes of all inputs."""
+    hasher = hashlib.md5()
+
+    # Section names from objdump output
+    for archive, info in sorted(sections_infos.sections.items()):
+        names = _RE_SECTION_NAME.findall(info.content)
+        hasher.update((archive + ':' + ','.join(names)).encode())
+
+    # Mtimes of fragment files, the linker template, sdkconfig, kconfig. The
+    # template counts as an input because everything outside its mapping
+    # placeholders ends up in the generated script verbatim, so an edit to it
+    # changes the output even when no section name does.
+    input_files = [p.name if hasattr(p, 'name') else p for p in fragment_files]
+    input_files += [p.name if hasattr(p, 'name') else p for p in (input_file, config_file, kconfig_file) if p]
+    for path in input_files:
+        try:
+            hasher.update(f'{path}:{os.path.getmtime(path)}'.encode())
+        except OSError:
+            return None
+
+    return hasher.hexdigest()
+
+
+def _can_skip_generation(output_path, fingerprint):
+    """Check if fingerprint matches cached value from previous run."""
+    try:
+        with open(output_path + '.fingerprint') as f:
+            if f.read().strip() == fingerprint:
+                os.utime(output_path, None)
+                return True
+    except OSError:
+        pass
+    return False
+
+
+def _save_fingerprint(output_path, fingerprint):
+    """Save fingerprint for next run."""
+    try:
+        with open(output_path + '.fingerprint', 'w') as f:
+            f.write(fingerprint)
+    except OSError:
+        pass
+
+
+def _compute_lf_cache_key(fragment_files, config_file, kconfig_file):
+    """Compute a cache key for parsed fragment files.
+
+    Keyed on fragment file paths+mtimes plus sdkconfig and kconfig mtimes,
+    because fragment parsing evaluates `if/elif/else` conditional blocks
+    against sdkconfig at parse time — so a sdkconfig change can change the
+    parsed FragmentFile output even if the fragment files themselves are
+    unchanged.
+    """
+    hasher = hashlib.md5()
+    paths = [p.name if hasattr(p, 'name') else p for p in fragment_files]
+    paths += [p for p in (config_file, kconfig_file) if p]
+    for path in sorted(paths):
+        try:
+            hasher.update(f'{path}:{os.path.getmtime(path)}'.encode())
+        except OSError:
+            return None
+    return hasher.hexdigest()
+
+
+def _load_lf_cache(cache_path, key):
+    """Load parsed FragmentFile list from cache if key matches.
+
+    The lf cache is written and read only by ldgen, in the same build
+    directory where sections.ld, compiled object files, and the rest of
+    the build state already live. The trust boundary matches the build
+    system's trust boundary: anyone who can modify <output>.lfcache can
+    also modify sections.ld, *.o, or the toolchain binaries directly.
+    pickle is safe in this context; it is not exposed to untrusted input.
+    """
+    try:
+        with open(cache_path, 'rb') as f:
+            data = pickle.load(f)
+        if isinstance(data, dict) and data.get('key') == key:
+            return data.get('fragments')
+    except (OSError, pickle.UnpicklingError, EOFError, AttributeError, ImportError, ValueError):
+        pass
+    return None
+
+
+def _save_lf_cache(cache_path, key, fragments):
+    """Save parsed FragmentFile list for next run."""
+    try:
+        with open(cache_path, 'wb') as f:
+            pickle.dump({'key': key, 'fragments': fragments}, f, pickle.HIGHEST_PROTOCOL)
+    except (OSError, pickle.PicklingError):
+        pass
+
+
+def _update_environment(env, env_file):
+    for name, value in (e.split('=', 1) for e in env):
+        value = ' '.join(value.split())
         os.environ[name] = value
 
-    if args.env_file is not None:
-        env = json.load(args.env_file)
-        os.environ.update(confgen.dict_enc_for_env(env))
+    if env_file is not None:
+        env_vars = json.load(env_file)
+        os.environ.update(env_vars)
 
 
-def main():
+def _run_objdump(objdump, library):
+    """Run ``objdump -h`` on a library and return its output.
 
-    argparser = argparse.ArgumentParser(description="ESP-IDF linker script generator")
+    On some Windows systems, antivirus, endpoint-security or DLP/encryption
+    software intercepts short-lived toolchain processes and strips their output
+    when the build captures it, so objdump exits successfully but returns empty
+    output, while the same command works when run by hand. The output is read
+    through a pipe so that this empty result is reliably detectable: it is
+    rejected here with an actionable error instead of being fed to the parser
+    (which would otherwise report it as a confusing pyparsing error). Capturing
+    to a file is deliberately avoided: it would not be guaranteed complete
+    either, and a truncated-but-non-empty result could be parsed into a wrong
+    linker script instead of failing. See
+    https://github.com/espressif/esp-idf/issues/18665 and
+    https://github.com/espressif/esp-idf/issues/18727.
+    """
+    new_env = os.environ.copy()
+    # Force the C locale so objdump emits the English 'In archive' header that
+    # the section parser expects, regardless of the host locale (see
+    # https://github.com/espressif/esp-idf/issues/7903).
+    new_env['LC_ALL'] = 'C'
 
-    argparser.add_argument(
-        "--input", "-i",
-        help="Linker template file",
-        type=argparse.FileType("r"))
+    output = subprocess.check_output([objdump, '-h', library], env=new_env).decode()
+    if not output.strip():
+        raise LdGenFailure(
+            f"'{objdump} -h {library}' ran successfully but returned no output. The toolchain ran "
+            'but its output was empty when captured by the build system. This is usually caused by '
+            'antivirus, endpoint-security or DLP/encryption software stripping the output of '
+            'toolchain processes; the same command often works when run directly in a terminal. '
+            'Add an exclusion for the ESP-IDF tools directory in that software, then build again.'
+        )
+    return output
 
-    argparser.add_argument(
-        "--fragments", "-f",
-        type=argparse.FileType("r"),
-        help="Input fragment files",
-        nargs="+")
 
-    argparser.add_argument(
-        "--libraries-file",
-        type=argparse.FileType("r"),
-        help="File that contains the list of libraries in the build")
+def _run(
+    input_file,
+    fragments,
+    fragments_list,
+    fragments_list_file,
+    libraries_file,
+    mutable_libraries_file,
+    output_path,
+    config_file,
+    kconfig_file,
+    check_mapping,
+    check_mapping_exceptions,
+    env,
+    env_file,
+    objdump,
+    debug,
+):
+    fragment_files = []
+    if fragments_list:
+        fragment_files = fragments_list.split(';')
+    elif fragments_list_file:
+        fragment_files = [line.strip() for line in fragments_list_file if line.strip()]
+    elif fragments:
+        fragment_files = list(fragments)
 
-    argparser.add_argument(
-        "--output", "-o",
-        help="Output linker script",
-        type=str)
+    if check_mapping_exceptions:
+        check_mapping_exceptions = [line.strip() for line in check_mapping_exceptions]
+    else:
+        check_mapping_exceptions = None
 
-    argparser.add_argument(
-        "--config", "-c",
-        help="Project configuration")
-
-    argparser.add_argument(
-        "--kconfig", "-k",
-        help="IDF Kconfig file")
-
-    argparser.add_argument(
-        "--env", "-e",
-        action='append', default=[],
-        help='Environment to set when evaluating the config file', metavar='NAME=VAL')
-
-    argparser.add_argument('--env-file', type=argparse.FileType('r'),
-                           help='Optional file to load environment variables from. Contents '
-                           'should be a JSON object where each key/value pair is a variable.')
-
-    argparser.add_argument(
-        "--objdump",
-        help="Path to toolchain objdump")
-
-    args = argparser.parse_args()
-
-    input_file = args.input
-    fragment_files = [] if not args.fragments else args.fragments
-    libraries_file = args.libraries_file
-    config_file = args.config
-    output_path = args.output
-    kconfig_file = args.kconfig
-    objdump = args.objdump
+    no_cache = os.environ.get('LDGEN_NO_CACHE') == '1'
+    if no_cache:
+        log.print('Linker script generation caches disabled by LDGEN_NO_CACHE')
 
     try:
-        sections_infos = SectionsInfo()
+        sections_infos = EntityDB()
         for library in libraries_file:
             library = library.strip()
             if library:
-                dump = StringIO(subprocess.check_output([objdump, "-h", library]).decode())
+                dump = StringIO(_run_objdump(objdump, library))
                 dump.name = library
-                sections_infos.add_sections_info(dump)
+                try:
+                    sections_infos.add_sections_info(dump)
+                except ParseException as e:
+                    # Non-empty but unparsable section info (for example truncated or
+                    # corrupted toolchain output) is reported here rather than allowed to
+                    # propagate as a raw pyparsing traceback. The same root cause as the
+                    # empty case in _run_objdump applies.
+                    raise LdGenFailure(
+                        f'failed to parse section information from {library}. The toolchain output '
+                        'is incomplete or corrupted. This can be caused by antivirus, '
+                        'endpoint-security or DLP/encryption software tampering with the output of '
+                        'toolchain processes; the same command often works when run directly in a '
+                        f'terminal. Add an exclusion for the ESP-IDF tools directory, then build again.\n{e}'
+                    )
 
-        generation_model = GenerationModel()
+        # Check if we can skip generation entirely — section names and other
+        # inputs unchanged since last run.
+        fingerprint = (
+            None
+            if no_cache
+            else _compute_fingerprint(sections_infos, fragment_files, config_file, kconfig_file, input_file)
+        )
+        if (
+            output_path
+            and fingerprint
+            and os.path.exists(output_path)
+            and _can_skip_generation(output_path, fingerprint)
+        ):
+            log.print('Skipping linker script generation, section names unchanged')
+            sys.exit(0)
 
-        _update_environment(args)  # assign args.env and args.env_file to os.environ
+        mutable_libs = [lib.strip() for lib in mutable_libraries_file]
+        generation_model = Generation(check_mapping, check_mapping_exceptions, mutable_libs, debug)
+
+        _update_environment(env, env_file)
 
         sdkconfig = SDKConfig(kconfig_file, config_file)
 
-        for fragment_file in fragment_files:
-            try:
-                fragment_file = FragmentFile(fragment_file, sdkconfig)
-            except (ParseException, ParseFatalException) as e:
-                # ParseException is raised on incorrect grammar
-                # ParseFatalException is raised on correct grammar, but inconsistent contents (ex. duplicate
-                # keys, key unsupported by fragment, unexpected number of values, etc.)
-                raise LdGenFailure("failed to parse %s\n%s" % (fragment_file.name, str(e)))
-            generation_model.add_fragments_from_file(fragment_file)
+        # Try to load parsed fragment files from cache. The lf cache is
+        # complementary to the fingerprint skip above: if we get here, section
+        # names changed, but the fragment files themselves may still be
+        # identical and don't need re-parsing.
+        lf_cache_path = None if no_cache or not output_path else output_path + '.lfcache'
+        lf_cache_key = None if no_cache else _compute_lf_cache_key(fragment_files, config_file, kconfig_file)
+        parsed_fragments = None
+        if lf_cache_path and lf_cache_key:
+            parsed_fragments = _load_lf_cache(lf_cache_path, lf_cache_key)
+            if parsed_fragments is not None:
+                log.print('Skipping linker fragment parsing, fragment files unchanged')
 
-        mapping_rules = generation_model.generate_rules(sections_infos)
+        if parsed_fragments is None:
+            parsed_fragments = []
+            for fragment_file in fragment_files:
+                try:
+                    parsed = parse_fragment_file(fragment_file, sdkconfig)
+                except (ParseException, ParseFatalException) as e:
+                    # ParseException is raised on incorrect grammar
+                    # ParseFatalException is raised on correct grammar, but inconsistent contents (ex. duplicate
+                    # keys, key unsupported by fragment, unexpected number of values, etc.)
+                    raise LdGenFailure(f'failed to parse {fragment_file}\n{e}')
+                parsed_fragments.append(parsed)
+            if lf_cache_path and lf_cache_key:
+                _save_lf_cache(lf_cache_path, lf_cache_key, parsed_fragments)
 
-        script_model = TemplateModel(input_file)
+        for parsed in parsed_fragments:
+            generation_model.add_fragments_from_file(parsed)
+
+        non_contiguous_sram = sdkconfig.evaluate_expression('SOC_MEM_NON_CONTIGUOUS_SRAM')
+        mapping_rules = generation_model.generate(sections_infos, non_contiguous_sram)
+
+        script_model = LinkerScript(input_file)
         script_model.fill(mapping_rules)
 
-        with tempfile.TemporaryFile("w+") as output:
+        with tempfile.TemporaryFile('w+') as output:
             script_model.write(output)
             output.seek(0)
 
@@ -147,12 +304,125 @@ def main():
                     if exc.errno != errno.EEXIST:
                         raise
 
-            with open(output_path, "w") as f:  # only create output file after generation has suceeded
+            with open(
+                output_path, 'w', encoding='utf-8'
+            ) as f:  # only create output file after generation has succeeded
                 f.write(output.read())
+
+        if output_path and fingerprint:
+            _save_fingerprint(output_path, fingerprint)
     except LdGenFailure as e:
-        print("linker script generation failed for %s\nERROR: %s" % (input_file.name, e))
-        sys.exit(1)
+        log.die(f'linker script generation failed for {input_file.name}\n{e}')
 
 
-if __name__ == "__main__":
+@click.command(
+    context_settings={'help_option_names': ['-h', '--help']},
+    help='ESP-IDF linker script generator',
+)
+@click.option('--input', '-i', 'input_file', type=click.File('r'), help='Linker template file')
+@click.option(
+    '--fragments',
+    '-f',
+    multiple=True,
+    type=click.File('r'),
+    cls=MutuallyExclusiveEatAllOption,
+    exclusive_with=['fragments_list', 'fragments_list_file'],
+    help='Input fragment files',
+)
+@click.option(
+    '--fragments-list',
+    cls=MutuallyExclusiveOption,
+    exclusive_with=['fragments', 'fragments_list_file'],
+    help='Input fragment files as a semicolon-separated list',
+)
+@click.option(
+    '--fragments-list-file',
+    type=click.File('r'),
+    cls=MutuallyExclusiveOption,
+    exclusive_with=['fragments', 'fragments_list'],
+    help='File containing fragment file paths, one per line',
+)
+@click.option(
+    '--libraries-file',
+    type=click.File('r'),
+    help='File that contains the list of libraries in the build',
+)
+@click.option(
+    '--mutable-libraries-file',
+    type=click.File('r'),
+    help='File that contains the list of mutable libraries in the build',
+)
+@click.option('--output', '-o', help='Output linker script')
+@click.option('--config', '-c', help='Project configuration')
+@click.option('--kconfig', '-k', help='IDF Kconfig file')
+@click.option(
+    '--check-mapping',
+    is_flag=True,
+    help='Perform a check if a mapping (archive, obj, symbol) exists',
+)
+@click.option(
+    '--check-mapping-exceptions',
+    type=click.File('r'),
+    help='Mappings exempted from check',
+)
+@click.option(
+    '--env',
+    '-e',
+    multiple=True,
+    default=[],
+    metavar='NAME=VAL',
+    help='Environment to set when evaluating the config file',
+)
+@click.option(
+    '--env-file',
+    type=click.File('r'),
+    help='Optional file to load environment variables from. Contents '
+    'should be a JSON object where each key/value pair is a variable.',
+)
+@click.option('--objdump', help='Path to toolchain objdump')
+@click.option('--debug', '-d', is_flag=True, help='Print debugging information.')
+def cli(
+    input_file,
+    fragments,
+    fragments_list,
+    fragments_list_file,
+    libraries_file,
+    mutable_libraries_file,
+    output,
+    config,
+    kconfig,
+    check_mapping,
+    check_mapping_exceptions,
+    env,
+    env_file,
+    objdump,
+    debug,
+):
+    if debug:
+        log.set_verbosity(Verbosity.VERBOSE)
+
+    _run(
+        input_file=input_file,
+        fragments=fragments,
+        fragments_list=fragments_list,
+        fragments_list_file=fragments_list_file,
+        libraries_file=libraries_file,
+        mutable_libraries_file=mutable_libraries_file or [],
+        output_path=output,
+        config_file=config,
+        kconfig_file=kconfig,
+        check_mapping=check_mapping,
+        check_mapping_exceptions=check_mapping_exceptions,
+        env=env,
+        env_file=env_file,
+        objdump=objdump,
+        debug=debug,
+    )
+
+
+def main():
+    cli()
+
+
+if __name__ == '__main__':
     main()

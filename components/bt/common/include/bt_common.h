@@ -1,21 +1,14 @@
-
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _BT_COMMON_H_
 #define _BT_COMMON_H_
 
+#include <assert.h>
+#include <stdbool.h>
 #include "bt_user_config.h"
 #include "esp_log.h"
 
@@ -27,13 +20,33 @@
 #define TRUE   true
 #endif
 
+
+#if (UC_BT_BLUFI_ENABLE)
+#define BLUFI_INCLUDED              TRUE
+#else
+#define BLUFI_INCLUDED              FALSE
+#endif
+
+#ifdef CONFIG_BT_BLUEDROID_ENABLED
+#include "esp_bt_defs.h"
+#include "esp_bt_main.h"
+#include "esp_gatt_defs.h"
+#define ESP_BLE_HOST_STATUS_ENABLED ESP_BLUEDROID_STATUS_ENABLED
+#define ESP_BLE_HOST_STATUS_CHECK(status) ESP_BLUEDROID_STATUS_CHECK(status)
+#else
+#define ESP_BLE_HOST_STATUS_ENABLED 0
+#define ESP_BLE_HOST_STATUS_CHECK(status)  do {} while (0)
+#endif
+
 #ifndef BT_QUEUE_CONGEST_SIZE
 #define BT_QUEUE_CONGEST_SIZE    40
 #endif
 
 #define BTC_INITIAL_TRACE_LEVEL             UC_BT_LOG_BTC_TRACE_LEVEL
 #define OSI_INITIAL_TRACE_LEVEL             UC_BT_LOG_OSI_TRACE_LEVEL
+#define BLUFI_INITIAL_TRACE_LEVEL           UC_BT_LOG_BLUFI_TRACE_LEVEL
 
+// MEMORY
 #if UC_BT_BLE_DYNAMIC_ENV_MEMORY
 #define BT_BLE_DYNAMIC_ENV_MEMORY  TRUE
 #define BTC_DYNAMIC_MEMORY         TRUE
@@ -42,8 +55,82 @@
 #define BTC_DYNAMIC_MEMORY         FALSE
 #endif
 
+#if UC_BT_BLUEDROID_MEM_DEBUG
+#define HEAP_MEMORY_DEBUG   TRUE
+#else
+#define HEAP_MEMORY_DEBUG   FALSE
+#endif
+
+#if UC_BT_BLUEDROID_MEM_STATS
+#define HEAP_MEMORY_STATS   TRUE
+#else
+#define HEAP_MEMORY_STATS   FALSE
+#endif
+
+#if UC_BT_BLUEDROID_THREAD_DEBUG
+#define OSI_THREAD_DEBUG    TRUE
+#else
+#define OSI_THREAD_DEBUG    FALSE
+#endif
+
+#define OSI_THREAD_BLOCK_TIME UC_BT_BLUEDROID_THREAD_BLOCK_TIME
+
+#define OSI_THREAD_BLOCK_MSG UC_BT_BLUEDROID_THREAD_BLOCK_MSG
+
 #ifndef BT_BLE_DYNAMIC_ENV_MEMORY
 #define BT_BLE_DYNAMIC_ENV_MEMORY  FALSE
+#endif
+
+#if UC_HEAP_ALLOCATION_FROM_SPIRAM_FIRST
+#define HEAP_ALLOCATION_FROM_SPIRAM_FIRST TRUE
+#else
+#define HEAP_ALLOCATION_FROM_SPIRAM_FIRST FALSE
+#endif
+
+#if UC_BT_ABORT_WHEN_ALLOCATION_FAILS
+#define HEAP_ALLOCATION_FAILS_ABORT TRUE
+#else
+#define HEAP_ALLOCATION_FAILS_ABORT FALSE
+#endif
+
+// HCI LOG
+#if UC_BT_HCI_LOG_DEBUG_EN
+#define BT_HCI_LOG_INCLUDED  UC_BT_HCI_LOG_DEBUG_EN
+#else
+#define BT_HCI_LOG_INCLUDED  FALSE
+#endif
+
+// HCI INSIGHTS LOG
+#if UC_BT_HCI_LOG_INSIGHTS_ENABLE
+#define BT_HCI_INSIGHTS_INCLUDED  UC_BT_HCI_LOG_INSIGHTS_ENABLE
+#else
+#define BT_HCI_INSIGHTS_INCLUDED  FALSE
+#endif
+
+// HCI LOG TO SPI
+#if UC_BT_BLE_LOG_SPI_OUT_HCI_ENABLED
+#define BT_BLE_LOG_SPI_OUT_HCI_ENABLED  UC_BT_BLE_LOG_SPI_OUT_HCI_ENABLED
+#else
+#define BT_BLE_LOG_SPI_OUT_HCI_ENABLED  FALSE
+#endif
+
+// BLURDROID LOG TO SPI
+#if UC_BT_BLE_LOG_SPI_OUT_HOST_ENABLED
+#define BT_BLE_LOG_SPI_OUT_HOST_ENABLED  UC_BT_BLE_LOG_SPI_OUT_HOST_ENABLED
+#else
+#define BT_BLE_LOG_SPI_OUT_HOST_ENABLED  FALSE
+#endif
+
+#if UC_BT_HCI_LOG_DATA_BUFFER_SIZE
+#define HCI_LOG_DATA_BUFFER_SIZE  UC_BT_HCI_LOG_DATA_BUFFER_SIZE
+#else
+#define HCI_LOG_DATA_BUFFER_SIZE  (5)
+#endif
+
+#if UC_BT_HCI_LOG_ADV_BUFFER_SIZE
+#define HCI_LOG_ADV_BUFFER_SIZE  UC_BT_HCI_LOG_ADV_BUFFER_SIZE
+#else
+#define HCI_LOG_ADV_BUFFER_SIZE  (5)
 #endif
 
 /* OS Configuration from User config (eg: sdkconfig) */
@@ -77,7 +164,9 @@
 #define LOG_LOCAL_LEVEL_MAPPING LOG_LOCAL_LEVEL
 #endif
 
+#ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
 
 #define BT_LOG_LEVEL_CHECK(LAYER, LEVEL) (MAX(LAYER##_INITIAL_TRACE_LEVEL, LOG_LOCAL_LEVEL_MAPPING) >= BT_TRACE_LEVEL_##LEVEL)
 
@@ -86,10 +175,6 @@
 #define BT_PRINT_I(tag, format, ...)   {esp_log_write(ESP_LOG_INFO,    tag, LOG_FORMAT(I, format), esp_log_timestamp(), tag, ##__VA_ARGS__); }
 #define BT_PRINT_D(tag, format, ...)   {esp_log_write(ESP_LOG_DEBUG,   tag, LOG_FORMAT(D, format), esp_log_timestamp(), tag, ##__VA_ARGS__); }
 #define BT_PRINT_V(tag, format, ...)   {esp_log_write(ESP_LOG_VERBOSE, tag, LOG_FORMAT(V, format), esp_log_timestamp(), tag, ##__VA_ARGS__); }
-
-#ifndef assert
-#define assert(x)   do { if (!(x)) BT_PRINT_E("BT", "bt host error %s %u\n", __FILE__, __LINE__); } while (0)
-#endif
 
 
 #if !UC_BT_STACK_NO_LOG
@@ -109,6 +194,14 @@
 #define OSI_TRACE_DEBUG(fmt, args...)      {if (OSI_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_DEBUG && BT_LOG_LEVEL_CHECK(OSI,DEBUG)) BT_PRINT_D("BT_OSI", fmt, ## args);}
 #define OSI_TRACE_VERBOSE(fmt, args...)    {if (OSI_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_VERBOSE && BT_LOG_LEVEL_CHECK(OSI,VERBOSE)) BT_PRINT_V("BT_OSI", fmt, ## args);}
 
+/* define traces for BLUFI */
+#define BLUFI_TRACE_ERROR(fmt, args...)      {if (BLUFI_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_ERROR && BT_LOG_LEVEL_CHECK(BLUFI, ERROR)) BT_PRINT_E("BT_BLUFI", fmt, ## args);}
+#define BLUFI_TRACE_WARNING(fmt, args...)    {if (BLUFI_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_WARNING && BT_LOG_LEVEL_CHECK(BLUFI, WARNING)) BT_PRINT_W("BT_BLUFI", fmt, ## args);}
+#define BLUFI_TRACE_API(fmt, args...)        {if (BLUFI_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_API && BT_LOG_LEVEL_CHECK(BLUFI,API)) BT_PRINT_I("BT_BLUFI", fmt, ## args);}
+#define BLUFI_TRACE_EVENT(fmt, args...)      {if (BLUFI_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_EVENT && BT_LOG_LEVEL_CHECK(BLUFI,EVENT)) BT_PRINT_D("BT_BLUFI", fmt, ## args);}
+#define BLUFI_TRACE_DEBUG(fmt, args...)      {if (BLUFI_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_DEBUG && BT_LOG_LEVEL_CHECK(BLUFI,DEBUG)) BT_PRINT_D("BT_BLUFI", fmt, ## args);}
+#define BLUFI_TRACE_VERBOSE(fmt, args...)    {if (BLUFI_INITIAL_TRACE_LEVEL >= BT_TRACE_LEVEL_VERBOSE && BT_LOG_LEVEL_CHECK(BLUFI,VERBOSE)) BT_PRINT_V("BT_BLUFI", fmt, ## args);}
+
 #else
 
 /* define traces for BTC */
@@ -126,6 +219,14 @@
 #define OSI_TRACE_EVENT(fmt, args...)
 #define OSI_TRACE_DEBUG(fmt, args...)
 #define OSI_TRACE_VERBOSE(fmt, args...)
+
+/* define traces for BLUFI */
+#define BLUFI_TRACE_ERROR(fmt, args...)
+#define BLUFI_TRACE_WARNING(fmt, args...)
+#define BLUFI_TRACE_API(fmt, args...)
+#define BLUFI_TRACE_EVENT(fmt, args...)
+#define BLUFI_TRACE_DEBUG(fmt, args...)
+#define BLUFI_TRACE_VERBOSE(fmt, args...)
 
 #endif
 
@@ -154,5 +255,46 @@ typedef enum {
     BT_STATUS_MEMORY_FULL,
     BT_STATUS_EIR_TOO_LARGE,
 } bt_status_t;
+
+typedef uint8_t UINT8;
+typedef uint16_t UINT16;
+typedef uint32_t UINT32;
+typedef uint64_t UINT64;
+typedef bool BOOLEAN;
+/* Maximum UUID size - 16 bytes, and structure to hold any type of UUID. */
+#define MAX_UUID_SIZE              16
+#define MAX_UUID_NUM               32
+
+typedef struct {
+#define LEN_UUID_16     2
+#define LEN_UUID_32     4
+#define LEN_UUID_128    16
+
+    UINT16          len;
+
+    union {
+        UINT16      uuid16;
+        UINT32      uuid32;
+        UINT8       uuid128[MAX_UUID_SIZE];
+    } uu;
+
+} tBT_UUID;
+
+/* Common Bluetooth field definitions */
+#define BD_ADDR_LEN     6                   /* Device address length */
+typedef UINT8 BD_ADDR[BD_ADDR_LEN];         /* Device address */
+
+#if (BT_HCI_LOG_INCLUDED == TRUE) && BT_HCI_INSIGHTS_INCLUDED
+void bt_hci_log_record_insights(uint8_t data_type, const uint8_t *data, uint16_t data_len);
+#endif
+
+#if CONFIG_BT_BLUEDROID_ENABLED && CONFIG_BLE_HOST_COMPRESSED_LOG_ENABLE
+/*
+ * The generated Bluedroid index also owns the BTC/OSI/BLUFI TRACE macros
+ * declared by this header, including those used from common/btc and
+ * common/osi sources.
+ */
+#include "host_log_index.h"
+#endif
 
 #endif /* _BT_COMMON_H_ */

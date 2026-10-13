@@ -1,16 +1,8 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_BLE_MESH_CONFIG_MODEL_API_H_
 #define _ESP_BLE_MESH_CONFIG_MODEL_API_H_
@@ -50,7 +42,7 @@ extern "C" {
                   NULL, NULL, cli_data)
 
 /** Configuration Server Model context */
-typedef struct esp_ble_mesh_cfg_srv {
+typedef struct {
     esp_ble_mesh_model_t *model;    /*!< Pointer to Configuration Server Model */
 
     uint8_t net_transmit;           /*!< Network Transmit state */
@@ -324,7 +316,7 @@ typedef struct {
 } esp_ble_mesh_cfg_net_transmit_set_t;
 
 /** Parameters of Config Model Heartbeat Publication Set. */
-typedef struct  {
+typedef struct {
     uint16_t dst;                   /*!< Destination address for Heartbeat messages */
     uint8_t  count;                 /*!< Number of Heartbeat messages to be sent */
     uint8_t  period;                /*!< Period for sending Heartbeat messages */
@@ -618,6 +610,7 @@ typedef enum {
  * @brief Configuration Server model related context.
  */
 
+/** Parameters of Config Model Publication Set */
 typedef struct {
     uint16_t element_addr;      /*!< Element Address */
     uint16_t pub_addr;          /*!< Publish Address */
@@ -629,6 +622,19 @@ typedef struct {
     uint16_t company_id;        /*!< Company ID */
     uint16_t model_id;          /*!< Model ID */
 } esp_ble_mesh_state_change_cfg_mod_pub_set_t;
+
+/** Parameters of Config Model Publication Virtual Address Set */
+typedef struct {
+    uint16_t element_addr;      /*!< Element Address */
+    uint8_t  label_uuid[16];    /*!< Label UUID */
+    uint16_t app_idx;           /*!< AppKey Index */
+    bool     cred_flag;         /*!< Friendship Credential Flag */
+    uint8_t  pub_ttl;           /*!< Publish TTL */
+    uint8_t  pub_period;        /*!< Publish Period */
+    uint8_t  pub_retransmit;    /*!< Publish Retransmit */
+    uint16_t company_id;        /*!< Company ID */
+    uint16_t model_id;          /*!< Model ID */
+} esp_ble_mesh_state_change_cfg_mod_pub_va_set_t;
 
 /** Parameters of Config Model Subscription Add */
 typedef struct {
@@ -713,6 +719,7 @@ typedef union {
      * The recv_op in ctx can be used to decide which state is changed.
      */
     esp_ble_mesh_state_change_cfg_mod_pub_set_t         mod_pub_set;        /*!< Config Model Publication Set */
+    esp_ble_mesh_state_change_cfg_mod_pub_va_set_t      mod_pub_va_set;     /*!< Config Model Publication Virtual Address Set */
     esp_ble_mesh_state_change_cfg_model_sub_add_t       mod_sub_add;        /*!< Config Model Subscription Add */
     esp_ble_mesh_state_change_cfg_model_sub_delete_t    mod_sub_delete;     /*!< Config Model Subscription Delete */
     esp_ble_mesh_state_change_cfg_netkey_add_t          netkey_add;         /*!< Config NetKey Add */
@@ -823,4 +830,3 @@ esp_err_t esp_ble_mesh_config_client_set_state(esp_ble_mesh_client_common_param_
 #endif
 
 #endif /* _ESP_BLE_MESH_CONFIG_MODEL_API_H_ */
-

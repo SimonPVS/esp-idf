@@ -1,3 +1,6 @@
+| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-H21 | ESP32-H4 | ESP32-P4 | ESP32-S2 | ESP32-S3 | ESP32-S31 |
+| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | --------- | -------- | -------- | -------- | -------- | --------- |
+
 # Partitions Tool Example
 
 This example demonstrates common operations the partitions tool [parttool.py](../../../components/partition_table/parttool.py) allows the user to perform:
@@ -14,18 +17,16 @@ The example performs the operations mentioned above in a straightforward manner:
 by reading it back. For partitions, contents are compared to the originally written file. For the partition table, contents are verified against the partition table CSV
 file. An erased partition's contents is compared to a generated blank file.
 
+## When to use this example
+
+- You want to manipulate partitions from the *host* PC (read/write/erase, dump the partition table) using `parttool.py`.
+
 ## How to use example
 
 ### Build and Flash
 
 Before running either of the example scripts, it is necessary to build and flash the firmware using the usual means:
 
-Make:
-```bash
-make build flash
-```
-
-CMake:
 ```bash
 idf.py build flash
 ```

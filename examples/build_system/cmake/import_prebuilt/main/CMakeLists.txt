@@ -1,4 +1,5 @@
 idf_component_register(SRCS "main.c"
+                    PRIV_REQUIRES app_update
                     INCLUDE_DIRS ".")
 
 # Import the library, specifying a target name and the library path.
@@ -8,5 +9,3 @@ add_prebuilt_library(prebuilt "libprebuilt.a"
 
 # `main` calls a function from the library, so link it to `main`
 target_link_libraries(${COMPONENT_LIB} PRIVATE prebuilt)
-
-

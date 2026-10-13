@@ -1,17 +1,11 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include "nvs_pagemanager.hpp"
+
+using namespace std;
 
 namespace nvs
 {
@@ -55,83 +49,88 @@ esp_err_t PageManager::load(Partition *partition, uint32_t baseSector, uint32_t 
         return activatePage();
     } else {
         uint32_t lastSeqNo;
-        ESP_ERROR_CHECK( mPageList.back().getSeqNumber(lastSeqNo) );
+        auto err = mPageList.back().getSeqNumber(lastSeqNo);
+        if (err != ESP_OK) {
+            return err;
+        }
         mSeqNumber = lastSeqNo + 1;
     }
 
     // if power went out after a new item for the given key was written,
     // but before the old one was erased, we end up with a duplicate item
-    Page& lastPage = back();
-    size_t lastItemIndex = SIZE_MAX;
-    Item item;
-    size_t itemIndex = 0;
-    while (lastPage.findItem(Page::NS_ANY, ItemType::ANY, nullptr, itemIndex, item) == ESP_OK) {
-        itemIndex += item.span;
-        lastItemIndex = itemIndex;
-    }
-
-    if (lastItemIndex != SIZE_MAX) {
-        auto last = PageManager::TPageListIterator(&lastPage);
-        TPageListIterator it;
-
-        for (it = begin(); it != last; ++it) {
-
-            if ((it->state() != Page::PageState::FREEING) &&
-                    (it->eraseItem(item.nsIndex, item.datatype, item.key, item.chunkIndex) == ESP_OK)) {
-                break;
-            }
+    if (!partition->get_readonly()) {
+        Page& lastPage = back();
+        size_t lastItemIndex = SIZE_MAX;
+        Item item;
+        size_t itemIndex = 0;
+        while (lastPage.findItem(Page::NS_ANY, ItemType::ANY, nullptr, itemIndex, item) == ESP_OK) {
+            itemIndex += item.span;
+            lastItemIndex = itemIndex;
         }
-        if ((it == last) && (item.datatype == ItemType::BLOB_IDX)) {
-            /* Rare case in which the blob was stored using old format, but power went just after writing
-             * blob index during modification. Loop again and delete the old version blob*/
+
+        if (lastItemIndex != SIZE_MAX) {
+            auto last = PageManager::TPageListIterator(&lastPage);
+            TPageListIterator it;
+
             for (it = begin(); it != last; ++it) {
 
                 if ((it->state() != Page::PageState::FREEING) &&
-                        (it->eraseItem(item.nsIndex, ItemType::BLOB, item.key, item.chunkIndex) == ESP_OK)) {
+                        (it->eraseItem(item.nsIndex, item.datatype, item.key, Page::DEFAULT_PURGE_AFTER_ERASE, item.chunkIndex) == ESP_OK)) {
                     break;
                 }
             }
-        }
-    }
+            if ((it == last) && (item.datatype == ItemType::BLOB_IDX)) {
+                /* Rare case in which the blob was stored using old format, but power went just after writing
+                * blob index during modification. Loop again and delete the old version blob*/
+                for (it = begin(); it != last; ++it) {
 
-    // check if power went out while page was being freed
-    for (auto it = begin(); it!= end(); ++it) {
-        if (it->state() == Page::PageState::FREEING) {
-            Page* newPage = &mPageList.back();
-            if (newPage->state() == Page::PageState::ACTIVE) {
-                auto err = newPage->erase();
+                    if ((it->state() != Page::PageState::FREEING) &&
+                            (it->eraseItem(item.nsIndex, ItemType::BLOB, item.key, Page::DEFAULT_PURGE_AFTER_ERASE, item.chunkIndex) == ESP_OK)) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // check if power went out while page was being freed
+        for (auto it = begin(); it!= end(); ++it) {
+            if (it->state() == Page::PageState::FREEING) {
+                Page* newPage = &mPageList.back();
+                if (newPage->state() == Page::PageState::ACTIVE) {
+                    auto err = newPage->erase();
+                    if (err != ESP_OK) {
+                        return err;
+                    }
+                    mPageList.erase(newPage);
+                    mFreePageList.push_back(newPage);
+                }
+                auto err = activatePage();
                 if (err != ESP_OK) {
                     return err;
                 }
-                mPageList.erase(newPage);
-                mFreePageList.push_back(newPage);
-            }
-            auto err = activatePage();
-            if (err != ESP_OK) {
-                return err;
-            }
-            newPage = &mPageList.back();
+                newPage = &mPageList.back();
 
-            err = it->copyItems(*newPage);
-            if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
-                return err;
-            }
+                err = it->copyItems(*newPage);
+                if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
+                    return err;
+                }
 
-            err = it->erase();
-            if (err != ESP_OK) {
-                return err;
-            }
+                err = it->erase();
+                if (err != ESP_OK) {
+                    return err;
+                }
 
-            Page* p = static_cast<Page*>(it);
-            mPageList.erase(it);
-            mFreePageList.push_back(p);
-            break;
+                Page* p = static_cast<Page*>(it);
+                mPageList.erase(it);
+                mFreePageList.push_back(p);
+                break;
+            }
         }
-    }
 
-    // partition should have at least one free page
-    if (mFreePageList.empty()) {
-        return ESP_ERR_NVS_NO_FREE_PAGES;
+        // partition should have at least one free page if it is not read-only
+        if (mFreePageList.empty()) {
+            return ESP_ERR_NVS_NO_FREE_PAGES;
+        }
     }
 
     return ESP_OK;
@@ -148,7 +147,7 @@ esp_err_t PageManager::requestNewPage()
         return activatePage();
     }
 
-    // find the page with the higest number of erased items
+    // find the page with the highest number of erased items
     TPageListIterator maxUnusedItemsPageIt;
     size_t maxUnusedItems = 0;
     for (auto it = begin(); it != end(); ++it) {
@@ -164,22 +163,25 @@ esp_err_t PageManager::requestNewPage()
         return ESP_ERR_NVS_NOT_ENOUGH_SPACE;
     }
 
-    esp_err_t err = activatePage();
+    Page* erasedPage = maxUnusedItemsPageIt;
+
+#ifndef NDEBUG
+    size_t usedEntries = erasedPage->getUsedEntryCount();
+#endif
+    esp_err_t err = erasedPage->markFreeing();
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    // Activating a new page first when markFreeing is done. The data recovery from power loss will be
+    // driven by the existence of the (transitional) FREEING state of a page.
+    err = activatePage();
     if (err != ESP_OK) {
         return err;
     }
 
     Page* newPage = &mPageList.back();
 
-    Page* erasedPage = maxUnusedItemsPageIt;
-
-#ifndef NDEBUG
-    size_t usedEntries = erasedPage->getUsedEntryCount();
-#endif
-    err = erasedPage->markFreeing();
-    if (err != ESP_OK) {
-        return err;
-    }
     err = erasedPage->copyItems(*newPage);
     if (err != ESP_OK && err != ESP_ERR_NVS_NOT_FOUND) {
         return err;
@@ -191,7 +193,7 @@ esp_err_t PageManager::requestNewPage()
     }
 
 #ifndef NDEBUG
-    assert(usedEntries == newPage->getUsedEntryCount());
+    NVS_ASSERT_OR_RETURN(usedEntries == newPage->getUsedEntryCount(), ESP_FAIL);
 #endif
 
     mPageList.erase(maxUnusedItemsPageIt);
@@ -223,6 +225,7 @@ esp_err_t PageManager::fillStats(nvs_stats_t& nvsStats)
 {
     nvsStats.used_entries      = 0;
     nvsStats.free_entries      = 0;
+    nvsStats.available_entries = 0;
     nvsStats.total_entries     = 0;
     esp_err_t err = ESP_OK;
 
@@ -234,9 +237,13 @@ esp_err_t PageManager::fillStats(nvs_stats_t& nvsStats)
         }
     }
 
-    // free pages
+    // add free pages
     nvsStats.total_entries += mFreePageList.size() * Page::ENTRY_COUNT;
     nvsStats.free_entries  += mFreePageList.size() * Page::ENTRY_COUNT;
+
+    // calculate available entries from free entries by applying reserved page size
+    // avoid overflow of size_t declared available_entries in case of free_entries being too low
+    nvsStats.available_entries = (nvsStats.free_entries >= Page::ENTRY_COUNT) ? nvsStats.free_entries - Page::ENTRY_COUNT : 0;
 
     return err;
 }

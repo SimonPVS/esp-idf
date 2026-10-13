@@ -29,8 +29,14 @@
 
 #if (defined(AVRC_INCLUDED) && AVRC_INCLUDED == TRUE)
 
-#ifndef SDP_AVRCP_1_4
-#define SDP_AVRCP_1_4      TRUE
+#if AVRC_CA_INCLUDED == TRUE
+/* If Cover Art feature is enabled, set AVRCP version to 1.6 */
+#define SDP_AVRCP_1_6      TRUE
+#define SDP_AVRCP_1_5      FALSE
+#else
+/* Otherwise, set to 1.5 */
+#define SDP_AVRCP_1_6      FALSE
+#define SDP_AVRCP_1_5      TRUE
 #endif
 
 #ifndef SDP_AVCTP_1_4
@@ -52,7 +58,7 @@ const tSDP_PROTOCOL_ELEM  avrc_proto_list [] = {
 #if SDP_AVCTP_1_4 == TRUE
     {UUID_PROTOCOL_AVCTP, 1, {AVCT_REV_1_4, 0}  }
 #else
-#if SDP_AVRCP_1_4 == TRUE
+#if (SDP_AVRCP_1_5 == TRUE || SDP_AVRCP_1_6 == TRUE)
     {UUID_PROTOCOL_AVCTP, 1, {AVCT_REV_1_3, 0}  }
 #else
 #if AVRC_METADATA_INCLUDED == TRUE
@@ -64,13 +70,17 @@ const tSDP_PROTOCOL_ELEM  avrc_proto_list [] = {
 #endif
 };
 
-#if SDP_AVRCP_1_4 == TRUE
+#if (SDP_AVRCP_1_5 == TRUE || SDP_AVRCP_1_6 == TRUE)
 const tSDP_PROTO_LIST_ELEM  avrc_add_proto_list [] = {
     {
         AVRC_NUM_PROTO_ELEMS,
         {
             {UUID_PROTOCOL_L2CAP, 1, {AVCT_BR_PSM, 0} },
+#if SDP_AVCTP_1_4 == TRUE
+            {UUID_PROTOCOL_AVCTP, 1, {AVCT_REV_1_4, 0}  }
+#else
             {UUID_PROTOCOL_AVCTP, 1, {AVCT_REV_1_3, 0}  }
+#endif
         }
     }
 };
@@ -100,7 +110,9 @@ static void avrc_sdp_cback(UINT16 status)
     avrc_cb.service_uuid = 0;
 
     /* return info from sdp record in app callback function */
-    (*avrc_cb.p_cback) (status);
+    if (avrc_cb.p_cback != NULL) {
+        (*avrc_cb.p_cback) (status);
+    }
 
     return;
 }
@@ -187,6 +199,11 @@ UINT16 AVRC_FindService(UINT16 service_uuid, BD_ADDR bd_addr,
 
         /* perform service search */
         result = SDP_ServiceSearchAttributeRequest(bd_addr, p_db->p_db, avrc_sdp_cback);
+        if (!result) {
+            avrc_cb.service_uuid = 0;
+            avrc_cb.p_db = NULL;
+            avrc_cb.p_cback = NULL;
+        }
     }
 
     return (result ? AVRC_SUCCESS : AVRC_FAIL);
@@ -216,6 +233,8 @@ UINT16 AVRC_FindService(UINT16 service_uuid, BD_ADDR bd_addr,
 **
 **                      sdp_handle:  SDP handle returned by SDP_CreateRecord().
 **
+**                      browsing_en:  Supported browsing
+**
 **                  Output Parameters:
 **                      None.
 **
@@ -223,8 +242,8 @@ UINT16 AVRC_FindService(UINT16 service_uuid, BD_ADDR bd_addr,
 **                  AVRC_NO_RESOURCES if not enough resources to build the SDP record.
 **
 ******************************************************************************/
-UINT16 AVRC_AddRecord(UINT16 service_uuid, char *p_service_name,
-                      char *p_provider_name, UINT16 categories, UINT32 sdp_handle)
+UINT16 AVRC_AddRecord(UINT16 service_uuid, char *p_service_name, char *p_provider_name,
+                      UINT16 categories, UINT32 sdp_handle, BOOLEAN browsing_en)
 {
     UINT16      browse_list[1];
     BOOLEAN     result = TRUE;
@@ -232,9 +251,12 @@ UINT16 AVRC_AddRecord(UINT16 service_uuid, char *p_service_name,
     UINT8       *p;
     UINT16      count = 1;
     UINT16      class_list[2];
+    UINT16      supported_feature = categories;
+    BOOLEAN     media_player_virtual_filesystem_supported = FALSE;
+    BOOLEAN     add_additional_protocol_list = FALSE;
 
 
-    AVRC_TRACE_API("AVRC_AddRecord uuid: %x", service_uuid);
+    AVRC_TRACE_API("AVRC_AddRecord uuid: %x, browsing_en:%d", service_uuid, browsing_en);
 
     if ( service_uuid != UUID_SERVCLASS_AV_REM_CTRL_TARGET && service_uuid != UUID_SERVCLASS_AV_REMOTE_CONTROL ) {
         return AVRC_BAD_PARAM;
@@ -242,18 +264,11 @@ UINT16 AVRC_AddRecord(UINT16 service_uuid, char *p_service_name,
 
     /* add service class id list */
     class_list[0] = service_uuid;
-#if SDP_AVCTP_1_4 == TRUE
+#if (SDP_AVCTP_1_4 == TRUE || SDP_AVRCP_1_5 == TRUE || SDP_AVRCP_1_6 == TRUE)
     if ( service_uuid == UUID_SERVCLASS_AV_REMOTE_CONTROL ) {
         class_list[1] = UUID_SERVCLASS_AV_REM_CTRL_CONTROL;
         count = 2;
     }
-#else
-#if SDP_AVRCP_1_4 == TRUE
-    if ( service_uuid == UUID_SERVCLASS_AV_REMOTE_CONTROL ) {
-        class_list[1] = UUID_SERVCLASS_AV_REM_CTRL_CONTROL;
-        count = 2;
-    }
-#endif
 #endif
     result &= SDP_AddServiceClassIdList(sdp_handle, count, class_list);
 
@@ -261,11 +276,25 @@ UINT16 AVRC_AddRecord(UINT16 service_uuid, char *p_service_name,
     result &= SDP_AddProtocolList(sdp_handle, AVRC_NUM_PROTO_ELEMS, (tSDP_PROTOCOL_ELEM *)avrc_proto_list);
 
     /* add profile descriptor list   */
-#if SDP_AVRCP_1_4 == TRUE
-    /* additional protocol list to include browsing channel */
-    result &= SDP_AddAdditionProtoLists( sdp_handle, 1, (tSDP_PROTO_LIST_ELEM *)avrc_add_proto_list);
+#if (SDP_AVRCP_1_5 == TRUE || SDP_AVRCP_1_6 == TRUE)
+    if (browsing_en) {
+        add_additional_protocol_list = TRUE;
+    } else if (service_uuid == UUID_SERVCLASS_AV_REM_CTRL_TARGET &&
+               (categories & (AVRC_SUPF_TG_CAT1 | AVRC_SUPF_TG_CAT3))) {
+        AVRC_TRACE_WARNING("For AVRCP Target Cateory 1 and 3, SDP record shall contain additional protocol list");
+        add_additional_protocol_list = TRUE;
+    }
 
-    result &= SDP_AddProfileDescriptorList(sdp_handle, UUID_SERVCLASS_AV_REMOTE_CONTROL, AVRC_REV_1_4);
+    if (add_additional_protocol_list) {
+        /* additional protocol list to include browsing channel */
+        result &= SDP_AddAdditionProtoLists( sdp_handle, 1, (tSDP_PROTO_LIST_ELEM *)avrc_add_proto_list);
+    }
+
+#if SDP_AVRCP_1_5 == TRUE
+    result &= SDP_AddProfileDescriptorList(sdp_handle, UUID_SERVCLASS_AV_REMOTE_CONTROL, AVRC_REV_1_5);
+#elif SDP_AVRCP_1_6 == TRUE
+    result &= SDP_AddProfileDescriptorList(sdp_handle, UUID_SERVCLASS_AV_REMOTE_CONTROL, AVRC_REV_1_6);
+#endif
 #else
 #if AVRC_METADATA_INCLUDED == TRUE
     result &= SDP_AddProfileDescriptorList(sdp_handle, UUID_SERVCLASS_AV_REMOTE_CONTROL, AVRC_REV_1_3);
@@ -274,9 +303,22 @@ UINT16 AVRC_AddRecord(UINT16 service_uuid, char *p_service_name,
 #endif
 #endif
 
-    /* add supported categories */
+    /* Check if browsing is supported */
+    if (service_uuid == UUID_SERVCLASS_AV_REM_CTRL_CONTROL && browsing_en) {
+        supported_feature |= AVRC_SUPF_CT_BROWSE;
+    } else if (service_uuid == UUID_SERVCLASS_AV_REM_CTRL_TARGET && media_player_virtual_filesystem_supported) {
+        supported_feature |= AVRC_SUPF_TG_BROWSE;
+    }
+#if AVRC_CA_INCLUDED
+    if (service_uuid == UUID_SERVCLASS_AV_REM_CTRL_CONTROL || service_uuid == UUID_SERVCLASS_AV_REMOTE_CONTROL) {
+        supported_feature |= AVRC_SUPF_CT_COVER_ART_GIP;
+        supported_feature |= AVRC_SUPF_CT_COVER_ART_GI;
+        supported_feature |= AVRC_SUPF_CT_COVER_ART_GLT;
+    }
+#endif
+    /* add supported feature */
     p = temp;
-    UINT16_TO_BE_STREAM(p, categories);
+    UINT16_TO_BE_STREAM(p, supported_feature);
     result &= SDP_AddAttribute(sdp_handle, ATTR_ID_SUPPORTED_FEATURES, UINT_DESC_TYPE,
                                (UINT32)2, (UINT8 *)temp);
 
@@ -365,7 +407,7 @@ bt_status_t AVRC_Init(void)
 **
 ** Function         AVRC_Deinit
 **
-** Description      This function is called at stack shotdown to free the
+** Description      This function is called at stack shutdown to free the
 **                  control block (if using dynamic memory), and deinitializes the
 **                  control block and tracing level.
 **
@@ -376,6 +418,17 @@ void AVRC_Deinit(void)
 {
 #if AVRC_DYNAMIC_MEMORY
     if (avrc_cb_ptr){
+#if (AVRC_METADATA_INCLUDED == TRUE)
+        UINT8 i;
+        for (i = 0; i < AVCT_NUM_CONN; i++) {
+            if (avrc_cb_ptr->fcb[i].p_fmsg) {
+                osi_free(avrc_cb_ptr->fcb[i].p_fmsg);
+            }
+            if (avrc_cb_ptr->rcb[i].p_rmsg) {
+                osi_free(avrc_cb_ptr->rcb[i].p_rmsg);
+            }
+        }
+#endif
         osi_free(avrc_cb_ptr);
         avrc_cb_ptr = NULL;
     }

@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef __BTC_GATTC_H__
 #define __BTC_GATTC_H__
@@ -24,12 +16,18 @@ typedef enum {
     BTC_GATTC_ACT_APP_REGISTER = 0,
     BTC_GATTC_ACT_APP_UNREGISTER,
     BTC_GATTC_ACT_OPEN,
+#if (BLE_50_FEATURE_SUPPORT == TRUE)
+    BTC_GATTC_ACT_AUX_OPEN,
+#endif // #if (BLE_50_FEATURE_SUPPORT == TRUE)
     BTC_GATTC_ACT_CLOSE,
+    BTC_GATTC_ACT_CANCEL_OPEN,
     BTC_GATTC_ACT_CFG_MTU,
     BTC_GATTC_ACT_SEARCH_SERVICE,
     BTC_GATTC_ACT_READ_CHAR,
     BTC_GATTC_ACT_READ_MULTIPLE_CHAR,
+    BTC_GATTC_ACT_READ_MULTIPLE_VARIABLE_CHAR,
     BTC_GATTC_ACT_READ_CHAR_DESCR,
+    BTC_GATTC_ACT_READ_BY_TYPE,
     BTC_GATTC_ACT_WRITE_CHAR,
     BTC_GATTC_ACT_WRITE_CHAR_DESCR,
     BTC_GATTC_ACT_PREPARE_WRITE,
@@ -59,11 +57,25 @@ typedef union {
         esp_bd_addr_t remote_bda;
         esp_ble_addr_type_t remote_addr_type;
         bool is_direct;
+        bool is_aux;
+        esp_ble_addr_type_t own_addr_type;
+        bool is_pawr_synced;
+        uint8_t adv_handle;
+        uint8_t subevent;
+        esp_ble_phy_mask_t phy_mask;
+        esp_ble_conn_params_t phy_1m_conn_params;
+        esp_ble_conn_params_t phy_2m_conn_params;
+        esp_ble_conn_params_t phy_coded_conn_params;
     } open;
     //BTC_GATTC_ACT_CLOSE,
     struct close_arg {
         uint16_t conn_id;
     } close;
+    //BTC_GATTC_ACT_CANCEL_OPEN,
+    struct cancel_open_arg {
+        esp_gatt_if_t gattc_if;
+        esp_bd_addr_t remote_bda;
+    } cancel_open;
     //BTC_GATTC_ACT_CFG_MTU,
     struct cfg_mtu_arg {
         uint16_t conn_id;
@@ -113,6 +125,14 @@ typedef union {
         uint16_t handle;
         esp_gatt_auth_req_t auth_req;
     } read_descr;
+    // BTC_GATTC_ACT_READ_BY_TYPE
+    struct read_by_type_arg {
+        uint16_t conn_id;
+        uint16_t s_handle;
+        uint16_t e_handle;
+        esp_bt_uuid_t uuid;
+        esp_gatt_auth_req_t auth_req;
+    } read_by_type;
     //BTC_GATTC_ACT_WRITE_CHAR,
     struct write_char_arg {
         uint16_t conn_id;
@@ -190,7 +210,8 @@ typedef union {
 void btc_gattc_call_handler(btc_msg_t *msg);
 void btc_gattc_cb_handler(btc_msg_t *msg);
 void btc_gattc_arg_deep_copy(btc_msg_t *msg, void *p_dest, void *p_src);
-esp_gatt_status_t btc_ble_gattc_get_service(uint16_t conn_id, esp_bt_uuid_t *svc_uuid, 
+void btc_gattc_arg_deep_free(btc_msg_t *msg);
+esp_gatt_status_t btc_ble_gattc_get_service(uint16_t conn_id, esp_bt_uuid_t *svc_uuid,
                                             esp_gattc_service_elem_t *result,
                                             uint16_t *count, uint16_t offset);
 esp_gatt_status_t btc_ble_gattc_get_all_char(uint16_t conn_id,
@@ -236,7 +257,7 @@ esp_gatt_status_t btc_ble_gattc_get_attr_count(uint16_t conn_id,
                                                uint16_t char_handle,
                                                uint16_t *count);
 
-esp_gatt_status_t btc_ble_gattc_get_db(uint16_t conn_id, uint16_t start_handle, uint16_t end_handle, 
+esp_gatt_status_t btc_ble_gattc_get_db(uint16_t conn_id, uint16_t start_handle, uint16_t end_handle,
                                        esp_gattc_db_elem_t *db, uint16_t *count);
 
 

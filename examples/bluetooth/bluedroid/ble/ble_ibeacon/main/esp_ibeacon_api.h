@@ -1,11 +1,8 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
+ * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 
 /****************************************************************************
@@ -26,9 +23,6 @@
 #include "esp_gap_ble_api.h"
 #include "esp_gattc_api.h"
 
-
-/* Because current ESP IDF version doesn't support scan and adv simultaneously,
- * so iBeacon sender and receiver should not run simultaneously */
 #define IBEACON_SENDER      0
 #define IBEACON_RECEIVER    1
 #define IBEACON_MODE CONFIG_IBEACON_MODE
@@ -38,8 +32,8 @@
  * iBeacon data */
 #define ENDIAN_CHANGE_U16(x) ((((x)&0xFF00)>>8) + (((x)&0xFF)<<8))
 
-/* Espressif WeChat official account can be found using WeChat "Yao Yi Yao Zhou Bian", 
- * if device advertises using ESP defined UUID. 
+/* Espressif WeChat official account can be found using WeChat "Yao Yi Yao Zhou Bian",
+ * if device advertises using ESP defined UUID.
  * Please refer to http://zb.weixin.qq.com for further information. */
 #define ESP_UUID    {0xFD, 0xA5, 0x06, 0x93, 0xA4, 0xE2, 0x4F, 0xB1, 0xAF, 0xCF, 0xC6, 0xEB, 0x07, 0x64, 0x78, 0x25}
 #define ESP_MAJOR   10167

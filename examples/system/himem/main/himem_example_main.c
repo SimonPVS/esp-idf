@@ -9,13 +9,13 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "esp_system.h"
 #include "nvs_flash.h"
 #include "esp_heap_caps.h"
-#include "esp32/spiram.h"
 #include "sdkconfig.h"
 #include "esp32/himem.h"
 
@@ -41,7 +41,7 @@ static bool check_mem_seed(int seed, void *mem, int len, int phys_addr)
     for (int i = 0; i < len / 4; i++) {
         uint32_t ex = rand_r(&rseed);
         if (ex != *p) {
-            printf("check_mem_seed: %x has 0x%08x expected 0x%08x\n", phys_addr+((char*)p-(char*)mem), *p, ex);
+            printf("check_mem_seed: %x has 0x%08"PRIx32" expected 0x%08"PRIx32"\n", phys_addr+((char*)p-(char*)mem), *p, ex);
             return false;
         }
         p++;
@@ -94,4 +94,3 @@ void app_main(void)
     assert(test_region(memfree, 0xaaaa));
     printf("Done!\n");
 }
-

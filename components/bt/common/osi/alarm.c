@@ -143,13 +143,13 @@ static void alarm_cb_handler(struct alarm_t *alarm)
         OSI_TRACE_WARNING("%s, invalid state %d\n", __func__, alarm_state);
         return;
     }
-    btc_msg_t msg;
+    btc_msg_t msg = {0};
     btc_alarm_args_t arg;
     msg.sig = BTC_SIG_API_CALL;
     msg.pid = BTC_PID_ALARM;
     arg.cb = alarm->cb;
     arg.cb_data = alarm->cb_data;
-    btc_transfer_context(&msg, &arg, sizeof(btc_alarm_args_t), NULL);
+    btc_transfer_context(&msg, &arg, sizeof(btc_alarm_args_t), NULL, NULL);
 }
 
 osi_alarm_t *osi_alarm_new(const char *alarm_name, osi_alarm_callback_t callback, void *data, period_ms_t timer_expire)
@@ -173,7 +173,7 @@ osi_alarm_t *osi_alarm_new(const char *alarm_name, osi_alarm_callback_t callback
         goto end;
     }
 
-    esp_timer_create_args_t tca;
+    esp_timer_create_args_t tca = {0};
     tca.callback = (esp_timer_cb_t)alarm_cb_handler;
     tca.arg = timer_id;
     tca.dispatch_method = ESP_TIMER_TASK;
@@ -317,4 +317,26 @@ period_ms_t osi_alarm_get_remaining_ms(const osi_alarm_t *alarm)
 uint32_t osi_time_get_os_boottime_ms(void)
 {
     return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
+bool osi_alarm_is_active(osi_alarm_t *alarm)
+{
+    assert(alarm != NULL);
+
+    assert(alarm_mutex != NULL);
+
+    bool active = false;
+    osi_mutex_lock(&alarm_mutex, OSI_MUTEX_MAX_TIMEOUT);
+    if (alarm_state != ALARM_STATE_OPEN) {
+        active = false;
+        goto end;
+    }
+
+    if (alarm->alarm_hdl != NULL) {
+        active = esp_timer_is_active(alarm->alarm_hdl);
+    }
+
+end:
+    osi_mutex_unlock(&alarm_mutex);
+    return active;
 }

@@ -11,7 +11,9 @@
 #include "esp_log.h"
 #include <string.h>
 #include "esp_mesh.h"
+#include "esp_mac.h"
 #include "lwip/lwip_napt.h"
+#include "dhcpserver/dhcpserver.h"
 #include "esp_wifi_netif.h"
 #include "mesh_netif.h"
 
@@ -66,6 +68,7 @@ static esp_err_t set_dhcps_dns(esp_netif_t *netif, uint32_t addr)
     dhcps_offer_t dhcps_dns_value = OFFER_DNS;
     ESP_ERROR_CHECK(esp_netif_dhcps_option(netif, ESP_NETIF_OP_SET, ESP_NETIF_DOMAIN_NAME_SERVER, &dhcps_dns_value, sizeof(dhcps_dns_value)));
     ESP_ERROR_CHECK(esp_netif_set_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_start(netif));
     return ESP_OK;
 }
 
@@ -167,9 +170,10 @@ static esp_err_t mesh_netif_transmit_from_root_ap(void *h, void *buffer, size_t 
     }
     return ESP_OK;
 }
-
-// Construct and Destruct functions
-//
+static esp_err_t mesh_netif_transmit_from_root_ap_wrap(void *h, void *buffer, size_t len, void *netstack_buf)
+{
+    return mesh_netif_transmit_from_root_ap(h, buffer, len);
+}
 
 static esp_err_t mesh_netif_transmit_from_node_sta(void *h, void *buffer, size_t len)
 {
@@ -186,6 +190,13 @@ static esp_err_t mesh_netif_transmit_from_node_sta(void *h, void *buffer, size_t
     return err;
 }
 
+static esp_err_t mesh_netif_transmit_from_node_sta_wrap(void *h, void *buffer, size_t len, void *netstack_buf)
+{
+    return mesh_netif_transmit_from_node_sta(h, buffer, len);
+}
+
+// Construct and Destruct functions
+//
 static esp_err_t mesh_driver_start_root_ap(esp_netif_t * esp_netif, void * args)
 {
     mesh_netif_driver_t driver = args;
@@ -193,6 +204,7 @@ static esp_err_t mesh_driver_start_root_ap(esp_netif_t * esp_netif, void * args)
     esp_netif_driver_ifconfig_t driver_ifconfig = {
             .handle =  driver,
             .transmit = mesh_netif_transmit_from_root_ap,
+            .transmit_wrap = mesh_netif_transmit_from_root_ap_wrap,
             .driver_free_rx_buffer = mesh_free
     };
 
@@ -206,6 +218,7 @@ static esp_err_t mesh_driver_start_node_sta(esp_netif_t * esp_netif, void * args
     esp_netif_driver_ifconfig_t driver_ifconfig = {
             .handle =  driver,
             .transmit = mesh_netif_transmit_from_node_sta,
+            .transmit_wrap = mesh_netif_transmit_from_node_sta_wrap,
             .driver_free_rx_buffer = mesh_free
     };
 
@@ -241,7 +254,7 @@ mesh_netif_driver_t mesh_create_if_driver(bool is_ap, bool is_root)
     }
 
     // save station mac address to exclude it from routing-table on broadcast
-    esp_wifi_get_mac(ESP_IF_WIFI_STA, driver->sta_mac_addr);
+    esp_wifi_get_mac(WIFI_IF_STA, driver->sta_mac_addr);
 
     return driver;
 }
@@ -279,7 +292,7 @@ esp_err_t mesh_netifs_init(mesh_raw_recv_cb_t *cb)
 static esp_err_t start_mesh_link_ap(void)
 {
     uint8_t mac[MAC_ADDR_LEN];
-    esp_wifi_get_mac(ESP_IF_WIFI_AP, mac);
+    esp_wifi_get_mac(WIFI_IF_AP, mac);
     esp_netif_set_mac(netif_ap, mac);
     esp_netif_action_start(netif_ap, NULL, 0, NULL);
     return ESP_OK;
@@ -291,7 +304,7 @@ static esp_err_t start_mesh_link_ap(void)
 static esp_err_t start_wifi_link_sta(void)
 {
     uint8_t mac[6];
-    esp_wifi_get_mac(ESP_IF_WIFI_STA, mac);
+    esp_wifi_get_mac(WIFI_IF_STA, mac);
     esp_err_t ret;
     void *driver = esp_netif_get_io_driver(netif_sta);
     if ((ret = esp_wifi_register_if_rxcb(driver,  esp_netif_receive, netif_sta)) != ESP_OK) {
@@ -309,7 +322,7 @@ static esp_err_t start_wifi_link_sta(void)
 static esp_err_t start_mesh_link_sta(void)
 {
     uint8_t mac[MAC_ADDR_LEN];
-    esp_wifi_get_mac(ESP_IF_WIFI_STA, mac);
+    esp_wifi_get_mac(WIFI_IF_STA, mac);
     esp_netif_set_mac(netif_sta, mac);
     esp_netif_action_start(netif_sta, NULL, 0, NULL);
     esp_netif_action_connected(netif_sta, NULL, 0, NULL);
@@ -334,6 +347,20 @@ static esp_netif_t* create_mesh_link_ap(void)
     esp_netif_t * netif = esp_netif_new(&cfg);
     assert(netif);
     return netif;
+}
+
+/**
+ * @brief Destroy esp-netif for AP interface over mesh
+ */
+static void destory_mesh_link_ap(void)
+{
+    if (netif_ap) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(netif_ap));
+        esp_netif_action_disconnected(netif_ap, NULL, 0, NULL);
+        mesh_delete_if_driver(esp_netif_get_io_driver(netif_ap));
+        esp_netif_destroy(netif_ap);
+        netif_ap = NULL;
+    }
 }
 
 /**
@@ -362,12 +389,7 @@ static esp_netif_t* create_mesh_link_sta(void)
 esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t addr)
 {
     if (is_root) {
-        if (netif_ap) {
-            esp_netif_action_disconnected(netif_ap, NULL, 0, NULL);
-            mesh_delete_if_driver(esp_netif_get_io_driver(netif_ap));
-            esp_netif_destroy(netif_ap);
-            netif_ap = NULL;
-        }
+        destory_mesh_link_ap();
         netif_ap = create_mesh_link_ap();
         mesh_netif_driver_t driver = mesh_create_if_driver(true, true);
         if (driver == NULL) {
@@ -431,13 +453,7 @@ esp_err_t mesh_netifs_start(bool is_root)
         esp_netif_attach(netif_sta, driver);
         start_mesh_link_sta();
         // If we have a AP on NODE -> stop and remove it!
-        if (netif_ap) {
-            esp_netif_action_disconnected(netif_ap, NULL, 0, NULL);
-            mesh_delete_if_driver(esp_netif_get_io_driver(netif_ap));
-            esp_netif_destroy(netif_ap);
-            netif_ap = NULL;
-        }
-
+        destory_mesh_link_ap();
     }
     return ESP_OK;
 }
@@ -461,12 +477,7 @@ esp_err_t mesh_netifs_stop(void)
         netif_sta = NULL;
     }
 
-    if (netif_ap) {
-        esp_netif_action_disconnected(netif_ap, NULL, 0, NULL);
-        mesh_delete_if_driver(esp_netif_get_io_driver(netif_ap));
-        esp_netif_destroy(netif_ap);
-        netif_ap = NULL;
-    }
+    destory_mesh_link_ap();
     // reserve the default (STA gets ready to become root)
     mesh_netif_init_station();
     start_wifi_link_sta();

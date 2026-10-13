@@ -40,12 +40,13 @@ typedef UINT8 tBTA_SDP_STATUS;
 
 /* SDP I/F callback events */
 /* events received by tBTA_SDP_DM_CBACK */
-#define BTA_SDP_ENABLE_EVT               0  /* SDP service i/f enabled*/
-#define BTA_SDP_SEARCH_EVT               1  /* SDP Service started */
-#define BTA_SDP_SEARCH_COMP_EVT          2  /* SDP search complete */
-#define BTA_SDP_CREATE_RECORD_USER_EVT   3  /* SDP search complete */
-#define BTA_SDP_REMOVE_RECORD_USER_EVT   4  /* SDP search complete */
-#define BTA_SDP_MAX_EVT                  5  /* max number of SDP events */
+#define BTA_SDP_ENABLE_EVT               0  /* SDP service enabled */
+#define BTA_SDP_DISABLE_EVT              1  /* SDP service disenabled */
+#define BTA_SDP_SEARCH_EVT               2  /* SDP search started */
+#define BTA_SDP_SEARCH_COMP_EVT          3  /* SDP search complete */
+#define BTA_SDP_CREATE_RECORD_USER_EVT   4  /* SDP create record complete */
+#define BTA_SDP_REMOVE_RECORD_USER_EVT   5  /* SDP remove record complete */
+#define BTA_SDP_MAX_EVT                  6  /* max number of SDP events */
 
 #define BTA_SDP_MAX_RECORDS 15
 
@@ -60,9 +61,23 @@ typedef struct {
     bluetooth_sdp_record records[BTA_SDP_MAX_RECORDS];
 } tBTA_SDP_SEARCH_COMP;
 
+/* data associated with BTA_SDP_CREATE_RECORD_USER_EVT */
+typedef struct {
+    tBTA_SDP_STATUS     status;
+    int                 handle;
+} tBTA_SDP_CREATE_RECORD_USER;
+
+/* data associated with BTA_SDP_REMOVE_RECORD_USER_EVT */
+typedef struct {
+    tBTA_SDP_STATUS     status;
+    int                 handle;
+} tBTA_SDP_REMOVE_RECORD_USER;
+
 typedef union {
     tBTA_SDP_STATUS              status;            /* BTA_SDP_SEARCH_EVT */
     tBTA_SDP_SEARCH_COMP         sdp_search_comp;   /* BTA_SDP_SEARCH_COMP_EVT */
+    tBTA_SDP_CREATE_RECORD_USER  sdp_create_record; /* BTA_SDP_CREATE_RECORD_USER_EVT */
+    tBTA_SDP_REMOVE_RECORD_USER  sdp_remove_record; /* BTA_SDP_REMOVE_RECORD_USER_EVT */
 } tBTA_SDP;
 
 /* SDP DM Interface callback */
@@ -70,9 +85,11 @@ typedef void (tBTA_SDP_DM_CBACK)(tBTA_SDP_EVT event, tBTA_SDP *p_data, void *use
 
 /* MCE configuration structure */
 typedef struct {
-    UINT16  sdp_db_size;            /* The size of p_sdp_db */
+    UINT16            sdp_raw_size;    /* The size of p_sdp_raw_data */
+    UINT16            sdp_db_size;     /* The size of p_sdp_db */
 #if (SDP_INCLUDED == TRUE)
-    tSDP_DISCOVERY_DB   *p_sdp_db;  /* The data buffer to keep SDP database */
+    UINT8             *p_sdp_raw_data; /* The data buffer to keep raw data */
+    tSDP_DISCOVERY_DB *p_sdp_db;       /* The data buffer to keep SDP database */
 #endif  ///SDP_INCLUDED == TRUE
 } tBTA_SDP_CFG;
 
@@ -100,14 +117,28 @@ extern tBTA_SDP_STATUS BTA_SdpEnable(tBTA_SDP_DM_CBACK *p_cback);
 **
 ** Function         BTA_SdpDisable
 **
-** Description      Disable the SDP search I/F service.
+** Description      This function is used to request a callback to perform disable
+**                  operation. The registered callback will be called with event
+**                  BTA_SDP_DISABLE_EVT.
+**
+** Returns          BTA_SDP_SUCCESS, if the request is being processed.
+**                  BTA_SDP_FAILURE, otherwise.
+**
+*******************************************************************************/
+extern tBTA_SDP_STATUS BTA_SdpDisable(void);
+
+/*******************************************************************************
+**
+** Function         BTA_SdpCleanup
+**
+** Description      Cleanup the SDP search I/F service.
 **                  Free buffer for SDP configuration structure.
 **
 ** Returns          BTA_SDP_SUCCESS if successful.
 **                  BTA_SDP_FAIL if internal failure.
 **
 *******************************************************************************/
-extern tBTA_SDP_STATUS BTA_SdpDisable(void);
+extern tBTA_SDP_STATUS BTA_SdpCleanup(void);
 
 /*******************************************************************************
 **

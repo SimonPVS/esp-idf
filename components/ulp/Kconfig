@@ -1,0 +1,135 @@
+menu "Ultra Low Power (ULP) Co-processor"
+    depends on (SOC_ULP_SUPPORTED || SOC_RISCV_COPROC_SUPPORTED || SOC_LP_CORE_SUPPORTED)
+
+    config ULP_COPROC_ENABLED
+        bool "Enable Ultra Low Power (ULP) Co-processor"
+        default "n"
+        help
+            Enable this feature if you plan to use the ULP Co-processor.
+            Once this option is enabled, further ULP co-processor configuration will appear in the menu.
+
+    menu "ULP Coprocessor types"
+        depends on ULP_COPROC_ENABLED
+
+        config ULP_COPROC_TYPE_FSM
+            bool "ULP FSM (Finite State Machine)"
+            depends on SOC_ULP_FSM_SUPPORTED
+            default y if IDF_TARGET_ESP32
+
+        config ULP_COPROC_TYPE_RISCV
+            bool "ULP RISC-V"
+            depends on SOC_RISCV_COPROC_SUPPORTED
+            default y if (IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3) && !ULP_COPROC_TYPE_FSM
+
+        config ULP_COPROC_TYPE_LP_CORE
+            bool "LP core RISC-V"
+            depends on SOC_LP_CORE_SUPPORTED
+            default y if (!IDF_TARGET_ESP32 && !IDF_TARGET_ESP32S2 && !IDF_TARGET_ESP32S3)
+    endmenu
+
+    config ULP_COPROC_RESERVE_MEM
+        int
+        prompt "RTC slow memory reserved for coprocessor"
+        depends on ULP_COPROC_ENABLED
+        default 512 if IDF_TARGET_ESP32
+        default 4096 if !IDF_TARGET_ESP32
+        range 32 8176 if IDF_TARGET_ESP32 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+        range 32 16352 if IDF_TARGET_ESP32C5 || IDF_TARGET_ESP32C6
+        range 32 32744 if IDF_TARGET_ESP32S31
+        range 32 31088 if IDF_TARGET_ESP32P4 # Some memory are reserved for ROM/RTC reserved
+        help
+            Bytes of memory to reserve for ULP Co-processor firmware & data.
+            Data is reserved at the beginning of RTC slow memory.
+
+            The target-specific maximum only accounts for fixed LP/RTC reservations
+            such as retained RTC data, LP ROM, and secure-boot digest storage.
+            On targets where the application RTC sections also live in LP/RTC RAM,
+            this reservation shares the same memory pool with .rtc.text,
+            RTC_DATA_ATTR, RTC_NOINIT_ATTR, RTC_SLOW_ATTR, and related sections.
+            Setting this value close to the maximum may therefore still leave too
+            little LP/RTC RAM for the rest of the application and cause link-time
+            errors.
+
+
+    menu "ULP RISC-V Settings"
+        depends on ULP_COPROC_TYPE_RISCV
+
+        # Declared by the component that builds the ULP RISC-V program.
+        rsource "subproject/components/ulp_riscv/Kconfig.ulp_riscv"
+
+        config ULP_RISCV_I2C_RW_TIMEOUT
+            int
+            prompt "Set timeout for ULP RISC-V I2C transaction timeout in ticks."
+            default 500
+            range -1 4294967295
+            help
+                Set the ULP RISC-V I2C read/write timeout. Set this value to -1
+                if the ULP RISC-V I2C read and write APIs should wait forever.
+                Please note that the tick rate of the ULP co-processor would be
+                different than the OS tick rate of the main core and therefore
+                can have different timeout value depending on which core the API
+                is invoked on.
+    endmenu
+
+    config ULP_SHARED_MEM
+        depends on ULP_COPROC_TYPE_LP_CORE
+        hex
+        default 0x10
+        help
+            Size of the shared memory defined in ulp_lp_core_memory_shared.c.
+            Size should be kept in-sync with the size of the struct defined there.
+
+    menu "LP Core HP Memory"
+        depends on ULP_COPROC_TYPE_LP_CORE
+
+        config ULP_COPROC_RUN_FROM_HP_MEM
+            bool "Run LP Core from HP memory"
+            depends on !SECURE_ENABLE_TEE
+            default n
+            help
+                Enable this option to allow the LP Core application to use HP SRAM for
+                code and data. This allows much larger LP Core applications than would
+                fit in LP RAM.
+
+                Note: When this option is enabled, the LP Core cannot run during deep
+                sleep because HP SRAM is powered off during sleep.
+
+        config ULP_COPROC_RESERVE_HP_MEM_BYTES
+            hex "HP SRAM size reserved for LP Core (bytes)"
+            depends on ULP_COPROC_RUN_FROM_HP_MEM
+            default 0x10000
+            range 0x1000 0x80000
+            help
+                Amount of HP SRAM (in bytes) to carve out from the top of the HP SRAM
+                region for the LP Core application. This memory is not available to the
+                HP application.
+    endmenu
+
+    # Declared by the component that builds the LP core program.
+    rsource "subproject/components/lp_core/Kconfig.lp_core"
+
+    config ULP_TRAP_WAKEUP
+        depends on ULP_COPROC_TYPE_LP_CORE
+        bool
+        prompt "Enable wakeup of HP-CPU when LP-core encounters an exception"
+        default "y"
+        help
+            Set this option to also trigger a wakeup signal to the HP-CPU when
+            the LP-core encounters an exception.
+
+    menu "ULP Debugging Options"
+        # Declared by the component that builds the LP core program.
+        rsource "subproject/components/lp_core/Kconfig.lp_core_debug"
+
+        config ULP_NORESET_UNDER_DEBUG
+            bool "Avoid resetting LP core when debugger is attached"
+            depends on ULP_COPROC_TYPE_LP_CORE
+            default "y"
+            help
+                Enable this feature to avoid resetting LP core in sleep mode when debugger is attached,
+                otherwise configured HW breakpoints and dcsr.ebreak* bits will be missed.
+                This is a workaround until it will be fixed in HW.
+
+    endmenu
+
+endmenu  # Ultra Low Power (ULP) Co-processor

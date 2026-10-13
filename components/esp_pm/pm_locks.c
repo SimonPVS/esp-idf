@@ -1,22 +1,15 @@
-// Copyright 2016-2017 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2016-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <stdlib.h>
 #include <string.h>
 #include <sys/lock.h>
 #include "esp_pm.h"
 #include "esp_system.h"
+#include "esp_heap_caps.h"
 #include "sys/queue.h"
 #include "freertos/FreeRTOS.h"
 #include "esp_private/pm_impl.h"
@@ -64,7 +57,7 @@ esp_err_t esp_pm_lock_create(esp_pm_lock_type_t lock_type, int arg,
     if (out_handle == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_pm_lock_t* new_lock = (esp_pm_lock_t*) calloc(1, sizeof(*new_lock));
+    esp_pm_lock_t* new_lock = (esp_pm_lock_t*) heap_caps_calloc(1, sizeof(*new_lock), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (!new_lock) {
         return ESP_ERR_NO_MEM;
     }
@@ -155,6 +148,72 @@ out:
     return ret;
 }
 
+esp_err_t esp_pm_get_lock_stats_all(esp_pm_lock_stats_t stats[ESP_PM_LOCK_MAX])
+{
+#ifndef CONFIG_PM_ENABLE
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+
+    if (stats == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Initialize stats array
+    for (int i = 0; i < ESP_PM_LOCK_MAX; i++) {
+        stats[i].created = 0;
+        stats[i].acquired = 0;
+    }
+
+    _lock_acquire(&s_list_lock);
+
+    // Iterate through all locks and accumulate stats
+    esp_pm_lock_t* it;
+    SLIST_FOREACH(it, &s_list, next) {
+        if (it->type < ESP_PM_LOCK_MAX) {
+            stats[it->type].created++;
+            // Sum the count of currently held locks
+            stats[it->type].acquired += it->count;
+        }
+    }
+
+    _lock_release(&s_list_lock);
+
+    return ESP_OK;
+}
+
+esp_err_t esp_pm_lock_get_stats(esp_pm_lock_handle_t handle, esp_pm_lock_instance_stats_t *stats)
+{
+#ifndef CONFIG_PM_ENABLE
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+
+    if (handle == NULL || stats == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Initialize stats structure
+    stats->acquired = 0;
+#ifdef WITH_PROFILING
+    stats->times_taken = 0;
+    stats->time_held = 0;
+#endif
+
+    portENTER_CRITICAL(&handle->spinlock);
+    stats->acquired = handle->count;
+#ifdef WITH_PROFILING
+    stats->times_taken = handle->times_taken;
+    stats->time_held = handle->time_held;
+    // If the lock is currently held, add the time since it was last taken
+    if (handle->count > 0) {
+        pm_time_t now = pm_get_time();
+        stats->time_held += now - handle->last_taken;
+    }
+#endif
+    portEXIT_CRITICAL(&handle->spinlock);
+
+    return ESP_OK;
+}
+
 esp_err_t esp_pm_dump_locks(FILE* stream)
 {
 #ifndef CONFIG_PM_ENABLE
@@ -168,24 +227,30 @@ esp_err_t esp_pm_dump_locks(FILE* stream)
 
     _lock_acquire(&s_list_lock);
 #ifdef WITH_PROFILING
-    fprintf(stream, "Time: %lld\n", cur_time);
+    fprintf(stream, "Time since boot up: %lld us\n", cur_time);
 #endif
 
     fprintf(stream, "Lock stats:\n");
+#ifdef WITH_PROFILING
+    fprintf(stream, "%-15s %-14s  %-5s  %-8s  %-13s  %-14s  %-8s\n",
+            "Name", "Type", "Arg", "Active", "Total_count", "Time(us)", "Time(%)");
+#else
+    fprintf(stream, "%-15s %-14s  %-5s  %-8s\n", "Name", "Type", "Arg", "Active");
+#endif
     esp_pm_lock_t* it;
-    char line[64];
+    char line[128];
     SLIST_FOREACH(it, &s_list, next) {
         char *buf = line;
-        size_t len = sizeof(line) - 1;
-        line[len] = 0;
+        size_t len = sizeof(line);
         size_t cb;
 
         portENTER_CRITICAL(&it->spinlock);
         if (it->name == NULL) {
             cb = snprintf(buf, len, "lock@%p ", it);
         } else {
-            cb = snprintf(buf, len, "%-15s ", it->name);
+            cb = snprintf(buf, len, "%-15.15s ", it->name);
         }
+        assert(cb <= len); // above formats should fit into sizeof(line)
         buf += cb;
         len -= cb;
 #ifdef WITH_PROFILING
@@ -193,12 +258,12 @@ esp_err_t esp_pm_dump_locks(FILE* stream)
         if (it->count > 0) {
             time_held += cur_time - it->last_taken;
         }
-        snprintf(buf, len, "%10s  %3d  %3d  %9d  %9lld  %3lld%%\n",
+        snprintf(buf, len, "%-14s  %-5d  %-8d  %-13d  %-14lld  %-3lld%%\n",
                 s_lock_type_names[it->type], it->arg,
                 it->count, it->times_taken, time_held,
                 (time_held + cur_time_d100 - 1) / cur_time_d100);
 #else
-        snprintf(buf, len, "%10s  %3d  %3d\n", s_lock_type_names[it->type], it->arg, it->count);
+        snprintf(buf, len, "%-14s  %-5d  %-8d\n", s_lock_type_names[it->type], it->arg, it->count);
 #endif // WITH_PROFILING
         portEXIT_CRITICAL(&it->spinlock);
         fputs(line, stream);

@@ -1,16 +1,8 @@
-// Copyright 2017-2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2017-2021 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #ifndef _ESP_BLE_MESH_LOCAL_DATA_OPERATION_API_H_
 #define _ESP_BLE_MESH_LOCAL_DATA_OPERATION_API_H_
@@ -141,6 +133,90 @@ esp_err_t esp_ble_mesh_model_subscribe_group_addr(uint16_t element_addr, uint16_
  */
 esp_err_t esp_ble_mesh_model_unsubscribe_group_addr(uint16_t element_addr, uint16_t company_id,
                                                     uint16_t model_id, uint16_t group_addr);
+
+/**
+ * @brief         This function is called by Node to get the local NetKey.
+ *
+ * @param[in]     net_idx: NetKey index.
+ *
+ * @return        NetKey on success, or NULL on failure.
+ *
+ */
+const uint8_t *esp_ble_mesh_node_get_local_net_key(uint16_t net_idx);
+
+/**
+ * @brief         This function is called by Node to get the local AppKey.
+ *
+ * @param[in]     app_idx: AppKey index.
+ *
+ * @return        AppKey on success, or NULL on failure.
+ *
+ */
+const uint8_t *esp_ble_mesh_node_get_local_app_key(uint16_t app_idx);
+
+/**
+ * @brief         This function is called by Node to add a local NetKey.
+ *
+ * @param[in]     net_key: NetKey to be added.
+ * @param[in]     net_idx: NetKey Index.
+ *
+ * @note          This function can only be called after the device is provisioned.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_node_add_local_net_key(const uint8_t net_key[16], uint16_t net_idx);
+
+/**
+ * @brief         This function is called by Node to add a local AppKey.
+ *
+ * @param[in]     app_key: AppKey to be added.
+ * @param[in]     net_idx: NetKey Index.
+ * @param[in]     app_idx: AppKey Index.
+ *
+ * @note          The net_idx must be an existing one.
+ *                This function can only be called after the device is provisioned.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_node_add_local_app_key(const uint8_t app_key[16], uint16_t net_idx, uint16_t app_idx);
+
+/**
+ * @brief         This function is called by Node to bind AppKey to model locally.
+ *
+ * @param[in]     element_addr: Node local element address
+ * @param[in]     company_id: Node local company id
+ * @param[in]     model_id: Node local model id
+ * @param[in]     app_idx: Node local appkey index
+ *
+ * @note          If going to bind app_key with local vendor model, the company_id
+ *                shall be set to 0xFFFF.
+ *                This function can only be called after the device is provisioned.
+ *
+ * @return        ESP_OK on success or error code otherwise.
+ *
+ */
+esp_err_t esp_ble_mesh_node_bind_app_key_to_local_model(uint16_t element_addr, uint16_t company_id,
+                                                        uint16_t model_id, uint16_t app_idx);
+
+/**
+ * @brief       This function used to enable directed forwarding and directed forwarding relay on self.
+ *
+ * @param[in]   net_idx: NetKey Index.
+ * @param[in]   directed_forwarding: Enable or Disable directed forwarding.
+ * @param[in]   directed_forwarding_relay: Enable or Disable directed forwarding relay.
+ *
+ * @note        If the directed forwarding was set to disable, the directed forwarding relay
+ *              must also be set to disable.
+ *
+ * @return      ESP_OK on success or error code otherwise.
+ *
+*/
+#if CONFIG_BLE_MESH_DF_SRV
+esp_err_t esp_ble_mesh_enable_directed_forwarding(uint16_t net_idx, bool directed_forwarding,
+                                                  bool directed_forwarding_relay);
+#endif
 
 #ifdef __cplusplus
 }

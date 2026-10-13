@@ -44,6 +44,8 @@
 #define  GATT_INSUF_ENCRYPTION               0x0f
 #define  GATT_UNSUPPORT_GRP_TYPE             0x10
 #define  GATT_INSUF_RESOURCE                 0x11
+#define  GATT_DATABASE_OUT_OF_SYNC           0x12
+#define  GATT_VALUE_NOT_ALLOWED              0x13
 
 
 #define  GATT_NO_RESOURCES                   0x80
@@ -108,8 +110,11 @@ typedef UINT8 tGATT_STATUS;
 #define  GATT_HANDLE_VALUE_NOTIF             0x1B
 #define  GATT_HANDLE_VALUE_IND               0x1D
 #define  GATT_HANDLE_VALUE_CONF              0x1E
+#define  GATT_REQ_READ_MULTI_VAR             0x20
+#define  GATT_RSP_READ_MULTI_VAR             0x21
+#define  GATT_HANDLE_MULTI_VALUE_NOTIF       0x23
 #define  GATT_SIGN_CMD_WRITE                 0xD2 /* changed in V4.0 1101-0010 (signed write)  see write cmd above*/
-#define  GATT_OP_CODE_MAX                    GATT_HANDLE_VALUE_CONF + 1 /* 0x1E = 30 + 1 = 31*/
+#define  GATT_OP_CODE_MAX                    GATT_HANDLE_MULTI_VALUE_NOTIF + 1 /* 0x1E = 30 + 1 = 31*/
 
 #define  GATT_COMMAND_FLAG                   0x40 /* Command Flag: set to one means command */
 
@@ -134,7 +139,7 @@ typedef UINT16 tGATT_DISCONN_REASON;
 /* max length of an attribute value
 */
 #ifndef GATT_MAX_ATTR_LEN
-#define GATT_MAX_ATTR_LEN                   600
+#define GATT_MAX_ATTR_LEN                   GATT_MAX_MTU_SIZE
 #endif
 
 /* default GATT MTU size over LE link
@@ -146,7 +151,11 @@ typedef UINT16 tGATT_DISCONN_REASON;
 #define GATT_INVALID_CONN_ID                0xFFFF
 
 #ifndef GATT_CL_MAX_LCB
-#define GATT_CL_MAX_LCB                     12 // 22
+#if (GATT_MAX_PHY_CHANNEL > 12)
+#define GATT_CL_MAX_LCB                     GATT_MAX_PHY_CHANNEL
+#else
+#define GATT_CL_MAX_LCB                     12
+#endif
 #endif
 
 #ifndef GATT_MAX_SCCB
@@ -174,18 +183,21 @@ typedef UINT16 tGATT_DISCONN_REASON;
 #define GATT_PERM_WRITE_ENC_MITM            (1 << 6) /* bit 6 */
 #define GATT_PERM_WRITE_SIGNED              (1 << 7) /* bit 7 */
 #define GATT_PERM_WRITE_SIGNED_MITM         (1 << 8) /* bit 8 */
+#define GATT_PERM_READ_AUTHORIZATION        (1 << 9) /* bit 9 */
+#define GATT_PERM_WRITE_AUTHORIZATION       (1 << 10)/* bit 10 */
 typedef UINT16 tGATT_PERM;
 
 #define GATT_ENCRYPT_KEY_SIZE_MASK  (0xF000) /* the MS nibble of tGATT_PERM; key size 7=0; size 16=9 */
 
-#define GATT_READ_ALLOWED                   (GATT_PERM_READ | GATT_PERM_READ_ENCRYPTED | GATT_PERM_READ_ENC_MITM)
+#define GATT_READ_ALLOWED                   (GATT_PERM_READ | GATT_PERM_READ_ENCRYPTED | GATT_PERM_READ_ENC_MITM | GATT_PERM_READ_AUTHORIZATION)
 #define GATT_READ_AUTH_REQUIRED             (GATT_PERM_READ_ENCRYPTED)
 #define GATT_READ_MITM_REQUIRED             (GATT_PERM_READ_ENC_MITM)
 #define GATT_READ_ENCRYPTED_REQUIRED        (GATT_PERM_READ_ENCRYPTED | GATT_PERM_READ_ENC_MITM)
+#define GATT_READ_AUTHORIZATION             (GATT_PERM_READ_AUTHORIZATION)
 
 
 #define GATT_WRITE_ALLOWED          (GATT_PERM_WRITE | GATT_PERM_WRITE_ENCRYPTED | GATT_PERM_WRITE_ENC_MITM | \
-                                     GATT_PERM_WRITE_SIGNED | GATT_PERM_WRITE_SIGNED_MITM)
+                                     GATT_PERM_WRITE_SIGNED | GATT_PERM_WRITE_SIGNED_MITM | GATT_PERM_WRITE_AUTHORIZATION)
 
 #define GATT_WRITE_AUTH_REQUIRED    (GATT_PERM_WRITE_ENCRYPTED | GATT_PERM_WRITE_SIGNED)
 
@@ -194,6 +206,8 @@ typedef UINT16 tGATT_PERM;
 #define GATT_WRITE_ENCRYPTED_PERM   (GATT_PERM_WRITE_ENCRYPTED | GATT_PERM_WRITE_ENC_MITM)
 
 #define GATT_WRITE_SIGNED_PERM      (GATT_PERM_WRITE_SIGNED | GATT_PERM_WRITE_SIGNED_MITM)
+
+#define GATT_WRITE_AUTHORIZATION    (GATT_PERM_WRITE_AUTHORIZATION)
 
 
 /* Characteristic properties
@@ -408,6 +422,7 @@ enum {
     GATT_DISC_SRVC_BY_UUID,     /* discover service of a special type */
     GATT_DISC_INC_SRVC,         /* discover the included service within a service */
     GATT_DISC_CHAR,             /* discover characteristics of a service with/without type requirement */
+    GATT_DISC_CHAR_BY_UUID,     /* discover characteristic with type requirement */
     GATT_DISC_CHAR_DSCPT,       /* discover characteristic descriptors of a character */
     GATT_DISC_MAX               /* maximnun discover type */
 };
@@ -427,6 +442,7 @@ enum {
     GATT_READ_BY_TYPE =        1,
     GATT_READ_BY_HANDLE,
     GATT_READ_MULTIPLE,
+    GATT_READ_MULTIPLE_VAR,
     GATT_READ_CHAR_VALUE,
     GATT_READ_PARTIAL,
     GATT_READ_MAX
@@ -650,6 +666,12 @@ typedef struct {
     tGATTS_NV_SRV_CHG_CBACK    *p_srv_chg_callback;
 } tGATT_APPL_INFO;
 
+typedef struct {
+    UINT16                  handle;
+    UINT16                  length;
+    UINT8                   *value;
+} tGATT_HLV;
+
 /*
 ***********************  End Handle Management Definitions   **********************/
 
@@ -683,7 +705,7 @@ extern UINT8 GATT_SetTraceLevel (UINT8 new_level);
 **
 ** Function         GATTS_AddHandleRange
 **
-** Description      This function add the allocated handles range for the specifed
+** Description      This function add the allocated handles range for the specified
 **                  application UUID, service UUID and service instance
 **
 ** Parameter        p_hndl_range:   pointer to allocated handles information
@@ -702,7 +724,7 @@ extern BOOLEAN GATTS_AddHandleRange(tGATTS_HNDL_RANGE *p_hndl_range);
 **                  NV save callback function.  There can be one and only one
 **                  NV save callback function.
 **
-** Parameter        p_cb_info : callback informaiton
+** Parameter        p_cb_info : callback information
 **
 ** Returns          TRUE if registered OK, else FALSE
 **
@@ -925,7 +947,7 @@ tGATT_STATUS GATTS_SetAttributeValue(UINT16 attr_handle, UINT16 length, UINT8 *v
 *******************************************************************************/
 tGATT_STATUS GATTS_GetAttributeValue(UINT16 attr_handle, UINT16 *length, UINT8 **value);
 
-
+tGATT_STATUS GATTS_GetAttributeValueInternal(UINT16 attr_handle, UINT16 *length, UINT8 **value);
 
 /*******************************************************************************/
 /* GATT Profile Client Functions */
@@ -1027,6 +1049,18 @@ extern tGATT_STATUS GATTC_ExecuteWrite (UINT16 conn_id, BOOLEAN is_execute);
 *******************************************************************************/
 extern tGATT_STATUS GATTC_SendHandleValueConfirm (UINT16 conn_id, UINT16 handle);
 
+/*******************************************************************************
+**
+** Function         GATTC_AutoDiscoverEnable
+**
+** Description      This function is called to enable/disable auto discover.
+**
+** Parameters       enable: 0 for disable, otherwise enable.
+**
+** Returns          GATT_SUCCESS if command started successfully.
+**
+*******************************************************************************/
+extern tGATT_STATUS GATTC_AutoDiscoverEnable(UINT8 enable);
 
 /*******************************************************************************
 **
@@ -1106,14 +1140,15 @@ extern  void GATT_StartIf (tGATT_IF gatt_if);
 **
 *******************************************************************************/
 extern BOOLEAN GATT_Connect (tGATT_IF gatt_if, BD_ADDR bd_addr, tBLE_ADDR_TYPE bd_addr_type,
-                             BOOLEAN is_direct, tBT_TRANSPORT transport);
+                             BOOLEAN is_direct, tBT_TRANSPORT transport, BOOLEAN is_aux,
+                             BOOLEAN is_pawr_synced, UINT8 adv_handle, UINT8 subevent);
 
 
 /*******************************************************************************
 **
 ** Function         GATT_CancelConnect
 **
-** Description      This function terminate the connection initaition to a remote
+** Description      This function terminate the connection initiation to a remote
 **                  device on GATT channel.
 **
 ** Parameters       gatt_if: client interface. If 0 used as unconditionally disconnect,
@@ -1194,23 +1229,6 @@ extern BOOLEAN GATT_GetConnIdIfConnected(tGATT_IF gatt_if, BD_ADDR bd_addr,
 
 /*******************************************************************************
 **
-** Function         GATT_Listen
-**
-** Description      This function start or stop LE advertisement and listen for
-**                  connection.
-**
-** Parameters       gatt_if: application interface
-**                  p_bd_addr: listen for specific address connection, or NULL for
-**                             listen to all device connection.
-**                  start: is a direct connection or a background auto connection
-**
-** Returns          TRUE if advertisement is started; FALSE if adv start failure.
-**
-*******************************************************************************/
-extern BOOLEAN GATT_Listen (tGATT_IF gatt_if, BOOLEAN start, BD_ADDR_PTR bd_addr);
-
-/*******************************************************************************
-**
 ** Function         GATT_ConfigServiceChangeCCC
 **
 ** Description      Configure service change indication on remote device
@@ -1220,6 +1238,50 @@ extern BOOLEAN GATT_Listen (tGATT_IF gatt_if, BOOLEAN start, BD_ADDR_PTR bd_addr
 *******************************************************************************/
 extern void GATT_ConfigServiceChangeCCC (BD_ADDR remote_bda, BOOLEAN enable,
         tBT_TRANSPORT transport);
+
+/*******************************************************************************
+**
+** Function         GATTS_SetServiceChangeMode
+**
+** Description      Configure service change indication mode
+**
+** Parameters       mode: service change mode
+**
+** Returns          Status.
+**
+*******************************************************************************/
+extern tGATT_STATUS GATTS_SetServiceChangeMode(UINT8 mode);
+
+/*******************************************************************************
+**
+** Function         GATTS_HandleMultiValueNotification
+**
+** Description      This function sends multiple handle value notification to a client.
+**
+** Parameter        conn_id: connection identifier.
+**                  tuples: Pointer to handle-length-value tuple list.
+**                  num_tuples: Number of tuples.
+**
+** Returns          GATT_SUCCESS if successfully sent; otherwise error code.
+**
+*******************************************************************************/
+extern tGATT_STATUS GATTS_HandleMultiValueNotification (UINT16 conn_id, tGATT_HLV *tuples, UINT16 num_tuples);
+
+/*******************************************************************************
+**
+** Function         GATTS_ShowLocalDatabase
+**
+** Description      This function print local service database.
+**
+** Returns          GATT_SUCCESS if successfully sent; otherwise error code.
+**
+*******************************************************************************/
+extern tGATT_STATUS GATTS_ShowLocalDatabase(void);
+
+#if (BLE_EATT_INCLUDED == TRUE)
+extern void GATT_EattSetChanNum(UINT8 num_chan);
+extern BOOLEAN GATT_EattSetDefaultBearer(UINT16 conn_id, UINT16 lcid);
+#endif
 
 #ifdef __cplusplus
 

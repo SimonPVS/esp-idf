@@ -45,12 +45,16 @@
 #define BTA_AG_FEAT_ECC     0x00000080   /* Enhanced Call Control */
 #define BTA_AG_FEAT_EXTERR  0x00000100   /* Extended error codes */
 #define BTA_AG_FEAT_CODEC   0x00000200   /* Codec Negotiation */
-#define BTA_AG_FEAT_VOIP    0x00000400   /* VoIP call */
+/* HFP 1.7+ */
+#define BTA_AG_FEAT_HF_IND  0x00000400    /* HF Indicators */
+#define BTA_AG_FEAT_ESCO_S4 0x00000800    /* eSCO S4 Setting Supported */
+
 /* Proprietary features: using 31 ~ 16 bits */
 #define BTA_AG_FEAT_BTRH    0x00010000   /* CCAP incoming call hold */
 #define BTA_AG_FEAT_UNAT    0x00020000   /* Pass unknown AT commands to application */
 #define BTA_AG_FEAT_NOSCO   0x00040000   /* No SCO control performed by BTA AG */
 #define BTA_AG_FEAT_NO_ESCO 0x00080000   /* Do not allow or use eSCO */
+#define BTA_AG_FEAT_VOIP    0x00100000   /* VoIP call */
 typedef UINT32 tBTA_AG_FEAT;
 
 /* HFP peer features */
@@ -62,8 +66,15 @@ typedef UINT32 tBTA_AG_FEAT;
 #define BTA_AG_PEER_FEAT_ECS        0x0020  /* Enhanced Call Status */
 #define BTA_AG_PEER_FEAT_ECC        0x0040  /* Enhanced Call Control */
 #define BTA_AG_PEER_FEAT_CODEC      0x0080  /* Codec Negotiation */
-#define BTA_AG_PEER_FEAT_VOIP       0x0100  /* VoIP call */
+/* HFP 1.7+ */
+#define BTA_AG_PEER_FEAT_HF_IND     0x0100  /* HF Indicators */
+#define BTA_AG_PEER_FEAT_ESCO_S4    0x0200  /* eSCO S4 Setting Supported */
 typedef UINT16 tBTA_AG_PEER_FEAT;
+
+/* Proprietary features: using bits after 12 */
+/* Pass unknown AT command responses to application */
+#define BTA_AG_PEER_FEAT_UNAT 0x1000
+#define BTA_AG_PEER_FEAT_VOIP 0x2000 /* VoIP call */
 
 /* AG extended call handling - masks not related to any spec */
 #define BTA_AG_CLIENT_CHLD_REL          0x00000001  /* 0  Release waiting call or held calls */
@@ -81,6 +92,7 @@ typedef UINT16 tBTA_AG_CHLD_FEAT;
 #define BTA_AG_CODEC_NONE           BTM_SCO_CODEC_NONE
 #define BTA_AG_CODEC_CVSD           BTM_SCO_CODEC_CVSD      /* CVSD */
 #define BTA_AG_CODEC_MSBC           BTM_SCO_CODEC_MSBC      /* mSBC */
+#define BTA_AG_CODEC_LC3            BTM_SCO_CODEC_LC3       /* LC3-SWB */
 typedef UINT16 tBTA_AG_PEER_CODEC;
 
 /* AG parse mode */
@@ -101,7 +113,7 @@ typedef UINT8 tBTA_AG_STATUS;
 /* It is safe to use the same value as BTA_AG_HANDLE_ALL
  * HANDLE_ALL is used for delivering indication
  * SCO_NO_CHANGE is used for changing sco behavior
- * They donot interfere with each other
+ * They do not interfere with each other
  */
 #define BTA_AG_HANDLE_SCO_NO_CHANGE 0xFFFF
 
@@ -145,6 +157,10 @@ typedef UINT8 tBTA_AG_RES;
 #if (BTM_WBS_INCLUDED == TRUE )
 #define BTA_AG_WBS_EVT          31 /* SCO codec nego */
 #endif
+#define BTA_AG_AUDIO_MSBC_OPEN_EVT 32 /* Audio connection with mSBC codec open */
+
+#define BTA_AG_PKT_NUMS_GET_EVT 33 /* AG packet status nums */
+#define BTA_AG_AUDIO_LC3_OPEN_EVT  34 /* Audio connection with LC3-SWB codec open */
 
 /* Values below are for HFP only */
 #define BTA_AG_AT_A_EVT         10 /* Answer a incoming call */
@@ -249,15 +265,15 @@ typedef UINT8 tBTA_AG_BTRH_TYPE;
 #endif
 
 /* indicator constants HFP 1.1 and later */
-#define BTA_AG_IND_CALL             0   /* position of call indicator */
-#define BTA_AG_IND_CALLSETUP        1   /* position of callsetup indicator */
-#define BTA_AG_IND_SERVICE          2   /* position of service indicator */
+#define BTA_AG_IND_CALL             1   /* position of call indicator */
+#define BTA_AG_IND_CALLSETUP        2   /* position of callsetup indicator */
+#define BTA_AG_IND_SERVICE          3   /* position of service indicator */
 /* indicator constants HFP 1.5 and later */
-#define BTA_AG_IND_SIGNAL           3   /* position of signal strength indicator */
-#define BTA_AG_IND_ROAM             4   /* position of roaming indicator */
-#define BTA_AG_IND_BATTCHG          5   /* position of battery charge indicator */
-#define BTA_AG_IND_CALLHELD         6   /* position of callheld indicator */
-#define BTA_AG_IND_BEARER           7   /* position of bearer indicator */
+#define BTA_AG_IND_SIGNAL           4   /* position of signal strength indicator */
+#define BTA_AG_IND_ROAM             5   /* position of roaming indicator */
+#define BTA_AG_IND_BATTCHG          6   /* position of battery charge indicator */
+#define BTA_AG_IND_CALLHELD         7   /* position of callheld indicator */
+#define BTA_AG_IND_BEARER           8   /* position of bearer indicator */
 typedef UINT16 tBTA_AG_IND_TYPE;
 
 /* call indicator values */
@@ -315,14 +331,13 @@ typedef struct
     UINT16              handle;
     UINT8               app_id;
     tBTA_AG_STATUS      status;
+    UINT16              sync_conn_handle;
 } tBTA_AG_HDR;
 
 /* data associated with BTA_AG_REGISTER_EVT */
 typedef struct
 {
     tBTA_AG_HDR         hdr;
-    UINT16              handle;
-    tBTA_AG_STATUS      status;
 } tBTA_AG_REGISTER;
 
 /* data associated with BTA_AG_OPEN_EVT */
@@ -331,7 +346,6 @@ typedef struct
     tBTA_AG_HDR         hdr;
     BD_ADDR             bd_addr;
     tBTA_SERVICE_ID     service_id;
-    tBTA_AG_STATUS      status;
 } tBTA_AG_OPEN;
 
 /* data associated with BTA_AG_CLOSE_EVT */
@@ -350,6 +364,14 @@ typedef struct
     tBTA_AG_PEER_CODEC  peer_codec;
     tBTA_AG_CHLD_FEAT   chld_feat;
 } tBTA_AG_CONN;
+
+/* data associated with BTA_AG_AUDIO_OPEN_EVT, BTA_AG_AUDIO_CLOSE_EVT, */
+/* BTA_AG_AUDIO_MSBC_OPEN_EVT or BTA_AG_AUDIO_LC3_OPEN_EVT */
+typedef struct
+{
+    tBTA_AG_HDR         hdr;
+    UINT16              preferred_frame_size;
+} tBTA_AG_AUDIO_STAT;
 
 /* data associated with AT command event */
 typedef struct
@@ -396,6 +418,17 @@ typedef struct {
     char                       number[BTA_AG_NUMBER_LEN + 1];
 } tBTA_AG_CNUM;
 
+/* data associated with BTA_HF_CLIENT_PKT_STAT_NUMS_GET_EVT */
+typedef struct {
+    UINT32 rx_total;
+    UINT32 rx_correct;
+    UINT32 rx_err;
+    UINT32 rx_none;
+    UINT32 rx_lost;
+    UINT32 tx_total;
+    UINT32 tx_discarded;
+} tBTA_AG_PKT_STAT_NUMS;
+
 /* union of data associated with AG callback */
 typedef union
 {
@@ -404,6 +437,7 @@ typedef union
     tBTA_AG_OPEN             open;
     tBTA_AG_CLOSE            close;
     tBTA_AG_CONN             conn;
+    tBTA_AG_AUDIO_STAT       audio_stat;
     tBTA_AG_IND              ind;
     tBTA_AG_VAL              val;
     //add
@@ -412,6 +446,7 @@ typedef union
     tBTA_AG_AT_RESULT        result;
     tBTA_AG_CLCC             clcc;
     tBTA_AG_CNUM             cnum;
+    tBTA_AG_PKT_STAT_NUMS    pkt_num;
 } tBTA_AG;
 
 /* AG callback */
@@ -574,15 +609,66 @@ void BTA_AgSetCodec(UINT16 handle, tBTA_AG_PEER_CODEC codec);
 #if (BTM_SCO_HCI_INCLUDED == TRUE )
 /*******************************************************************************
 **
-** Function         BTA_AgCiData
+** Function         BTA_AgPktStatsNumsGet
 **
-** Description      Give an EVT to BTA that tell outgoing data is ready.                   
+** Description      Get the Number of packets status received
 **
 **
 ** Returns          void
 **
 *******************************************************************************/
-void BTA_AgCiData(void);
+void BTA_AgPktStatsNumsGet(UINT16 handle, UINT16 sync_conn_handle);
+
+/*******************************************************************************
+**
+** Function         BTA_AgCiData
+**
+** Description      Give an EVT to BTA that tell outgoing data is ready.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_AgCiData(UINT16 handle);
+
+/*******************************************************************************
+**
+** Function         BTA_AgAudioBuffAlloc
+**
+** Description      Allocate an audio buffer with specific size, reserve enough
+**                  space and offset for lower layer to send the buffer directly.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_AgAudioBuffAlloc(UINT16 size, UINT8 **pp_buff, UINT8 **pp_data);
+
+/*******************************************************************************
+**
+** Function         BTA_AgAudioBuffFree
+**
+** Description      Free an audio buffer.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_AgAudioBuffFree(UINT8 *p_buf);
+
+/*******************************************************************************
+**
+** Function         BTA_AgAudioDataSend
+**
+** Description      Send audio data to lower layer, whether success or not, buffer
+**                  is consumed.
+**
+**
+** Returns          void
+**
+*******************************************************************************/
+void BTA_AgAudioDataSend(UINT16 handle, UINT8 *p_buff_start, UINT8 *p_data, UINT16 data_len);
+
 #endif /*#if (BTM_SCO_HCI_INCLUDED == TRUE ) */
 
 #ifdef __cplusplus

@@ -1,4 +1,9 @@
 /*
+ * SPDX-FileCopyrightText: 2013-2017 Peter Andersson (pelleplutt1976<at>gmail.com)
+ *
+ * SPDX-License-Identifier: MIT
+ */
+/*
  * spiffs_config.h
  *
  *  Created on: Jul 3, 2013
@@ -19,6 +24,8 @@
 #include <unistd.h>
 #include <sdkconfig.h>
 #include <esp_log.h>
+#include <assert.h>
+#include "esp_assert.h"
 
 // compile time switches
 #define SPIFFS_TAG "SPIFFS"
@@ -51,12 +58,12 @@
 #endif
 
 // needed types
-typedef signed int s32_t;
-typedef unsigned int u32_t;
-typedef signed short s16_t;
-typedef unsigned short u16_t;
-typedef signed char s8_t;
-typedef unsigned char u8_t;
+typedef int32_t s32_t;
+typedef uint32_t u32_t;
+typedef int16_t s16_t;
+typedef uint16_t u16_t;
+typedef int8_t s8_t;
+typedef uint8_t u8_t;
 
 struct spiffs_t;
 extern void spiffs_api_lock(struct spiffs_t *fs);
@@ -64,7 +71,7 @@ extern void spiffs_api_unlock(struct spiffs_t *fs);
 
 // Defines spiffs debug print formatters
 // some general signed number
-#define _SPIPRIi   "%d"
+#define _SPIPRIi   "%" PRIdMAX
 // address
 #define _SPIPRIad  "%08x"
 // block
@@ -160,7 +167,7 @@ extern void spiffs_api_unlock(struct spiffs_t *fs);
 // spiffs_object_ix_header fields + at least some LUT entries)
 #define SPIFFS_OBJ_META_LEN             (CONFIG_SPIFFS_META_LENGTH)
 #define SPIFFS_PAGE_EXTRA_SIZE          (64)
-_Static_assert(SPIFFS_OBJ_META_LEN + SPIFFS_OBJ_NAME_LEN + SPIFFS_PAGE_EXTRA_SIZE
+ESP_STATIC_ASSERT(SPIFFS_OBJ_META_LEN + SPIFFS_OBJ_NAME_LEN + SPIFFS_PAGE_EXTRA_SIZE
         <= CONFIG_SPIFFS_PAGE_SIZE, "SPIFFS_OBJ_META_LEN or SPIFFS_OBJ_NAME_LEN too long");
 
 // Size of buffer allocated on stack used when copying data.

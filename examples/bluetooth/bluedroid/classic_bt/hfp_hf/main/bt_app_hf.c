@@ -1,15 +1,14 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express esp_hf_ag_apiied.
-*/
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #include <stdint.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 #include "esp_log.h"
 
 #include "bt_app_core.h"
@@ -18,6 +17,8 @@
 #include "esp_bt_device.h"
 #include "esp_gap_bt_api.h"
 #include "esp_hf_client_api.h"
+#include "esp_hf_client_legacy_api.h"
+#include "esp_pbac_api.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -49,6 +50,8 @@ const char *c_hf_evt_str[] = {
     "INBAND_RING_TONE_EVT",              /*!< in-band ring tone settings */
     "LAST_VOICE_TAG_NUMBER_EVT",         /*!< requested number from AG event */
     "RING_IND_EVT",                      /*!< ring indication event */
+    "PKT_STAT_EVT",                      /*!< requested number of packet status event */
+    "PROF_STATE_EVT",                    /*!< Indicate HF CLIENT init or deinit complete */
 };
 
 // esp_hf_client_connection_state_t
@@ -62,10 +65,11 @@ const char *c_connection_state_str[] = {
 
 // esp_hf_client_audio_state_t
 const char *c_audio_state_str[] = {
-    "disconnected",
-    "connecting",
-    "connected",
-    "connected_msbc",
+    [ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED]      = "disconnected",
+    [ESP_HF_CLIENT_AUDIO_STATE_CONNECTING]        = "connecting",
+    [ESP_HF_CLIENT_AUDIO_STATE_CONNECTED]         = "connected",
+    [ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC]    = "connected_msbc",
+    [ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_LC3]     = "connected_lc3",
 };
 
 /// esp_hf_vr_state_t
@@ -157,9 +161,9 @@ const char *c_at_response_code_str[] = {
 
 // esp_hf_subscriber_service_type_t
 const char *c_subscriber_service_type_str[] = {
-    "unknown",
-    "voice",
-    "fax",
+    [ESP_HF_SUBSCRIBER_SERVICE_TYPE_UNKNOWN] = "unknown",
+    [ESP_HF_SUBSCRIBER_SERVICE_TYPE_VOICE]   = "voice",
+    [ESP_HF_SUBSCRIBER_SERVICE_TYPE_FAX]     = "fax",
 };
 
 // esp_hf_client_in_band_ring_state_t
@@ -168,11 +172,72 @@ const char *c_inband_ring_state_str[] = {
     "Provided",
 };
 
-// esp_bd_addr_t peer_addr;
+extern esp_bd_addr_t peer_addr;
+extern bool hf_client_connected;
 // If you want to connect a specific device, add it's address here
-esp_bd_addr_t peer_addr = {0xb4, 0xe6, 0x2d, 0xeb, 0x09, 0x93};
+// esp_bd_addr_t peer_addr = {0xac, 0x67, 0xb2, 0x53, 0x77, 0xbe};
 
-#if CONFIG_BTDM_CTRL_BR_EDR_SCO_DATA_PATH_HCI
+#if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI
+
+typedef enum {
+    HF_AIR_CODEC_CVSD = 0,
+    HF_AIR_CODEC_MSBC,
+    HF_AIR_CODEC_LC3,
+} hf_air_codec_t;
+
+#if CONFIG_BT_HFP_USE_EXTERNAL_CODEC
+
+static esp_hf_sync_conn_hdl_t s_sync_conn_hdl;
+static hf_air_codec_t s_air_codec = HF_AIR_CODEC_CVSD;
+QueueHandle_t s_audio_buff_queue = NULL;
+static int s_audio_buff_cnt = 0;
+
+static void bt_app_hf_client_audio_data_cb(esp_hf_sync_conn_hdl_t sync_conn_hdl, esp_hf_audio_buff_t *audio_buf, bool is_bad_frame)
+{
+    if (is_bad_frame) {
+        esp_hf_client_audio_buff_free(audio_buf);
+        return;
+    }
+
+    if (s_audio_buff_queue && xQueueSend(s_audio_buff_queue, &audio_buf, 0)) {
+        s_audio_buff_cnt++;
+    }
+    else {
+        esp_hf_client_audio_buff_free(audio_buf);
+    }
+
+    /* cache some data to add latency */
+    if (s_audio_buff_cnt < 20) {
+        return;
+    }
+
+    esp_hf_audio_buff_t *audio_data_to_send;
+    if (!xQueueReceive(s_audio_buff_queue, &audio_data_to_send, 0)) {
+        return;
+    }
+
+    s_audio_buff_cnt--;
+    if (s_air_codec == HF_AIR_CODEC_MSBC &&
+        audio_data_to_send->data_len > ESP_HF_MSBC_ENCODED_FRAME_SIZE) {
+        /*
+         * in mSBC air mode, we may receive a mSBC frame with some padding bytes at the end,
+         * but esp_hf_client_audio_data_send API do not allow adding padding bytes at the end,
+         * so we need to remove those padding bytes before send back to peer device.
+         */
+        audio_data_to_send->data_len = ESP_HF_MSBC_ENCODED_FRAME_SIZE;
+    } else if (s_air_codec == HF_AIR_CODEC_LC3 &&
+               audio_data_to_send->data_len > ESP_HF_LC3_ENCODED_FRAME_SIZE) {
+        audio_data_to_send->data_len = ESP_HF_LC3_ENCODED_FRAME_SIZE;
+    }
+
+    /* send audio data back to AG */
+    if (esp_hf_client_audio_data_send(s_sync_conn_hdl, audio_data_to_send) != ESP_OK) {
+        esp_hf_client_audio_buff_free(audio_data_to_send);
+        ESP_LOGW(BT_HF_TAG, "fail to send audio data");
+    }
+}
+
+#else /* !CONFIG_BT_HFP_USE_EXTERNAL_CODEC */
 
 #define ESP_HFP_RINGBUF_SIZE 3600
 static RingbufHandle_t m_rb = NULL;
@@ -189,6 +254,7 @@ static void bt_app_hf_client_audio_close(void)
     }
 
     vRingbufferDelete(m_rb);
+    m_rb = NULL;
 }
 
 static uint32_t bt_app_hf_client_outgoing_cb(uint8_t *p_buf, uint32_t sz)
@@ -224,12 +290,15 @@ static void bt_app_hf_client_incoming_cb(const uint8_t *buf, uint32_t sz)
 
     esp_hf_client_outgoing_data_ready();
 }
-#endif /* #if CONFIG_BTDM_CTRL_BR_EDR_SCO_DATA_PATH_HCI */
+
+#endif /* CONFIG_BT_HFP_USE_EXTERNAL_CODEC */
+
+#endif /* #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI */
 
 /* callback for HF_CLIENT */
 void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_t *param)
 {
-    if (event <= ESP_HF_CLIENT_RING_IND_EVT) {
+    if (event <= ESP_HF_CLIENT_PROF_STATE_EVT) {
         ESP_LOGI(BT_HF_TAG, "APP HFP event: %s", c_hf_evt_str[event]);
     } else {
         ESP_LOGE(BT_HF_TAG, "APP HFP invalid event %d", event);
@@ -238,20 +307,72 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
     switch (event) {
         case ESP_HF_CLIENT_CONNECTION_STATE_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--connection state %s, peer feats 0x%x, chld_feats 0x%x",
+            ESP_LOGI(BT_HF_TAG, "--connection state %s, peer feats 0x%"PRIx32", chld_feats 0x%"PRIx32,
                     c_connection_state_str[param->conn_stat.state],
                     param->conn_stat.peer_feat,
                     param->conn_stat.chld_feat);
             memcpy(peer_addr,param->conn_stat.remote_bda,ESP_BD_ADDR_LEN);
+            if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_SLC_CONNECTED) {
+                esp_pbac_connect(peer_addr);
+            } else if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_CONNECTED) {
+                hf_client_connected = true;
+            } else if (param->conn_stat.state == ESP_HF_CLIENT_CONNECTION_STATE_DISCONNECTED) {
+                hf_client_connected = false;
+            }
             break;
         }
 
         case ESP_HF_CLIENT_AUDIO_STATE_EVT:
         {
-            ESP_LOGI(BT_HF_TAG, "--audio state %s",
-                    c_audio_state_str[param->audio_stat.state]);
-    #if CONFIG_BTDM_CTRL_BR_EDR_SCO_DATA_PATH_HCI
+            const char *audio_state = (param->audio_stat.state <= ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_LC3 &&
+                                       c_audio_state_str[param->audio_stat.state]) ?
+                                      c_audio_state_str[param->audio_stat.state] : "unknown";
+            ESP_LOGI(BT_HF_TAG, "--audio state %s", audio_state);
+    #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI
+
+    #if CONFIG_BT_HFP_USE_EXTERNAL_CODEC
+            if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
+                s_air_codec = HF_AIR_CODEC_MSBC;
+                ESP_LOGI(BT_HF_TAG, "--audio air mode: mSBC, preferred_frame_size: %d",
+                         param->audio_stat.preferred_frame_size);
+            } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_LC3) {
+                s_air_codec = HF_AIR_CODEC_LC3;
+                ESP_LOGI(BT_HF_TAG, "--audio air mode: LC3-SWB, preferred_frame_size: %d",
+                         param->audio_stat.preferred_frame_size);
+            } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED) {
+                s_air_codec = HF_AIR_CODEC_CVSD;
+                ESP_LOGI(BT_HF_TAG, "--audio air mode: CVSD, preferred_frame_size: %d",
+                         param->audio_stat.preferred_frame_size);
+            }
+
             if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
+                param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC ||
+                param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_LC3) {
+                s_sync_conn_hdl = param->audio_stat.sync_conn_handle;
+                s_audio_buff_queue = xQueueCreate(50, sizeof(esp_hf_audio_buff_t*));
+                esp_hf_client_register_audio_data_callback(bt_app_hf_client_audio_data_cb);
+                /* Disable connectable and discoverable mode to save the over-the-air bandwidth and ensure audio quality  */
+                esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
+            } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
+                s_sync_conn_hdl = ESP_INVALID_CONN_HANDLE;
+                s_air_codec = HF_AIR_CODEC_CVSD;
+                if (s_audio_buff_queue) {
+                    esp_hf_audio_buff_t *buff_to_free = NULL;
+                    while (xQueueReceive(s_audio_buff_queue, &buff_to_free, 0)) {
+                        esp_hf_client_audio_buff_free(buff_to_free);
+                    }
+                    vQueueDelete(s_audio_buff_queue);
+                    s_audio_buff_queue = NULL;
+                }
+                s_audio_buff_cnt = 0;
+                /* Resume connectable and discoverable mode */
+                esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+            }
+    #else
+            if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_LC3) {
+                ESP_LOGE(BT_HF_TAG, "LC3-SWB requires CONFIG_BT_HFP_USE_EXTERNAL_CODEC "
+                         "(Bluedroid has no internal LC3 codec; use encoded-frame loopback path)");
+            } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED ||
                 param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_CONNECTED_MSBC) {
                 esp_hf_client_register_data_callback(bt_app_hf_client_incoming_cb,
                                                     bt_app_hf_client_outgoing_cb);
@@ -259,7 +380,9 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
             } else if (param->audio_stat.state == ESP_HF_CLIENT_AUDIO_STATE_DISCONNECTED) {
                 bt_app_hf_client_audio_close();
             }
-    #endif /* #if CONFIG_BTDM_CTRL_BR_EDR_SCO_DATA_PATH_HCI */
+    #endif /* #if CONFIG_BT_HFP_USE_EXTERNAL_CODEC */
+
+    #endif /* #if CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI */
             break;
         }
 
@@ -394,7 +517,22 @@ void bt_app_hf_client_cb(esp_hf_client_cb_event_t event, esp_hf_client_cb_param_
                     (param->binp.number == NULL) ? "NULL" : param->binp.number);
             break;
         }
-
+        case ESP_HF_CLIENT_PKT_STAT_NUMS_GET_EVT:
+        {
+            ESP_LOGE(BT_HF_TAG, "ESP_HF_CLIENT_PKT_STAT_NUMS_GET_EVT: %d", event);
+            break;
+        }
+        case ESP_HF_CLIENT_PROF_STATE_EVT:
+        {
+            if (ESP_HF_INIT_SUCCESS == param->prof_stat.state) {
+                ESP_LOGI(BT_HF_TAG, "HF PROF STATE: Init Complete");
+            } else if (ESP_HF_DEINIT_SUCCESS == param->prof_stat.state) {
+                ESP_LOGI(BT_HF_TAG, "HF PROF STATE: Deinit Complete");
+            } else {
+                ESP_LOGE(BT_HF_TAG, "HF PROF STATE error: %d", param->prof_stat.state);
+            }
+            break;
+        }
         default:
             ESP_LOGE(BT_HF_TAG, "HF_CLIENT EVT: %d", event);
             break;

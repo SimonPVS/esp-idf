@@ -1,16 +1,8 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
 #ifndef __SPP_TASK_H__
 #define __SPP_TASK_H__
@@ -28,11 +20,17 @@
  */
 typedef void (* spp_task_cb_t) (uint16_t event, void *param);
 
+/**
+ * @brief     parameter deep-free function
+ */
+typedef void (* spp_task_free_cb_t) (void *p_param);
+
 /* message to be sent */
 typedef struct {
     uint16_t             sig;      /*!< signal to spp_task_task */
     uint16_t             event;    /*!< message event id */
     spp_task_cb_t        cb;       /*!< context switch callback */
+    spp_task_free_cb_t   free_cb;  /*!< parameter deep-free function */
     void                 *param;   /*!< parameter area needs to be last */
 } spp_task_msg_t;
 
@@ -44,7 +42,8 @@ typedef void (* spp_task_copy_cb_t) (spp_task_msg_t *msg, void *p_dest, void *p_
 /**
  * @brief     work dispatcher for the application task
  */
-bool spp_task_work_dispatch(spp_task_cb_t p_cback, uint16_t event, void *p_params, int param_len, spp_task_copy_cb_t p_copy_cback);
+bool spp_task_work_dispatch(spp_task_cb_t p_cback, uint16_t event, void *p_params, int param_len,
+                            spp_task_copy_cb_t p_copy_cback, spp_task_free_cb_t p_free_cback);
 
 void spp_task_task_start_up(void);
 

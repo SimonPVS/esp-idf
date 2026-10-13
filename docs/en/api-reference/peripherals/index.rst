@@ -1,38 +1,59 @@
 Peripherals API
-***************
+****************
 
 :link_to_translation:`zh_CN:[中文]`
 
 .. toctree::
     :maxdepth: 1
 
-
-    ADC <adc>
-    DAC <dac>
-    GPIO (including RTC low power I/O) <gpio>
-    :esp32s2: HMAC <hmac>
-    :esp32s2: Digital Signature <ds>
-    I2C <i2c>
-    I2S <i2s>
-    LED Control <ledc>
-    :SOC_MCPWM_SUPPORTED: MCPWM <mcpwm>
-    Pulse Counter <pcnt>
-    Remote Control <rmt>
-    :esp32: SD Pull-up Requirements <sd_pullup_requirements>
-    :SOC_SDMMC_HOST_SUPPORTED: SDMMC Host <sdmmc_host>
-    SD SPI Host <sdspi_host>
-    :SOC_SDIO_SLAVE_SUPPORTED: SDIO Slave <sdio_slave>
-    Sigma-delta Modulation <sigmadelta>
-    SPI Master <spi_master>
-    SPI Slave <spi_slave>
-    :esp32: Secure Element <secure_element>
-    :esp32s2: SPI Slave Half Duplex <spi_slave_hd>
-    :esp32s2: Temp sensor <temp_sensor>
-    Timer <timer>
-    Touch Sensor <touch_pad>
-    TWAI <twai>
-    UART <uart>
-    :SOC_USB_SUPPORTED: USB <usb>
-
+    :SOC_ADC_SUPPORTED: adc/index
+    :SOC_ANA_CMPR_SUPPORTED: ana_cmpr
+    :SOC_GDMA_SUPPORT_CRC: async_crc
+    :SOC_DMA2D_SUPPORTED: async_color_convert
+    :SOC_ASYNC_MEMCPY_SUPPORTED: async_memcpy
+    :SOC_BITSCRAMBLER_SUPPORTED: bitscrambler
+    :SOC_MIPI_CSI_SUPPORTED: camera_driver
+    :SOC_CLK_TREE_SUPPORTED: clk_tree
+    :SOC_CORDIC_SUPPORTED: cordic
+    :SOC_DAC_SUPPORTED: dac
+    :SOC_ECDSA_SUPPORTED: ecdsa
+    :SOC_ETM_SUPPORTED: etm
+    gpio
+    :SOC_GPTIMER_SUPPORTED: gptimer
+    :SOC_DEDICATED_GPIO_SUPPORTED: dedic_gpio
+    :SOC_HMAC_SUPPORTED: hmac
+    :SOC_DIG_SIGN_SUPPORTED: ds
+    :SOC_I2C_SUPPORTED: i2c
+    :SOC_I2S_SUPPORTED: i2s
+    :SOC_I3C_MASTER_SUPPORTED: i3c_master
+    :SOC_ISP_SUPPORTED: isp
+    :SOC_JPEG_CODEC_SUPPORTED: jpeg
+    :SOC_KEY_MANAGER_SUPPORTED: key_manager
+    lcd/index
+    :SOC_GP_LDO_SUPPORTED: ldo_regulator
+    :SOC_LEDC_SUPPORTED: ledc
+    :SOC_MCPWM_SUPPORTED: mcpwm/index
+    :SOC_PARLIO_SUPPORTED: parlio/index
+    :SOC_PCNT_SUPPORTED: pcnt
+    :SOC_PPA_SUPPORTED: ppa
+    :SOC_RMT_SUPPORTED: rmt
+    :SOC_SDMMC_HOST_SUPPORTED or SOC_SDIO_SLAVE_SUPPORTED: sd_pullup_requirements
+    :SOC_SDMMC_HOST_SUPPORTED: sdmmc_host
+    :SOC_GPSPI_SUPPORTED: sdspi_host
+    :SOC_SDIO_SLAVE_SUPPORTED: sdio_slave
+    :SOC_SDM_SUPPORTED: sdm
+    :SOC_SHA_SUPPORT_SM3: sm3
+    :SOC_SPI_FLASH_SUPPORTED: spi_flash/index
+    :SOC_GPSPI_SUPPORTED: spi_master
+    :SOC_GPSPI_SUPPORTED: spi_slave
+    :SOC_SPI_SUPPORT_SLAVE_HD_VER2: spi_slave_hd
+    :SOC_LP_I2S_SUPPORTED: lp_i2s
+    :SOC_LP_VAD_SUPPORTED: vad
+    :SOC_TEMP_SENSOR_SUPPORTED: temp_sensor
+    :SOC_TOUCH_SENSOR_SUPPORTED: cap_touch_sens
+    :SOC_TWAI_SUPPORTED: twai
+    :SOC_UART_SUPPORTED: uart
+    :SOC_USB_OTG_SUPPORTED: USB Device Stack <https://docs.espressif.com/projects/esp-usb/en/latest/{IDF_TARGET_PATH_NAME}/usb_device.html>
+    :SOC_USB_OTG_SUPPORTED: USB Host <https://docs.espressif.com/projects/esp-usb/en/latest/{IDF_TARGET_PATH_NAME}/usb_host.html>
 
 Code examples for this API section are provided in the :example:`peripherals` directory of ESP-IDF examples.

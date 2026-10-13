@@ -1,14 +1,14 @@
 /*
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Unlicense OR CC0-1.0
+ */
 
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
+#include <inttypes.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 #include "esp_system.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -18,10 +18,12 @@
 #include "esp_gatts_api.h"
 #include "esp_bt_defs.h"
 #include "esp_bt_main.h"
+#include "esp_bt_device.h"
 #include "esp_gattc_api.h"
 #include "esp_gatt_defs.h"
 #include "esp_gatt_common_api.h"
 #include "ble_ancs.h"
+#include "esp_timer.h"
 
 #define BLE_ANCS_TAG                              "BLE_ANCS"
 #define EXAMPLE_DEVICE_NAME                       "ESP_BLE_ANCS"
@@ -30,6 +32,8 @@
 #define ADV_CONFIG_FLAG                           (1 << 0)
 #define SCAN_RSP_CONFIG_FLAG                      (1 << 1)
 #define INVALID_HANDLE                             0
+#define ANCS_CMD_BUFFER_MAX_SIZE                   600
+
 static uint8_t adv_config_done = 0;
 static bool get_service = false;
 static esp_gattc_char_elem_t *char_elem_result   = NULL;
@@ -49,6 +53,7 @@ struct data_source_buffer {
 };
 
 static struct data_source_buffer data_buffer = {0};
+static SemaphoreHandle_t data_buffer_mux;
 
 //In its basic form, the ANCS exposes three characteristics:
 // service UUID: 7905F431-B5CE-4E99-A40F-4B1E122D00D0
@@ -80,8 +85,8 @@ static uint8_t hidd_service_uuid128[] = {
 static esp_ble_adv_data_t adv_config = {
     .set_scan_rsp = false,
     .include_txpower = false,
-    .min_interval = 0x0006, //slave connection min interval, Time = min_interval * 1.25 msec
-    .max_interval = 0x0010, //slave connection max interval, Time = max_interval * 1.25 msec
+    .min_interval = ESP_BLE_GAP_CONN_ITVL_MS(7.5), //slave connection min interval
+    .max_interval = ESP_BLE_GAP_CONN_ITVL_MS(20), //slave connection max interval
     .appearance = ESP_BLE_APPEARANCE_GENERIC_HID,
     .service_uuid_len = sizeof(hidd_service_uuid128),
     .p_service_uuid = hidd_service_uuid128,
@@ -96,10 +101,10 @@ static esp_ble_adv_data_t scan_rsp_config = {
 };
 
 static esp_ble_adv_params_t adv_params = {
-    .adv_int_min        = 0x100,
-    .adv_int_max        = 0x100,
+    .adv_int_min        = ESP_BLE_GAP_ADV_ITVL_MS(160),
+    .adv_int_max        = ESP_BLE_GAP_ADV_ITVL_MS(160),
     .adv_type           = ADV_TYPE_IND,
-    .own_addr_type      = BLE_ADDR_TYPE_RANDOM,
+    .own_addr_type      = BLE_ADDR_TYPE_RPA_PUBLIC,
     .channel_map        = ADV_CHNL_ALL,
     .adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY,
 };
@@ -161,23 +166,34 @@ esp_noti_attr_list_t p_attr[8] = {
 
 };
 
-/* 
+/*
     | CommandID(1 Byte) | NotificationUID(4 Bytes) | AttributeIDs |
 */
 
 void esp_get_notification_attributes(uint8_t *notificationUID, uint8_t num_attr, esp_noti_attr_list_t *p_attr)
 {
-    uint8_t cmd[600] = {0};
+    uint8_t cmd[ANCS_CMD_BUFFER_MAX_SIZE] = {0};
     uint32_t index = 0;
+
     cmd[0] = CommandIDGetNotificationAttributes;
     index ++;
     memcpy(&cmd[index], notificationUID, ESP_NOTIFICATIONUID_LEN);
     index += ESP_NOTIFICATIONUID_LEN;
     while(num_attr > 0) {
+        // Security fix: Check buffer boundary before writing
+        if (index >= ANCS_CMD_BUFFER_MAX_SIZE) {
+            ESP_LOGE(BLE_ANCS_TAG, "Command buffer overflow in get_notification_attributes");
+            return;
+        }
         cmd[index ++] = p_attr->noti_attribute_id;
         if (p_attr->attribute_len > 0) {
-            cmd[index ++] = p_attr->attribute_len;
-            cmd[index ++] = (p_attr->attribute_len << 8);
+            // Need 2 more bytes for attribute_len
+            if ((index + 2) > ANCS_CMD_BUFFER_MAX_SIZE) {
+                ESP_LOGE(BLE_ANCS_TAG, "Command buffer overflow in get_notification_attributes");
+                return;
+            }
+            cmd[index ++] = p_attr->attribute_len & 0xFF;
+            cmd[index ++] = (p_attr->attribute_len >> 8) & 0xFF;
         }
         p_attr ++;
         num_attr --;
@@ -194,8 +210,15 @@ void esp_get_notification_attributes(uint8_t *notificationUID, uint8_t num_attr,
 
 void esp_get_app_attributes(uint8_t *appidentifier, uint16_t appidentifier_len, uint8_t num_attr, uint8_t *p_app_attrs)
 {
-    uint8_t buffer[600] = {0};
+    uint8_t buffer[ANCS_CMD_BUFFER_MAX_SIZE] = {0};
     uint32_t index = 0;
+
+    // Security fix: Check buffer boundary before memcpy
+    if ((1 + appidentifier_len + num_attr) > ANCS_CMD_BUFFER_MAX_SIZE) {
+        ESP_LOGE(BLE_ANCS_TAG, "Buffer overflow in get_app_attributes");
+        return;
+    }
+
     buffer[0] = CommandIDGetAppAttributes;
     index ++;
     memcpy(&buffer[index], appidentifier, appidentifier_len);
@@ -214,7 +237,7 @@ void esp_get_app_attributes(uint8_t *appidentifier, uint16_t appidentifier_len, 
 
 void esp_perform_notification_action(uint8_t *notificationUID, uint8_t ActionID)
 {
-    uint8_t buffer[600] = {0};
+    uint8_t buffer[ANCS_CMD_BUFFER_MAX_SIZE] = {0};
     uint32_t index = 0;
     buffer[0] = CommandIDPerformNotificationAction;
     index ++;
@@ -233,17 +256,28 @@ void esp_perform_notification_action(uint8_t *notificationUID, uint8_t ActionID)
 
 static void periodic_timer_callback(void* arg)
 {
-    esp_timer_stop(periodic_timer);
+    if (data_buffer_mux == NULL) {
+        return;
+    }
+    if (xSemaphoreTake(data_buffer_mux, 0) != pdTRUE) {
+        /* Mutex held by GATT handler; retry soon without blocking esp_timer task */
+        esp_err_t tr = esp_timer_start_once(periodic_timer, 50000);
+        if (tr != ESP_OK) {
+            ESP_LOGE(BLE_ANCS_TAG, "Data source idle timer retry failed: %s", esp_err_to_name(tr));
+        }
+        return;
+    }
     if (data_buffer.len > 0) {
         esp_receive_apple_data_source(data_buffer.buffer, data_buffer.len);
         memset(data_buffer.buffer, 0, data_buffer.len);
         data_buffer.len = 0;
-    } 
+    }
+    xSemaphoreGive(data_buffer_mux);
 }
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
-    ESP_LOGV(BLE_ANCS_TAG, "GAP_EVT, event %d\n", event);
+    ESP_LOGV(BLE_ANCS_TAG, "GAP_EVT, event %d", event);
 
     switch (event) {
     case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
@@ -281,7 +315,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
         /* The app will receive this evt when the IO has DisplayYesNO capability and the peer device IO also has DisplayYesNo capability.
         show the passkey number to the user to confirm it with the number displayed by peer device. */
         esp_ble_confirm_reply(param->ble_security.ble_req.bd_addr, true);
-        ESP_LOGI(BLE_ANCS_TAG, "ESP_GAP_BLE_NC_REQ_EVT, the passkey Notify number:%d", param->ble_security.key_notif.passkey);
+        ESP_LOGI(BLE_ANCS_TAG, "ESP_GAP_BLE_NC_REQ_EVT, the passkey Notify number:%" PRIu32, param->ble_security.key_notif.passkey);
         break;
     case ESP_GAP_BLE_SEC_REQ_EVT:
         /* send the positive(true) security response to the peer device to accept the security request.
@@ -290,10 +324,10 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
         break;
     case ESP_GAP_BLE_PASSKEY_NOTIF_EVT:  ///the app will receive this evt when the IO  has Output capability and the peer device IO has Input capability.
         ///show the passkey number to the user to input it in the peer device.
-        ESP_LOGI(BLE_ANCS_TAG, "The passkey Notify number:%06d", param->ble_security.key_notif.passkey);
+        ESP_LOGI(BLE_ANCS_TAG, "The passkey Notify number:%06" PRIu32, param->ble_security.key_notif.passkey);
         break;
     case ESP_GAP_BLE_AUTH_CMPL_EVT: {
-        esp_log_buffer_hex("addr", param->ble_security.auth_cmpl.bd_addr, ESP_BD_ADDR_LEN);
+        ESP_LOG_BUFFER_HEX("addr", param->ble_security.auth_cmpl.bd_addr, ESP_BD_ADDR_LEN);
         ESP_LOGI(BLE_ANCS_TAG, "pair status = %s",param->ble_security.auth_cmpl.success ? "success" : "fail");
         if (!param->ble_security.auth_cmpl.success) {
             ESP_LOGI(BLE_ANCS_TAG, "fail reason = 0x%x",param->ble_security.auth_cmpl.fail_reason);
@@ -384,13 +418,15 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                                                                         &count);
             if (ret_status != ESP_GATT_OK) {
                 ESP_LOGE(BLE_ANCS_TAG, "esp_ble_gattc_get_attr_count error, %d", __LINE__);
+                break;
             }
             if (count > 0) {
                 char_elem_result = (esp_gattc_char_elem_t *)malloc(sizeof(esp_gattc_char_elem_t) * count);
-                memset(char_elem_result, 0xff, sizeof(esp_gattc_char_elem_t) * count);
                 if (!char_elem_result) {
                     ESP_LOGE(BLE_ANCS_TAG, "gattc no mem");
+                    break;
                 } else {
+                    memset(char_elem_result, 0xff, sizeof(esp_gattc_char_elem_t) * count);
                     ret_status = esp_ble_gattc_get_all_char(gattc_if,
                                                             gl_profile_tab[PROFILE_A_APP_ID].conn_id,
                                                             gl_profile_tab[PROFILE_A_APP_ID].service_start_handle,
@@ -400,12 +436,15 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                                                             offset);
                     if (ret_status != ESP_GATT_OK) {
                         ESP_LOGE(BLE_ANCS_TAG, "esp_ble_gattc_get_all_char error, %d", __LINE__);
+                        free(char_elem_result);
+                        char_elem_result = NULL;
+                        break;
                     }
                     if (count > 0) {
 
                         for (int i = 0; i < count; i ++) {
                             if (char_elem_result[i].uuid.len == ESP_UUID_LEN_128) {
-                                if (char_elem_result[i].properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY 
+                                if (char_elem_result[i].properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY
                                     && memcmp(char_elem_result[i].uuid.uuid.uuid128, notification_source, 16) == 0) {
                                     gl_profile_tab[PROFILE_A_APP_ID].notification_source_handle = char_elem_result[i].char_handle;
                                     esp_ble_gattc_register_for_notify (gattc_if,
@@ -413,7 +452,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                                                                        char_elem_result[i].char_handle);
                                     ESP_LOGI(BLE_ANCS_TAG, "Find Apple noticification source char");
 
-                                } else if (char_elem_result[i].properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY 
+                                } else if (char_elem_result[i].properties & ESP_GATT_CHAR_PROP_BIT_NOTIFY
                                             && memcmp(char_elem_result[i].uuid.uuid.uuid128, data_source, 16) == 0) {
                                     gl_profile_tab[PROFILE_A_APP_ID].data_source_handle = char_elem_result[i].char_handle;
                                     esp_ble_gattc_register_for_notify (gattc_if,
@@ -421,7 +460,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                                                                        char_elem_result[i].char_handle);
                                     ESP_LOGI(BLE_ANCS_TAG, "Find Apple data source char");
 
-                                } else if (char_elem_result[i].properties & ESP_GATT_CHAR_PROP_BIT_WRITE 
+                                } else if (char_elem_result[i].properties & ESP_GATT_CHAR_PROP_BIT_WRITE
                                             && memcmp(char_elem_result[i].uuid.uuid.uuid128, control_point, 16) == 0) {
                                     gl_profile_tab[PROFILE_A_APP_ID].contol_point_handle = char_elem_result[i].char_handle;
                                     ESP_LOGI(BLE_ANCS_TAG, "Find Apple control point char");
@@ -432,6 +471,7 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                     }
                 }
                 free(char_elem_result);
+                char_elem_result = NULL;
             }
         } else {
             ESP_LOGE(BLE_ANCS_TAG, "No Apple Notification Service found");
@@ -456,11 +496,13 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                                                                     &count);
         if (ret_status != ESP_GATT_OK) {
             ESP_LOGE(BLE_ANCS_TAG, "esp_ble_gattc_get_attr_count error, %d", __LINE__);
+            break;
         }
         if (count > 0) {
             descr_elem_result = malloc(sizeof(esp_gattc_descr_elem_t) * count);
             if (!descr_elem_result) {
                 ESP_LOGE(BLE_ANCS_TAG, "malloc error, gattc no mem");
+                break;
             } else {
                 ret_status = esp_ble_gattc_get_all_descr(gattc_if,
                                                          gl_profile_tab[PROFILE_A_APP_ID].conn_id,
@@ -470,6 +512,9 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                                                          offset);
                 if (ret_status != ESP_GATT_OK) {
                     ESP_LOGE(BLE_ANCS_TAG, "esp_ble_gattc_get_all_descr error, %d", __LINE__);
+                    free(descr_elem_result);
+                    descr_elem_result = NULL;
+                    break;
                 }
 
                     for (int i = 0; i < count; ++ i) {
@@ -487,12 +532,16 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                     }
                 }
                 free(descr_elem_result);
+                descr_elem_result = NULL;
             }
         break;
     }
     case ESP_GATTC_NOTIFY_EVT:
-        //esp_log_buffer_hex(BLE_ANCS_TAG, param->notify.value, param->notify.value_len);
         if (param->notify.handle == gl_profile_tab[PROFILE_A_APP_ID].notification_source_handle) {
+            if (!param->notify.value || param->notify.value_len < 8) {
+                ESP_LOGW(BLE_ANCS_TAG, "Notification source too short (%u), need 8 bytes", param->notify.value_len);
+                break;
+            }
             esp_receive_apple_notification_source(param->notify.value, param->notify.value_len);
             uint8_t *notificationUID = &param->notify.value[4];
             if (param->notify.value[0] == EventIDNotificationAdded && param->notify.value[2] == CategoryIDIncomingCall) {
@@ -503,19 +552,37 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
                 //get more information
                 ESP_LOGI(BLE_ANCS_TAG, "Get detailed information");
                 esp_get_notification_attributes(notificationUID, sizeof(p_attr)/sizeof(esp_noti_attr_list_t), p_attr);
-             } 
+             }
         } else if (param->notify.handle == gl_profile_tab[PROFILE_A_APP_ID].data_source_handle) {
+            if (data_buffer_mux == NULL) {
+                break;
+            }
+            if (xSemaphoreTake(data_buffer_mux, portMAX_DELAY) != pdTRUE) {
+                break;
+            }
+            if ((data_buffer.len + param->notify.value_len) > sizeof(data_buffer.buffer)) {
+                ESP_LOGE(BLE_ANCS_TAG, "Data source buffer overflow detected, discarding data");
+                memset(data_buffer.buffer, 0, sizeof(data_buffer.buffer));
+                data_buffer.len = 0;
+                xSemaphoreGive(data_buffer_mux);
+                break;
+            }
             memcpy(&data_buffer.buffer[data_buffer.len], param->notify.value, param->notify.value_len);
             data_buffer.len += param->notify.value_len;
             if (param->notify.value_len == (gl_profile_tab[PROFILE_A_APP_ID].MTU_size - 3)) {
-                // cpoy and wait next packet, start timer 500ms
-                esp_timer_start_periodic(periodic_timer, 500000);
+                /* Retriggerable idle timeout: stop then one-shot so each full fragment resets 500 ms */
+                esp_timer_stop(periodic_timer);
+                esp_err_t tr = esp_timer_start_once(periodic_timer, 500000);
+                if (tr != ESP_OK) {
+                    ESP_LOGE(BLE_ANCS_TAG, "Data source idle timer start failed: %s", esp_err_to_name(tr));
+                }
             } else {
                 esp_timer_stop(periodic_timer);
                 esp_receive_apple_data_source(data_buffer.buffer, data_buffer.len);
                 memset(data_buffer.buffer, 0, data_buffer.len);
-                data_buffer.len = 0;    
+                data_buffer.len = 0;
             }
+            xSemaphoreGive(data_buffer_mux);
         } else {
             ESP_LOGI(BLE_ANCS_TAG, "unknown handle, receive notify value:");
         }
@@ -529,12 +596,12 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         break;
     case ESP_GATTC_SRVC_CHG_EVT: {
         ESP_LOGI(BLE_ANCS_TAG, "ESP_GATTC_SRVC_CHG_EVT, bd_addr:");
-        esp_log_buffer_hex(BLE_ANCS_TAG, param->srvc_chg.remote_bda, 6);
+        ESP_LOG_BUFFER_HEX(BLE_ANCS_TAG, param->srvc_chg.remote_bda, 6);
         break;
     }
     case ESP_GATTC_WRITE_CHAR_EVT:
         if (param->write.status != ESP_GATT_OK) {
-            char *Errstr = Errcode_to_String(param->write.status);
+            const char *Errstr = Errcode_to_String(param->write.status);
             if (Errstr) {
                  ESP_LOGE(BLE_ANCS_TAG, "write control point error %s", Errstr);
             }
@@ -544,15 +611,34 @@ static void gattc_profile_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
         break;
     case ESP_GATTC_DISCONNECT_EVT:
         ESP_LOGI(BLE_ANCS_TAG, "ESP_GATTC_DISCONNECT_EVT, reason = 0x%x", param->disconnect.reason);
+        if (data_buffer_mux != NULL && xSemaphoreTake(data_buffer_mux, portMAX_DELAY) == pdTRUE) {
+            esp_timer_stop(periodic_timer);
+            memset(data_buffer.buffer, 0, sizeof(data_buffer.buffer));
+            data_buffer.len = 0;
+            xSemaphoreGive(data_buffer_mux);
+        } else {
+            /* Mutex unavailable: only stop the timer (esp_timer_stop is thread-safe).
+             * Skip buffer reset to avoid an unsynchronized write that could race with
+             * NOTIFY_EVT / periodic_timer_callback if the mutex were ever held elsewhere. */
+            ESP_LOGE(BLE_ANCS_TAG, "data_buffer_mux unavailable on disconnect, skip buffer reset");
+            esp_timer_stop(periodic_timer);
+        }
         get_service = false;
         esp_ble_gap_start_advertising(&adv_params);
         break;
     case ESP_GATTC_CONNECT_EVT:
         //ESP_LOGI(BLE_ANCS_TAG, "ESP_GATTC_CONNECT_EVT");
-        //esp_log_buffer_hex("bda", param->connect.remote_bda, 6);
         memcpy(gl_profile_tab[PROFILE_A_APP_ID].remote_bda, param->connect.remote_bda, 6);
         // create gattc virtual connection
-        esp_ble_gattc_open(gl_profile_tab[PROFILE_A_APP_ID].gattc_if, gl_profile_tab[PROFILE_A_APP_ID].remote_bda, BLE_ADDR_TYPE_RANDOM, true);
+        esp_ble_gatt_creat_conn_params_t creat_conn_params = {0};
+        memcpy(&creat_conn_params.remote_bda, gl_profile_tab[PROFILE_A_APP_ID].remote_bda, ESP_BD_ADDR_LEN);
+        creat_conn_params.remote_addr_type = BLE_ADDR_TYPE_RANDOM;
+        creat_conn_params.own_addr_type = BLE_ADDR_TYPE_RPA_PUBLIC;
+        creat_conn_params.is_direct = true;
+        creat_conn_params.is_aux = false;
+        creat_conn_params.phy_mask = 0x0;
+        esp_ble_gattc_enh_open(gl_profile_tab[PROFILE_A_APP_ID].gattc_if,
+                            &creat_conn_params);
         break;
     case ESP_GATTC_DIS_SRVC_CMPL_EVT:
         ESP_LOGI(BLE_ANCS_TAG, "ESP_GATTC_DIS_SRVC_CMPL_EVT");
@@ -594,6 +680,8 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if, esp
 void init_timer(void)
 {
     ESP_ERROR_CHECK(esp_timer_create(&periodic_timer_args, &periodic_timer));
+    data_buffer_mux = xSemaphoreCreateMutex();
+    ESP_ERROR_CHECK(data_buffer_mux != NULL ? ESP_OK : ESP_ERR_NO_MEM);
 }
 
 void app_main(void)
@@ -626,7 +714,9 @@ void app_main(void)
     }
 
     ESP_LOGI(BLE_ANCS_TAG, "%s init bluetooth", __func__);
-    ret = esp_bluedroid_init();
+
+    esp_bluedroid_config_t cfg = BT_BLUEDROID_INIT_CONFIG_DEFAULT();
+    ret = esp_bluedroid_init_with_cfg(&cfg);
     if (ret) {
         ESP_LOGE(BLE_ANCS_TAG, "%s init bluetooth failed: %s", __func__, esp_err_to_name(ret));
         return;
@@ -640,7 +730,7 @@ void app_main(void)
     //register the callback function to the gattc module
     ret = esp_ble_gattc_register_callback(esp_gattc_cb);
     if (ret) {
-        ESP_LOGE(BLE_ANCS_TAG, "%s gattc register error, error code = %x\n", __func__, ret);
+        ESP_LOGE(BLE_ANCS_TAG, "%s gattc register error, error code = %x", __func__, ret);
         return;
     }
 
@@ -652,7 +742,7 @@ void app_main(void)
 
     ret = esp_ble_gattc_app_register(PROFILE_A_APP_ID);
     if (ret) {
-        ESP_LOGE(BLE_ANCS_TAG, "%s gattc app register error, error code = %x\n", __func__, ret);
+        ESP_LOGE(BLE_ANCS_TAG, "%s gattc app register error, error code = %x", __func__, ret);
     }
 
     ret = esp_ble_gatt_set_local_mtu(500);
@@ -683,6 +773,3 @@ void app_main(void)
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, sizeof(uint8_t));
     esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, sizeof(uint8_t));
 }
-
-
-

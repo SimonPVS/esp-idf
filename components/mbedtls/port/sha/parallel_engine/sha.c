@@ -32,12 +32,15 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "esp_cpu.h"
 
 #include "hal/sha_hal.h"
+#include "hal/sha_ll.h"
 #include "hal/sha_types.h"
 #include "sha/sha_parallel_engine.h"
 #include "soc/hwcrypto_periph.h"
-#include "driver/periph_ctrl.h"
+#include "esp_private/esp_crypto_lock_internal.h"
+#include "esp_private/periph_ctrl.h"
 
 /*
      Single spinlock for SHA engine memory block
@@ -47,7 +50,7 @@ static portMUX_TYPE memory_block_lock = portMUX_INITIALIZER_UNLOCKED;
 
 /* Binary semaphore managing the state of each concurrent SHA engine.
 
-   Available = noone is using this SHA engine
+   Available = no one is using this SHA engine
    Taken = a SHA session is running on this SHA engine
 
    Indexes:
@@ -106,7 +109,6 @@ static SemaphoreHandle_t sha_get_engine_state(esp_sha_type sha_type)
     unsigned idx = sha_engine_index(sha_type);
     volatile SemaphoreHandle_t *engine = &engine_states[idx];
     SemaphoreHandle_t result = *engine;
-    uint32_t set_engine = 0;
 
     if (result == NULL) {
         // Create a new semaphore for 'in use' flag
@@ -115,10 +117,8 @@ static SemaphoreHandle_t sha_get_engine_state(esp_sha_type sha_type)
         xSemaphoreGive(new_engine); // start available
 
         // try to atomically set the previously NULL *engine to new_engine
-        set_engine = (uint32_t)new_engine;
-        uxPortCompareSet((volatile uint32_t *)engine, 0, &set_engine);
-
-        if (set_engine != 0) { // we lost a race setting *engine
+        if (!esp_cpu_compare_and_set((volatile uint32_t *)engine, 0, (uint32_t)new_engine)) {
+            // we lost a race setting *engine
             vSemaphoreDelete(new_engine);
         }
         result = *engine;
@@ -153,7 +153,10 @@ static bool esp_sha_lock_engine_common(esp_sha_type sha_type, TickType_t ticks_t
     if (engines_in_use == 0) {
         /* Just locked first engine,
            so enable SHA hardware */
-        periph_module_enable(PERIPH_SHA_MODULE);
+        SHA_RCC_ATOMIC() {
+            sha_ll_enable_bus_clock(true);
+            sha_ll_reset_register();
+        }
     }
 
     engines_in_use++;
@@ -176,7 +179,9 @@ void esp_sha_unlock_engine(esp_sha_type sha_type)
     if (engines_in_use == 0) {
         /* About to release last engine, so
            disable SHA hardware */
-        periph_module_disable(PERIPH_SHA_MODULE);
+        SHA_RCC_ATOMIC() {
+           sha_ll_enable_bus_clock(false);
+        }
     }
 
     portEXIT_CRITICAL(&engines_in_use_lock);
@@ -202,6 +207,11 @@ void esp_sha_read_digest_state(esp_sha_type sha_type, void *digest_state)
     sha_hal_read_digest(sha_type, digest_state);
 
     esp_sha_unlock_memory_block();
+}
+
+void esp_sha_set_mode(esp_sha_type sha_type)
+{
+    sha_hal_set_mode(sha_type);
 }
 
 void esp_sha_block(esp_sha_type sha_type, const void *data_block, bool first_block)

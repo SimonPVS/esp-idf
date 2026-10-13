@@ -1,72 +1,39 @@
-// Copyright 2019 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2019-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
 #include "esp_err.h"
 #include "esp_event_base.h"
+#include "hal/eth_types.h"
+#include "esp_eth_spec.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief Maximum Ethernet payload size
- *
+ * @brief Scatter-gather buffer descriptor for extended Ethernet transmit.
  */
-#define ETH_MAX_PAYLOAD_LEN (1500)
+typedef struct {
+    uint8_t *buf;   /*!< Pointer to the buffer segment */
+    size_t   len;   /*!< Length of the buffer segment in bytes */
+} esp_eth_buf_desc_t;
 
 /**
- * @brief Minimum Ethernet payload size
+ * @brief Offset for start of MAC custom ioctl commands
  *
  */
-#define ETH_MIN_PAYLOAD_LEN (46)
-
+#define ETH_CMD_CUSTOM_MAC_CMDS_OFFSET      0x0FFF
 /**
- * @brief Ethernet frame header size: Dest addr(6 Bytes) + Src addr(6 Bytes) + length/type(2 Bytes)
+ * @brief Offset for start of PHY custom ioctl commands
  *
  */
-#define ETH_HEADER_LEN (14)
-
-/**
- * @brief Ethernet frame CRC length
- *
- */
-#define ETH_CRC_LEN (4)
-
-/**
- * @brief Optional 802.1q VLAN Tag length
- *
- */
-#define ETH_VLAN_TAG_LEN (4)
-
-/**
- * @brief Jumbo frame payload size
- *
- */
-#define ETH_JUMBO_FRAME_PAYLOAD_LEN (9000)
-
-/**
- * @brief Maximum frame size (1522 Bytes)
- *
- */
-#define ETH_MAX_PACKET_SIZE (ETH_HEADER_LEN + ETH_VLAN_TAG_LEN + ETH_MAX_PAYLOAD_LEN + ETH_CRC_LEN)
-
-/**
- * @brief Minimum frame size (64 Bytes)
- *
- */
-#define ETH_MIN_PACKET_SIZE (ETH_HEADER_LEN + ETH_MIN_PAYLOAD_LEN + ETH_CRC_LEN)
+#define ETH_CMD_CUSTOM_PHY_CMDS_OFFSET      0x1FFF
 
 /**
 * @brief Ethernet driver state
@@ -80,47 +47,6 @@ typedef enum {
     ETH_STATE_DUPLEX, /*!< Duplex updated */
     ETH_STATE_PAUSE,  /*!< Pause ability updated */
 } esp_eth_state_t;
-
-/**
-* @brief Command list for ioctl API
-*
-*/
-typedef enum {
-    ETH_CMD_G_MAC_ADDR,    /*!< Get MAC address */
-    ETH_CMD_S_MAC_ADDR,    /*!< Set MAC address */
-    ETH_CMD_G_PHY_ADDR,    /*!< Get PHY address */
-    ETH_CMD_S_PHY_ADDR,    /*!< Set PHY address */
-    ETH_CMD_G_SPEED,       /*!< Get Speed */
-    ETH_CMD_S_PROMISCUOUS, /*!< Set promiscuous mode */
-    ETH_CMD_S_FLOW_CTRL,   /*!< Set flow control */
-} esp_eth_io_cmd_t;
-
-/**
-* @brief Ethernet link status
-*
-*/
-typedef enum {
-    ETH_LINK_UP,  /*!< Ethernet link is up */
-    ETH_LINK_DOWN /*!< Ethernet link is down */
-} eth_link_t;
-
-/**
-* @brief Ethernet speed
-*
-*/
-typedef enum {
-    ETH_SPEED_10M, /*!< Ethernet speed is 10Mbps */
-    ETH_SPEED_100M /*!< Ethernet speed is 100Mbps */
-} eth_speed_t;
-
-/**
-* @brief Ethernet duplex mode
-*
-*/
-typedef enum {
-    ETH_DUPLEX_HALF, /*!< Ethernet is in half duplex */
-    ETH_DUPLEX_FULL  /*!< Ethernet is in full duplex */
-} eth_duplex_t;
 
 /**
 * @brief Ethernet mediator
@@ -177,6 +103,20 @@ struct esp_eth_mediator_s {
     esp_err_t (*stack_input)(esp_eth_mediator_t *eth, uint8_t *buffer, uint32_t length);
 
     /**
+    * @brief Deliver packet to upper stack with additional information about reception
+    *
+    * @param[in] eth: mediator of Ethernet driver
+    * @param[in] buffer: packet buffer
+    * @param[in] length: length of the packet
+    * @param[in] info: info associated with reception (e.g. time stamp)
+    *
+    * @return
+    *       - ESP_OK: deliver packet to upper stack successfully
+    *       - ESP_FAIL: deliver packet failed because some error occurred
+    */
+    esp_err_t (*stack_input_info)(esp_eth_mediator_t *eth, uint8_t *buffer, uint32_t length, void *info);
+
+    /**
     * @brief Callback on Ethernet state changed
     *
     * @param[in] eth: mediator of Ethernet driver
@@ -207,19 +147,6 @@ typedef enum {
 *
 */
 ESP_EVENT_DECLARE_BASE(ETH_EVENT);
-
-/**
-* @brief Detect PHY address
-*
-* @param[in] eth: mediator of Ethernet driver
-* @param[out] detected_addr: a valid address after detection
-* @return
-*       - ESP_OK: detect phy address successfully
-*       - ESP_ERR_INVALID_ARG: invalid parameter
-*       - ESP_ERR_NOT_FOUND: can't detect any PHY device
-*       - ESP_FAIL: detect phy address failed because some error occurred
-*/
-esp_err_t esp_eth_detect_phy_addr(esp_eth_mediator_t *eth, uint32_t *detected_addr);
 
 #ifdef __cplusplus
 }

@@ -1,42 +1,55 @@
-// Copyright 2020 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-
+/*
+ * SPDX-FileCopyrightText: 2020-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 #include <sys/param.h>
 #include "esp_mbedtls_dynamic_impl.h"
 
 int __real_mbedtls_ssl_handshake_server_step(mbedtls_ssl_context *ssl);
 
+int __real_mbedtls_ssl_tls13_handshake_server_step(mbedtls_ssl_context *ssl);
+
 int __wrap_mbedtls_ssl_handshake_server_step(mbedtls_ssl_context *ssl);
+
+int __wrap_mbedtls_ssl_tls13_handshake_server_step(mbedtls_ssl_context *ssl);
 
 static const char *TAG = "SSL Server";
 
-static int manage_resource(mbedtls_ssl_context *ssl, bool add)
+#ifdef CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA
+/**
+ * Check if ciphersuite uses rsa key exchange methods.
+ */
+static bool ssl_ciphersuite_uses_rsa_key_ex(mbedtls_ssl_context *ssl)
 {
-    int state = add ? ssl->state : ssl->state - 1;
+    const mbedtls_ssl_ciphersuite_t *ciphersuite_info =
+        ssl->MBEDTLS_PRIVATE(handshake)->ciphersuite_info;
 
-    if (ssl->state == MBEDTLS_SSL_HANDSHAKE_OVER || ssl->handshake == NULL) {
+    if (ciphersuite_info->MBEDTLS_PRIVATE(key_exchange) == MBEDTLS_KEY_EXCHANGE_ECDHE_RSA) {
+        return true;
+    } else {
+        return false;
+    }
+}
+#endif
+
+static int manage_resource(mbedtls_ssl_context *ssl, bool add, int prev_state)
+{
+    int state = add ? ssl->MBEDTLS_PRIVATE(state) : prev_state;
+
+    if (ssl->MBEDTLS_PRIVATE(state) == MBEDTLS_SSL_HANDSHAKE_OVER ||
+        ssl->MBEDTLS_PRIVATE(handshake) == NULL) {
         return 0;
     }
 
     if (!add) {
-        if (!ssl->out_left) {
+        if (!ssl->MBEDTLS_PRIVATE(out_left)) {
             CHECK_OK(esp_mbedtls_free_tx_buffer(ssl));
         }
     }
 
     switch (state) {
         case MBEDTLS_SSL_HELLO_REQUEST:
-            ssl->major_ver = MBEDTLS_SSL_MAJOR_VERSION_3;
             break;
         case MBEDTLS_SSL_CLIENT_HELLO:
             if (add) {
@@ -57,7 +70,9 @@ static int manage_resource(mbedtls_ssl_context *ssl, bool add)
         case MBEDTLS_SSL_SERVER_CERTIFICATE:
             if (add) {
                 size_t buffer_len = 3;
-                mbedtls_ssl_key_cert *key_cert = ssl->conf->key_cert;
+
+                const mbedtls_ssl_config *conf = mbedtls_ssl_context_get_config(ssl);
+                mbedtls_ssl_key_cert *key_cert = conf->MBEDTLS_PRIVATE(key_cert);
 
                 while (key_cert && key_cert->cert) {
                     size_t num;
@@ -73,7 +88,13 @@ static int manage_resource(mbedtls_ssl_context *ssl, bool add)
                 CHECK_OK(esp_mbedtls_add_tx_buffer(ssl, buffer_len));
             } else {
 #ifdef CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA
-                esp_mbedtls_free_keycert_cert(ssl);
+                /**
+                 * Not free keycert->cert until MBEDTLS_SSL_CLIENT_KEY_EXCHANGE for rsa key exchange methods.
+                 * For ssl server will use keycert->cert to parse client key exchange.
+                 */
+                if (!ssl_ciphersuite_uses_rsa_key_ex(ssl)) {
+                    esp_mbedtls_free_keycert_cert(ssl);
+                }
 #endif
             }
             break;
@@ -84,9 +105,14 @@ static int manage_resource(mbedtls_ssl_context *ssl, bool add)
                 CHECK_OK(esp_mbedtls_add_tx_buffer(ssl, buffer_len));
             } else {
 #ifdef CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA
-                esp_mbedtls_free_dhm(ssl);
-                esp_mbedtls_free_keycert_key(ssl);
-                esp_mbedtls_free_keycert(ssl);
+                /**
+                 * Not free keycert->key and keycert until MBEDTLS_SSL_CLIENT_KEY_EXCHANGE for rsa key exchange methods.
+                 * For ssl server will use keycert->key to parse client key exchange.
+                 */
+                if (!ssl_ciphersuite_uses_rsa_key_ex(ssl)) {
+                    esp_mbedtls_free_keycert_key(ssl);
+                    esp_mbedtls_free_keycert(ssl);
+                }
 #endif
             }
             break;
@@ -112,7 +138,7 @@ static int manage_resource(mbedtls_ssl_context *ssl, bool add)
             } else {
                 CHECK_OK(esp_mbedtls_free_rx_buffer(ssl));
 
-#ifdef CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA
+#ifdef CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT
                 esp_mbedtls_free_cacert(ssl);
 #endif
             }
@@ -122,9 +148,33 @@ static int manage_resource(mbedtls_ssl_context *ssl, bool add)
                 CHECK_OK(esp_mbedtls_add_rx_buffer(ssl));
             } else {
                 CHECK_OK(esp_mbedtls_free_rx_buffer(ssl));
+
+#ifdef CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA
+                /**
+                 * Free keycert after MBEDTLS_SSL_CLIENT_KEY_EXCHANGE for rsa key exchange methods.
+                 * For ssl server will use keycert->cert and keycert->key to parse client key exchange.
+                 */
+                if (ssl_ciphersuite_uses_rsa_key_ex(ssl)) {
+                    esp_mbedtls_free_keycert_cert(ssl);
+                    esp_mbedtls_free_keycert_key(ssl);
+                    esp_mbedtls_free_keycert(ssl);
+                }
+#endif
             }
             break;
         case MBEDTLS_SSL_CERTIFICATE_VERIFY:
+#if defined(MBEDTLS_SSL_PROTO_TLS1_3)
+            /* In TLS 1.3 server flow, CERTIFICATE_VERIFY is the server's own
+             * CertificateVerify (outgoing). In TLS 1.2 it is the client's
+             * CertificateVerify (incoming). The constant is shared but the
+             * direction is reversed, so the required buffer differs. */
+            if (ssl->MBEDTLS_PRIVATE(tls_version) == MBEDTLS_SSL_VERSION_TLS1_3) {
+                if (add) {
+                    CHECK_OK(esp_mbedtls_add_tx_buffer(ssl, MBEDTLS_SSL_OUT_BUFFER_LEN));
+                }
+                break;
+            }
+#endif /* MBEDTLS_SSL_PROTO_TLS1_3 */
             if (add) {
                 CHECK_OK(esp_mbedtls_add_rx_buffer(ssl));
             } else {
@@ -136,10 +186,6 @@ static int manage_resource(mbedtls_ssl_context *ssl, bool add)
                 CHECK_OK(esp_mbedtls_add_rx_buffer(ssl));
             } else {
                 CHECK_OK(esp_mbedtls_free_rx_buffer(ssl));
-
-#ifdef CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT
-                esp_mbedtls_free_peer_cert(ssl);
-#endif
             }
             break;
         case MBEDTLS_SSL_CLIENT_FINISHED:
@@ -169,6 +215,30 @@ static int manage_resource(mbedtls_ssl_context *ssl, bool add)
             break;
         case MBEDTLS_SSL_HANDSHAKE_WRAPUP:
             break;
+#if defined(MBEDTLS_SSL_PROTO_TLS1_3)
+        /* TLS 1.3-only server outgoing states: ensure a TX buffer exists.
+         * The shared free-on-empty logic at the top handles teardown. */
+        case MBEDTLS_SSL_HELLO_RETRY_REQUEST:
+        case MBEDTLS_SSL_ENCRYPTED_EXTENSIONS:
+        case MBEDTLS_SSL_SERVER_CCS_AFTER_HELLO_RETRY_REQUEST:
+        case MBEDTLS_SSL_SERVER_CCS_AFTER_SERVER_HELLO:
+        case MBEDTLS_SSL_TLS1_3_NEW_SESSION_TICKET:
+            if (add) {
+                CHECK_OK(esp_mbedtls_add_tx_buffer(ssl, MBEDTLS_SSL_OUT_BUFFER_LEN));
+            }
+            break;
+        /* TLS 1.3-only server incoming states: allocate RX before, free after. */
+        case MBEDTLS_SSL_CLIENT_CERTIFICATE_VERIFY:
+        case MBEDTLS_SSL_END_OF_EARLY_DATA:
+            if (add) {
+                CHECK_OK(esp_mbedtls_add_rx_buffer(ssl));
+            } else {
+                CHECK_OK(esp_mbedtls_free_rx_buffer(ssl));
+            }
+            break;
+        case MBEDTLS_SSL_TLS1_3_NEW_SESSION_TICKET_FLUSH:
+            break;
+#endif /* MBEDTLS_SSL_PROTO_TLS1_3 */
         default:
             break;
     }
@@ -178,11 +248,24 @@ static int manage_resource(mbedtls_ssl_context *ssl, bool add)
 
 int __wrap_mbedtls_ssl_handshake_server_step(mbedtls_ssl_context *ssl)
 {
-    CHECK_OK(manage_resource(ssl, true));
+    int prev_state = ssl->MBEDTLS_PRIVATE(state);
+    CHECK_OK(manage_resource(ssl, true, prev_state));
 
     CHECK_OK(__real_mbedtls_ssl_handshake_server_step(ssl));
 
-    CHECK_OK(manage_resource(ssl, false));
+    CHECK_OK(manage_resource(ssl, false, prev_state));
+
+    return 0;
+}
+
+int __wrap_mbedtls_ssl_tls13_handshake_server_step(mbedtls_ssl_context *ssl)
+{
+    int prev_state = ssl->MBEDTLS_PRIVATE(state);
+    CHECK_OK(manage_resource(ssl, true, prev_state));
+
+    CHECK_OK(__real_mbedtls_ssl_tls13_handshake_server_step(ssl));
+
+    CHECK_OK(manage_resource(ssl, false, prev_state));
 
     return 0;
 }

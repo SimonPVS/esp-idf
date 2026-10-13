@@ -66,7 +66,6 @@ void BTA_GATTS_Disable(void)
         p_buf->event = BTA_GATTS_API_DISABLE_EVT;
         bta_sys_sendmsg(p_buf);
     }
-    bta_sys_deregister(BTA_ID_GATTS);
 
 }
 
@@ -93,6 +92,7 @@ void BTA_GATTS_AppRegister(const tBT_UUID * p_app_uuid, tBTA_GATTS_CBACK *p_cbac
     }
 
     if ((p_buf = (tBTA_GATTS_API_REG *) osi_malloc(sizeof(tBTA_GATTS_API_REG))) != NULL) {
+        memset(p_buf, 0, sizeof(*p_buf));
         p_buf->hdr.event    = BTA_GATTS_API_REG_EVT;
 
         if (p_app_uuid != NULL) {
@@ -223,6 +223,7 @@ void BTA_GATTS_AddCharacteristic (UINT16 service_id,  const tBT_UUID  * p_char_u
     UINT16 len = 0;
     if(attr_val != NULL){
         len = attr_val->attr_len;
+        APPL_TRACE_DEBUG("attr_val->attr_len = %x, attr_max_len = %x\n",attr_val->attr_len, attr_val->attr_max_len);
     }
     if ((p_buf = (tBTA_GATTS_API_ADD_CHAR *) osi_malloc(sizeof(tBTA_GATTS_API_ADD_CHAR))) != NULL) {
         memset(p_buf, 0, sizeof(tBTA_GATTS_API_ADD_CHAR));
@@ -234,14 +235,26 @@ void BTA_GATTS_AddCharacteristic (UINT16 service_id,  const tBT_UUID  * p_char_u
         if(control !=NULL){
             p_buf->control.auto_rsp = control->auto_rsp;
         }
+
         if(attr_val != NULL){
-            APPL_TRACE_DEBUG("!!!!!!attr_val->attr_len = %x\n",attr_val->attr_len);
-            APPL_TRACE_DEBUG("!!!!!!!attr_val->attr_max_len = %x\n",attr_val->attr_max_len);
-            p_buf->attr_val.attr_len = attr_val->attr_len;
             p_buf->attr_val.attr_max_len = attr_val->attr_max_len;
-            p_buf->attr_val.attr_val = (uint8_t *)osi_malloc(len);
-            if(p_buf->attr_val.attr_val != NULL){
-                memcpy(p_buf->attr_val.attr_val, attr_val->attr_val, attr_val->attr_len);
+            if (attr_val->attr_max_len == 0) {
+                p_buf->attr_val.attr_len = 0;
+                if (len != 0) {
+                    APPL_TRACE_WARNING("%s: max_len 0, drop len %u", __func__, len);
+                }
+            } else {
+                p_buf->attr_val.attr_len = attr_val->attr_len;
+                if(len != 0){
+                    p_buf->attr_val.attr_val = (uint8_t *)osi_malloc(len);
+                    if(p_buf->attr_val.attr_val != NULL){
+                        memcpy(p_buf->attr_val.attr_val, attr_val->attr_val, len);
+                    } else {
+                        p_buf->attr_val.attr_len = 0;
+                        p_buf->attr_val.attr_max_len = 0;
+                        APPL_TRACE_ERROR("alloc fail %s", __func__);
+                    }
+                }
             }
         }
 
@@ -293,17 +306,27 @@ void BTA_GATTS_AddCharDescriptor (UINT16 service_id,
         }
 
         if(attr_val != NULL){
-            p_buf->attr_val.attr_len = attr_val->attr_len;
             p_buf->attr_val.attr_max_len = attr_val->attr_max_len;
-            value_len =  attr_val->attr_len;
-            if (value_len != 0){
-                p_buf->attr_val.attr_val = (uint8_t*)osi_malloc(value_len);
-                if(p_buf->attr_val.attr_val != NULL){
-                    memcpy(p_buf->attr_val.attr_val, attr_val->attr_val, value_len);
+            if (attr_val->attr_max_len == 0) {
+                p_buf->attr_val.attr_len = 0;
+                value_len = attr_val->attr_len;
+                if (value_len != 0) {
+                    APPL_TRACE_WARNING("%s: max_len 0, drop len %u", __func__, value_len);
                 }
-                else{
-                    APPL_TRACE_ERROR("Allocate fail for %s\n", __func__);
+            } else {
+                p_buf->attr_val.attr_len = attr_val->attr_len;
+                value_len =  attr_val->attr_len;
+                if (value_len != 0){
+                    p_buf->attr_val.attr_val = (uint8_t*)osi_malloc(value_len);
+                    if(p_buf->attr_val.attr_val != NULL){
+                        memcpy(p_buf->attr_val.attr_val, attr_val->attr_val, value_len);
+                    }
+                    else{
+                        p_buf->attr_val.attr_len = 0;
+                        p_buf->attr_val.attr_max_len = 0;
+                        APPL_TRACE_ERROR("alloc fail %s", __func__);
 
+                    }
                 }
             }
         }
@@ -411,6 +434,14 @@ void BTA_GATTS_StopService(UINT16 service_id)
 void BTA_GATTS_HandleValueIndication (UINT16 conn_id, UINT16 attr_id, UINT16 data_len,
                                       UINT8 *p_data, BOOLEAN need_confirm)
 {
+
+    /* Validate data length against buffer size */
+    if (data_len > BTA_GATT_MAX_ATTR_LEN) {
+        APPL_TRACE_ERROR("GATT indication data too large: %u > %u",
+                    data_len, BTA_GATT_MAX_ATTR_LEN);
+        return;
+    }
+
     tBTA_GATTS_API_INDICATION  *p_buf;
     UINT16  len = sizeof(tBTA_GATTS_API_INDICATION);
 
@@ -485,10 +516,15 @@ void BTA_SetAttributeValue(UINT16 attr_handle, UINT16 length, UINT8 *value)
         memset(p_buf, 0, len);
         p_buf->hdr.event = BTA_GATTS_API_SET_ATTR_VAL_EVT;
         p_buf->hdr.layer_specific = attr_handle;
-        p_buf->length = length;
-        if(value != NULL){
+        if (value == NULL) {
+            p_buf->length = 0;
+        } else {
+            p_buf->length = length;
             if((p_buf->value = (UINT8 *)osi_malloc(length)) != NULL){
                 memcpy(p_buf->value, value, length);
+            } else {
+                p_buf->length = 0;
+                APPL_TRACE_ERROR("Allocate fail for %s\n", __func__);
             }
         }
 
@@ -596,48 +632,48 @@ void BTA_GATTS_SendServiceChangeIndication(tBTA_GATTS_IF server_if, BD_ADDR remo
         p_buf->hdr.event = BTA_GATTS_API_SEND_SERVICE_CHANGE_EVT;
         p_buf->server_if = server_if;
         memcpy(p_buf->remote_bda, remote_bda, BD_ADDR_LEN);
-        
+
         bta_sys_sendmsg(p_buf);
     }
     return;
 
 }
 
-/*******************************************************************************
-**
-** Function         BTA_GATTS_Listen
-**
-** Description      Start advertisement to listen for connection request for a
-**                  GATT server
-**
-** Parameters       server_if: server interface.
-**                  start: to start or stop listening for connection
-**                  remote_bda: remote device BD address, if listen to all device
-**                              use NULL.
-**
-** Returns          void
-**
-*******************************************************************************/
-void BTA_GATTS_Listen(tBTA_GATTS_IF server_if, BOOLEAN start, BD_ADDR_PTR target_bda)
+uint8_t BTA_GATTS_SetServiceChangeMode(uint8_t mode)
 {
-    tBTA_GATTS_API_LISTEN  *p_buf;
+    tGATT_STATUS status;
+    APPL_TRACE_DEBUG("%s mode %u", __func__, mode);
 
-    if ((p_buf = (tBTA_GATTS_API_LISTEN *) osi_malloc((UINT16)(sizeof(tBTA_GATTS_API_LISTEN) + BD_ADDR_LEN))) != NULL) {
-        p_buf->hdr.event = BTA_GATTS_API_LISTEN_EVT;
-
-        p_buf->server_if    = server_if;
-        p_buf->start        = start;
-
-        if (target_bda) {
-            p_buf->remote_bda = (UINT8 *)(p_buf + 1);
-            memcpy(p_buf->remote_bda, target_bda, BD_ADDR_LEN);
-        } else {
-            p_buf->remote_bda = NULL;
-        }
-
-        bta_sys_sendmsg(p_buf);
+    status = GATTS_SetServiceChangeMode(mode);
+    if (status != GATT_SUCCESS) {
+        APPL_TRACE_ERROR("%s status %x", __func__, status);
+        return -1;
     }
-    return;
+
+    return 0;
 }
 
+uint8_t BTA_GATTS_SendMultiNotification(uint8_t gatt_if, uint16_t conn_id, void *tuples, uint16_t num_tuples)
+{
+    tGATT_STATUS status;
+    conn_id = (UINT16)((((UINT8)conn_id) << 8) | gatt_if);
+
+    status = GATTS_HandleMultiValueNotification(conn_id, (tGATT_HLV *)tuples, num_tuples);
+    if (status != GATT_SUCCESS) {
+        APPL_TRACE_ERROR("%s status %x", __func__, status);
+        return -1;
+    }
+
+    return 0;
+}
+
+void BTA_GATTS_ShowLocalDatabase(void)
+{
+    BT_HDR  *p_buf;
+
+    if ((p_buf = (BT_HDR *) osi_malloc(sizeof(BT_HDR))) != NULL) {
+        p_buf->event = BTA_GATTS_API_SHOW_LOCAL_DATABASE_EVT;
+        bta_sys_sendmsg(p_buf);
+    }
+}
 #endif /* BTA_GATT_INCLUDED */

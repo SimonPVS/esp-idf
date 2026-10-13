@@ -28,7 +28,6 @@
 
 #include "common/bt_target.h"
 #include "osi/allocator.h"
-#include "stack/l2cdefs.h"
 #include "stack/hcidefs.h"
 #include "stack/hcimsgs.h"
 
@@ -71,6 +70,59 @@ static void sdp_disconnect_cfm (UINT16 l2cap_cid, UINT16 result);
 #define sdp_disconnect_cfm  NULL
 #endif
 
+#if BT_SDP_BQB_INCLUDED
+static BOOLEAN s_sdp_bqb_disable_flag = FALSE;
+static BOOLEAN s_sdp_bqb_inact_timeout_flag = FALSE;
+BOOLEAN l2cap_bqb_ertm_mode_included_flag = FALSE;
+#endif /* BT_SDP_BQB_INCLUDED */
+
+/*******************************************************************************
+**
+** Function     sdp_bqb_disable_ctrl
+**
+** Description  Control the disable of bqb for SDP BQB test
+**
+** Returns      void
+**
+*******************************************************************************/
+#if BT_SDP_BQB_INCLUDED
+void sdp_bqb_disable_ctrl(BOOLEAN enable)
+{
+    s_sdp_bqb_disable_flag = enable;
+}
+#endif /* BT_SDP_BQB_INCLUDED */
+
+/*******************************************************************************
+**
+** Function     sdp_bqb_inact_timeout_ctrl
+**
+** Description  Control the inactivity timeout for SDP BQB test
+**
+** Returns      void
+**
+*******************************************************************************/
+#if BT_SDP_BQB_INCLUDED
+void sdp_bqb_inact_timeout_ctrl(BOOLEAN enable)
+{
+    s_sdp_bqb_inact_timeout_flag = enable;
+}
+#endif /* BT_SDP_BQB_INCLUDED */
+
+/*******************************************************************************
+**
+** Function     l2cap_bqb_ertm_mode_included_ctrl
+**
+** Description  Control the L2CAP flow control and retransmissions mode for SDP BQB test
+**
+** Returns      void
+**
+*******************************************************************************/
+#if BT_SDP_BQB_INCLUDED
+void l2cap_bqb_ertm_mode_included_ctrl(BOOLEAN enable)
+{
+    l2cap_bqb_ertm_mode_included_flag = enable;
+}
+#endif /* BT_SDP_BQB_INCLUDED */
 
 /*******************************************************************************
 **
@@ -85,6 +137,10 @@ void sdp_init (void)
 {
 #if SDP_DYNAMIC_MEMORY
     sdp_cb_ptr = (tSDP_CB *)osi_malloc(sizeof(tSDP_CB));
+    if (!sdp_cb_ptr) {
+        ESP_LOGE("BT_SDP", "SDP control block malloc failed\n");
+        return;
+    }
 #endif /* #if SDP_DYNAMIC_MEMORY */
     /* Clears all structures and local SDP database (if Server is enabled) */
     memset (&sdp_cb, 0, sizeof (tSDP_CB));
@@ -95,7 +151,17 @@ void sdp_init (void)
     sdp_cb.l2cap_my_cfg.mtu               = SDP_MTU_SIZE;
     sdp_cb.l2cap_my_cfg.flush_to_present  = TRUE;
     sdp_cb.l2cap_my_cfg.flush_to          = SDP_FLUSH_TO;
-
+#if BT_SDP_BQB_INCLUDED
+    if (l2cap_bqb_ertm_mode_included_flag) {
+        sdp_cb.l2cap_my_cfg.fcr_present         = TRUE;
+        sdp_cb.l2cap_my_cfg.fcr.mode            = L2CAP_FCR_ERTM_MODE;
+        sdp_cb.l2cap_my_cfg.fcr.tx_win_sz       = 8;
+        sdp_cb.l2cap_my_cfg.fcr.max_transmit    = 0xff;
+        sdp_cb.l2cap_my_cfg.fcr.rtrans_tout     = 2000;
+        sdp_cb.l2cap_my_cfg.fcr.mon_tout        = 12000;
+        sdp_cb.l2cap_my_cfg.fcr.mps             = 672;
+    }
+#endif /* BT_SDP_BQB_INCLUDED */
     sdp_cb.max_attr_list_size             = SDP_MTU_SIZE - 16;
     sdp_cb.max_recs_per_search            = SDP_MAX_DISC_SERVER_RECS;
 
@@ -143,10 +209,14 @@ void sdp_init (void)
 
 void sdp_deinit (void)
 {
+#if SDP_DYNAMIC_MEMORY == FALSE
     list_free(sdp_cb.server_db.p_record_list);
-#if SDP_DYNAMIC_MEMORY
-    osi_free(sdp_cb_ptr);
-    sdp_cb_ptr = NULL;
+#else
+    if (sdp_cb_ptr) {
+        list_free(sdp_cb_ptr->server_db.p_record_list);
+        osi_free(sdp_cb_ptr);
+        sdp_cb_ptr = NULL;
+    }
 #endif /* #if SDP_DYNAMIC_MEMORY */
 }
 
@@ -340,7 +410,7 @@ static void sdp_config_ind (UINT16 l2cap_cid, tL2CAP_CFG_INFO *p_cfg)
     p_cfg->mtu_present      = FALSE;
     p_cfg->result           = L2CAP_CFG_OK;
 
-    /* Check peer config request against our rfcomm configuration */
+    /* Check peer config request against our sdp configuration */
     if (p_cfg->fcr_present) {
         /* Reject the window size if it is bigger than we want it to be */
         if (p_cfg->fcr.mode != L2CAP_FCR_BASIC_MODE) {
@@ -424,7 +494,15 @@ static void sdp_config_cfm (UINT16 l2cap_cid, tL2CAP_CFG_INFO *p_cfg)
             } else
                 /* Start inactivity timer */
             {
-                btu_start_timer (&p_ccb->timer_entry, BTU_TTYPE_SDP, SDP_INACT_TIMEOUT);
+#if BT_SDP_BQB_INCLUDED
+                /* Change the timeout from 30s to 90s for BQB test */
+                if (s_sdp_bqb_inact_timeout_flag) {
+                    btu_start_timer(&p_ccb->timer_entry, BTU_TTYPE_SDP, SDP_BQB_INACT_TIMEOUT);
+                } else
+#endif /* BT_SDP_BQB_INCLUDED */
+                {
+                    btu_start_timer(&p_ccb->timer_entry, BTU_TTYPE_SDP, SDP_INACT_TIMEOUT);
+                }
             }
         }
     } else {
@@ -505,10 +583,17 @@ static void sdp_data_ind (UINT16 l2cap_cid, BT_HDR *p_msg)
     /* Find CCB based on CID */
     if ((p_ccb = sdpu_find_ccb_by_cid (l2cap_cid)) != NULL) {
         if (p_ccb->con_state == SDP_STATE_CONNECTED) {
-            if (p_ccb->con_flags & SDP_FLAGS_IS_ORIG) {
-                sdp_disc_server_rsp (p_ccb, p_msg);
-            } else {
-                sdp_server_handle_client_req (p_ccb, p_msg);
+#if BT_SDP_BQB_INCLUDED
+            /* Skip the following code in BQB test when the flag is true, since the PDU is reserved and
+               function sdp_server_handle_client_req will return error (sdpu_build_n_send_error) */
+            if (!s_sdp_bqb_disable_flag)
+#endif /* BT_SDP_BQB_INCLUDED */
+            {
+                if (p_ccb->con_flags & SDP_FLAGS_IS_ORIG) {
+                    sdp_disc_server_rsp(p_ccb, p_msg);
+                } else {
+                    sdp_server_handle_client_req(p_ccb, p_msg);
+                }
             }
         } else {
             SDP_TRACE_WARNING ("SDP - Ignored L2CAP data while in state: %d, CID: 0x%x\n",
@@ -706,6 +791,3 @@ void sdp_conn_timeout (tCONN_CB *p_ccb)
 }
 
 #endif  ///SDP_INCLUDED == TRUE
-
-
-
